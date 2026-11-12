@@ -148,298 +148,440 @@ class ForecastEngine:
         scenarios: List[ForecastScenario] = []
         structural_target = None
 
-        # Check if an active pattern has a defined target and is strictly CONFIRMED
-        if patterns and patterns.patterns:
-            for p in patterns.patterns:
-                # Wajib status CONFIRMED! Jika pola masih FORMING, belum boleh ada setup posisi!
-                if p.status == "CONFIRMED" and p.target_price and p.stop_loss:
-                    structural_target = p.target_price
-                    weight = 75.0 if (confluence_score >= 50 and p.type == "BULLISH") or (confluence_score < 50 and p.type == "BEARISH") else 45.0
-                    denom = max(current_price * 0.001, abs(current_price - p.stop_loss))
-                    rr = abs(p.target_price - current_price) / denom
-                    p_dir = "LONG" if p.type == "BULLISH" else "SHORT"
-                    p_valid = rr >= 1.5 and ((p_dir == "LONG" and confluence_score >= 50) or (p_dir == "SHORT" and confluence_score <= 50))
-
-                    path = [
-                        {"time": last_time, "price": current_price},
-                        {"time": last_time + int(horizon * 0.4 * time_step), "price": dynamic_round((current_price + p.target_price) / 2)},
-                        {"time": last_time + (horizon * time_step), "price": p.target_price}
-                    ]
-
-                    scenarios.append(ForecastScenario(
-                        name=f"A+ Setup: Breakout {p.name}",
-                        direction=p_dir,
-                        entry_price=current_price,
-                        entry_time=last_time,
-                        entry_zone_high=dynamic_round(current_price + (atr * 0.2)),
-                        entry_zone_low=dynamic_round(current_price - (atr * 0.2)),
-                        is_valid=p_valid,
-                        status="VALID_ENTRY" if p_valid else ("PENDING_CONFLUENCE" if rr >= 1.5 else "LOW_RR"),
-                        confluence_weight=round(weight, 1),
-                        probability=None,
-                        target_price=p.target_price,
-                        invalidation_price=p.stop_loss,
-                        risk_reward_ratio=round(rr, 2),
-                        path=path
-                    ))
-                    break
-
-        # Check recent 3 candles for an active Key Level Trigger (OB, FVG, or Sweep)
-        recent_candles = candles[-3:] if len(candles) >= 3 else candles
-        recent_low = min(c.low for c in recent_candles)
-        recent_high = max(c.high for c in recent_candles)
-
-        bullish_trigger_reason = None
-        bullish_trigger_ob = None
-        if smc:
-            # 1. OB Tap: price dipped into unmitigated bullish OB
-            for ob in smc.order_blocks:
-                if ob.direction == "BULLISH" and not ob.mitigated:
-                    if recent_low <= (ob.top + atr * 0.15) and current_price >= (ob.bottom - atr * 0.15):
-                        bullish_trigger_reason = f"Mitigasi Demand OB ({ob.id})"
-                        bullish_trigger_ob = ob
-                        break
-            
-            # 2. FVG Tap
-            if not bullish_trigger_reason:
-                for fvg in smc.fvgs:
-                    if fvg.direction == "BULLISH" and fvg.status != "FILLED":
-                        if recent_low <= (fvg.top + atr * 0.15) and current_price >= (fvg.bottom - atr * 0.15):
-                            bullish_trigger_reason = f"Uji FVG Discount ({fvg.id})"
-                            break
-
-            # 3. Liquidity Sweep EQL (Turtle Soup)
-            if not bullish_trigger_reason:
-                for lp in smc.liquidity_pools:
-                    if lp.type == "EQL" and lp.swept and lp.sweep_time:
-                        if (last_time - lp.sweep_time) <= (4 * time_step) and current_price >= lp.price:
-                            bullish_trigger_reason = "Turtle Soup: Sapuan Likuiditas EQL"
-                            break
-        else:
-            # Unit test fallback
-            if confluence_score >= 65.0:
-                bullish_trigger_reason = "Momentum Trend Continuation"
-
-        bearish_trigger_reason = None
-        bearish_trigger_ob = None
-        if smc:
-            # 1. OB Tap: price rallied into unmitigated bearish OB
-            for ob in smc.order_blocks:
-                if ob.direction == "BEARISH" and not ob.mitigated:
-                    if recent_high >= (ob.bottom - atr * 0.15) and current_price <= (ob.top + atr * 0.15):
-                        bearish_trigger_reason = f"Mitigasi Supply OB ({ob.id})"
-                        bearish_trigger_ob = ob
-                        break
-
-            # 2. FVG Tap
-            if not bearish_trigger_reason:
-                for fvg in smc.fvgs:
-                    if fvg.direction == "BEARISH" and fvg.status != "FILLED":
-                        if recent_high >= (fvg.bottom - atr * 0.15) and current_price <= (fvg.top + atr * 0.15):
-                            bearish_trigger_reason = f"Uji FVG Premium ({fvg.id})"
-                            break
-
-            # 3. Liquidity Sweep EQH (Turtle Soup)
-            if not bearish_trigger_reason:
-                for lp in smc.liquidity_pools:
-                    if lp.type == "EQH" and lp.swept and lp.sweep_time:
-                        if (last_time - lp.sweep_time) <= (4 * time_step) and current_price <= lp.price:
-                            bearish_trigger_reason = "Turtle Soup: Sapuan Likuiditas EQH"
-                            break
-        else:
-            # Unit test fallback
-            if confluence_score <= 35.0:
-                bearish_trigger_reason = "Momentum Breakdown Continuation"
-
         # Determine Market Structure & Trend Bias
         current_trend = smc.current_trend if smc else ("BULLISH" if confluence_score >= 50 else "BEARISH")
         last_event = smc.events[-1] if (smc and smc.events) else None
         is_bearish_bos = bool(last_event and last_event.type == "BOS" and last_event.direction == "BEARISH")
         is_bullish_bos = bool(last_event and last_event.type == "BOS" and last_event.direction == "BULLISH")
 
-        # 1. Bullish SL: TIGHT SMC SL based on immediate local support / order block
-        bullish_sl = dynamic_round(current_price - (atr * 1.5))
-        bullish_entry_high = dynamic_round(current_price + (atr * 0.1))
-        bullish_entry_low = dynamic_round(current_price - (atr * 0.25))
+        # -------------------------------------------------------------
+        # STATE-AWARE SETUP TRACKER:
+        # Cari setup aktif yang sedang berjalan di market (in-flight setup).
+        # Aturan trader mutlak: Setup yang sudah aktif TIDAK BOLEH BERGANTI
+        # sampai harga menyentuh Stop Loss (Terinvalidasi) atau Take Profit.
+        # -------------------------------------------------------------
+        active_candidates: List[Dict[str, Any]] = []
+        lookback_candles = 40
+        lookback_start = max(0, len(candles) - lookback_candles)
 
-        if bullish_trigger_ob:
-            bullish_sl = dynamic_round(bullish_trigger_ob.bottom - (atr * 0.2))
-            bullish_entry_high = dynamic_round(bullish_trigger_ob.top)
-            bullish_entry_low = dynamic_round(bullish_trigger_ob.bottom)
-        elif smc:
-            nearby_bullish_obs = [ob for ob in smc.order_blocks if ob.direction == "BULLISH" and not ob.mitigated and (current_price - ob.top) <= (atr * 2.5) and ob.bottom < current_price]
-            if nearby_bullish_obs:
-                best_ob = max(nearby_bullish_obs, key=lambda x: x.top)
-                bullish_sl = dynamic_round(best_ob.bottom - (atr * 0.2))
-                bullish_entry_high = dynamic_round(best_ob.top)
-                bullish_entry_low = dynamic_round(best_ob.bottom)
-            else:
-                recent_lows = [s.price for s in smc.swings if s.type in ("L", "HL", "LL") and s.price < current_price and (current_price - s.price) <= (atr * 2.5)]
-                if recent_lows:
-                    bullish_sl = dynamic_round(recent_lows[-1] - (atr * 0.2))
+        # 1. Cek Pola Chart Terkonfirmasi (CONFIRMED)
+        if patterns and patterns.patterns:
+            for p in patterns.patterns:
+                if p.status == "CONFIRMED" and p.target_price and p.stop_loss:
+                    p_dir = "LONG" if p.type == "BULLISH" else "SHORT"
+                    if (p_dir == "LONG" and (is_bearish_bos or current_trend == "BEARISH")) or \
+                       (p_dir == "SHORT" and (is_bullish_bos or current_trend == "BULLISH")):
+                        continue
 
-        # 2. Bullish Target (TP): Target opposing liquidity pool at least 1.5x SL distance away
-        min_bullish_target_dist = abs(current_price - bullish_sl) * 1.5
-        bullish_target = None
-        if smc:
-            valid_bearish_obs = [ob.bottom for ob in smc.order_blocks if ob.direction == "BEARISH" and not ob.mitigated and (ob.bottom - current_price) >= min_bullish_target_dist]
-            if valid_bearish_obs:
-                bullish_target = min(valid_bearish_obs)
-            
-            valid_eqh = [lp.price for lp in smc.liquidity_pools if lp.type == "EQH" and (lp.price - current_price) >= min_bullish_target_dist]
-            if valid_eqh and (bullish_target is None or min(valid_eqh) < bullish_target):
-                bullish_target = min(valid_eqh)
+                    breakout_time = p.key_points[-1].time if p.key_points else last_time
+                    k_idx = next((i for i, c in enumerate(candles) if c.time >= breakout_time), len(candles) - 1)
+                    entry_p = dynamic_round(candles[k_idx].close)
+                    sl = dynamic_round(p.stop_loss)
+                    tp = dynamic_round(p.target_price)
+                    denom = max(entry_p * 0.001, abs(entry_p - sl))
+                    rr = round(abs(tp - entry_p) / denom, 2)
 
-        if bullish_target is None:
-            bullish_target = dynamic_round(current_price + max(atr * 3.0, abs(current_price - bullish_sl) * 2.0))
+                    if rr >= 1.5:
+                        sub_candles = candles[k_idx:]
+                        if p_dir == "LONG":
+                            sl_hit = any(c.low <= sl for c in sub_candles)
+                            tp_hit = any(c.high >= tp for c in sub_candles)
+                        else:
+                            sl_hit = any(c.high >= sl for c in sub_candles)
+                            tp_hit = any(c.low <= tp for c in sub_candles)
 
-        # 3. Bearish SL: TIGHT SMC SL based on immediate local resistance / order block
-        bearish_sl = dynamic_round(current_price + (atr * 1.5))
-        bearish_entry_high = dynamic_round(current_price + (atr * 0.25))
-        bearish_entry_low = dynamic_round(current_price - (atr * 0.1))
+                        if not sl_hit and not tp_hit:
+                            active_candidates.append({
+                                "direction": p_dir,
+                                "entry_time": candles[k_idx].time,
+                                "entry_price": entry_p,
+                                "entry_zone_high": dynamic_round(entry_p + (atr * 0.15)),
+                                "entry_zone_low": dynamic_round(entry_p - (atr * 0.15)),
+                                "sl": sl,
+                                "tp": tp,
+                                "rr": rr,
+                                "name": f"A+ Setup: Breakout {p.name}",
+                                "weight": 75.0
+                            })
 
-        if bearish_trigger_ob:
-            bearish_sl = dynamic_round(bearish_trigger_ob.top + (atr * 0.2))
-            bearish_entry_high = dynamic_round(bearish_trigger_ob.top)
-            bearish_entry_low = dynamic_round(bearish_trigger_ob.bottom)
-        elif smc:
-            nearby_bearish_obs = [ob for ob in smc.order_blocks if ob.direction == "BEARISH" and not ob.mitigated and (ob.bottom - current_price) <= (atr * 2.5) and ob.top > current_price]
-            if nearby_bearish_obs:
-                best_ob_b = min(nearby_bearish_obs, key=lambda x: x.bottom)
-                bearish_sl = dynamic_round(best_ob_b.top + (atr * 0.2))
-                bearish_entry_high = dynamic_round(best_ob_b.top)
-                bearish_entry_low = dynamic_round(best_ob_b.bottom)
-            else:
-                recent_highs = [s.price for s in smc.swings if s.type in ("H", "HH", "LH") and s.price > current_price and (s.price - current_price) <= (atr * 2.5)]
-                if recent_highs:
-                    bearish_sl = dynamic_round(recent_highs[-1] + (atr * 0.2))
+        # 2. Cek Order Block Mitigation (Demand & Supply)
+        if smc and smc.order_blocks:
+            for ob in smc.order_blocks:
+                if ob.direction == "BULLISH":
+                    if is_bearish_bos or current_trend == "BEARISH":
+                        continue
+                    tap_idx = None
+                    if ob.mitigated and ob.mitigated_time:
+                        tap_idx = next((i for i, c in enumerate(candles) if c.time == ob.mitigated_time), None)
+                    if tap_idx is None:
+                        for i in range(lookback_start, len(candles)):
+                            c = candles[i]
+                            if c.time > ob.start_time:
+                                if c.low <= (ob.top + atr * 0.15) and c.close >= (ob.bottom - atr * 0.15):
+                                    tap_idx = i
+                                    break
+                    if tap_idx is not None:
+                        entry_t = candles[tap_idx].time
+                        entry_p = dynamic_round(ob.top)
+                        sl = dynamic_round(ob.bottom - (atr * 0.2))
+                        min_dist = abs(entry_p - sl) * 1.5
+                        opposing = [o.bottom for o in smc.order_blocks if o.direction == "BEARISH" and (o.bottom - entry_p) >= min_dist]
+                        eqh = [lp.price for lp in smc.liquidity_pools if lp.type == "EQH" and (lp.price - entry_p) >= min_dist]
+                        cand_tp = opposing + eqh
+                        tp = min(cand_tp) if cand_tp else dynamic_round(entry_p + max(atr * 3.0, abs(entry_p - sl) * 2.0))
+                        denom = max(entry_p * 0.001, abs(entry_p - sl))
+                        rr = round(abs(tp - entry_p) / denom, 2)
 
-        # 4. Bearish Target (TP): Target opposing liquidity pool below at least 1.5x SL distance away
-        min_bearish_target_dist = abs(bearish_sl - current_price) * 1.5
-        bearish_target = None
-        if smc:
-            valid_bullish_obs = [ob.top for ob in smc.order_blocks if ob.direction == "BULLISH" and not ob.mitigated and (current_price - ob.top) >= min_bearish_target_dist]
-            if valid_bullish_obs:
-                bearish_target = max(valid_bullish_obs)
-            
-            valid_eql = [lp.price for lp in smc.liquidity_pools if lp.type == "EQL" and (current_price - lp.price) >= min_bearish_target_dist]
-            if valid_eql and (bearish_target is None or max(valid_eql) > bearish_target):
-                bearish_target = max(valid_eql)
+                        if rr >= 1.5:
+                            sub_candles = candles[tap_idx:]
+                            sl_hit = any(c.low <= sl for c in sub_candles)
+                            tp_hit = any(c.high >= tp for c in sub_candles)
+                            if not sl_hit and not tp_hit:
+                                active_candidates.append({
+                                    "direction": "LONG",
+                                    "entry_time": entry_t,
+                                    "entry_price": entry_p,
+                                    "entry_zone_high": dynamic_round(ob.top),
+                                    "entry_zone_low": dynamic_round(ob.bottom),
+                                    "sl": sl,
+                                    "tp": tp,
+                                    "rr": rr,
+                                    "name": f"A+ Setup: Mitigasi Demand OB ({ob.id})",
+                                    "weight": 70.0
+                                })
 
-        if bearish_target is None:
-            bearish_target = dynamic_round(current_price - max(atr * 3.0, abs(bearish_sl - current_price) * 2.0))
+                elif ob.direction == "BEARISH":
+                    if is_bullish_bos or current_trend == "BULLISH":
+                        continue
+                    tap_idx = None
+                    if ob.mitigated and ob.mitigated_time:
+                        tap_idx = next((i for i, c in enumerate(candles) if c.time == ob.mitigated_time), None)
+                    if tap_idx is None:
+                        for i in range(lookback_start, len(candles)):
+                            c = candles[i]
+                            if c.time > ob.start_time:
+                                if c.high >= (ob.bottom - atr * 0.15) and c.close <= (ob.top + atr * 0.15):
+                                    tap_idx = i
+                                    break
+                    if tap_idx is not None:
+                        entry_t = candles[tap_idx].time
+                        entry_p = dynamic_round(ob.bottom)
+                        sl = dynamic_round(ob.top + (atr * 0.2))
+                        min_dist = abs(sl - entry_p) * 1.5
+                        opposing = [o.top for o in smc.order_blocks if o.direction == "BULLISH" and (entry_p - o.top) >= min_dist]
+                        eql = [lp.price for lp in smc.liquidity_pools if lp.type == "EQL" and (entry_p - lp.price) >= min_dist]
+                        cand_tp = opposing + eql
+                        tp = max(cand_tp) if cand_tp else dynamic_round(entry_p - max(atr * 3.0, abs(sl - entry_p) * 2.0))
+                        denom = max(entry_p * 0.001, abs(sl - entry_p))
+                        rr = round(abs(entry_p - tp) / denom, 2)
 
-        if structural_target is None:
-            structural_target = bullish_target if confluence_score >= 50 else bearish_target
+                        if rr >= 1.5:
+                            sub_candles = candles[tap_idx:]
+                            sl_hit = any(c.high >= sl for c in sub_candles)
+                            tp_hit = any(c.low <= tp for c in sub_candles)
+                            if not sl_hit and not tp_hit:
+                                active_candidates.append({
+                                    "direction": "SHORT",
+                                    "entry_time": entry_t,
+                                    "entry_price": entry_p,
+                                    "entry_zone_high": dynamic_round(ob.top),
+                                    "entry_zone_low": dynamic_round(ob.bottom),
+                                    "sl": sl,
+                                    "tp": tp,
+                                    "rr": rr,
+                                    "name": f"A+ Setup: Mitigasi Supply OB ({ob.id})",
+                                    "weight": 70.0
+                                })
 
-        # Strict R:R calculation
-        denom_b = max(current_price * 0.001, abs(current_price - bullish_sl))
-        bullish_rr = abs(bullish_target - current_price) / denom_b
+        # 3. Cek Fair Value Gaps (FVG)
+        if smc and smc.fvgs:
+            for fvg in smc.fvgs:
+                if fvg.direction == "BULLISH":
+                    if is_bearish_bos or current_trend == "BEARISH":
+                        continue
+                    tap_idx = None
+                    for i in range(lookback_start, len(candles)):
+                        c = candles[i]
+                        if c.time >= fvg.time:
+                            if c.low <= (fvg.top + atr * 0.15) and c.close >= (fvg.bottom - atr * 0.15):
+                                tap_idx = i
+                                break
+                    if tap_idx is not None:
+                        entry_t = candles[tap_idx].time
+                        entry_p = dynamic_round(fvg.top)
+                        sl = dynamic_round(fvg.bottom - (atr * 0.25))
+                        min_dist = abs(entry_p - sl) * 1.5
+                        opposing = [o.bottom for o in smc.order_blocks if o.direction == "BEARISH" and (o.bottom - entry_p) >= min_dist]
+                        eqh = [lp.price for lp in smc.liquidity_pools if lp.type == "EQH" and (lp.price - entry_p) >= min_dist]
+                        cand_tp = opposing + eqh
+                        tp = min(cand_tp) if cand_tp else dynamic_round(entry_p + max(atr * 3.0, abs(entry_p - sl) * 2.0))
+                        denom = max(entry_p * 0.001, abs(entry_p - sl))
+                        rr = round(abs(tp - entry_p) / denom, 2)
 
-        denom_s = max(current_price * 0.001, abs(bearish_sl - current_price))
-        bearish_rr = abs(current_price - bearish_target) / denom_s
+                        if rr >= 1.5:
+                            sub_candles = candles[tap_idx:]
+                            sl_hit = any(c.low <= sl for c in sub_candles)
+                            tp_hit = any(c.high >= tp for c in sub_candles)
+                            if not sl_hit and not tp_hit:
+                                active_candidates.append({
+                                    "direction": "LONG",
+                                    "entry_time": entry_t,
+                                    "entry_price": entry_p,
+                                    "entry_zone_high": dynamic_round(fvg.top),
+                                    "entry_zone_low": dynamic_round(fvg.bottom),
+                                    "sl": sl,
+                                    "tp": tp,
+                                    "rr": rr,
+                                    "name": f"A+ Setup: Uji FVG Discount ({fvg.id})",
+                                    "weight": 65.0
+                                })
 
-        # Immediate Wall Check (No obstacle in front of trade)
-        has_immediate_bearish_wall = False
-        if smc:
-            immediate_walls = [ob.bottom for ob in smc.order_blocks if ob.direction == "BEARISH" and not ob.mitigated and 0 < (ob.bottom - current_price) < (abs(current_price - bullish_sl) * 1.2)]
-            if immediate_walls:
-                has_immediate_bearish_wall = True
+                elif fvg.direction == "BEARISH":
+                    if is_bullish_bos or current_trend == "BULLISH":
+                        continue
+                    tap_idx = None
+                    for i in range(lookback_start, len(candles)):
+                        c = candles[i]
+                        if c.time >= fvg.time:
+                            if c.high >= (fvg.bottom - atr * 0.15) and c.close <= (fvg.top + atr * 0.15):
+                                tap_idx = i
+                                break
+                    if tap_idx is not None:
+                        entry_t = candles[tap_idx].time
+                        entry_p = dynamic_round(fvg.bottom)
+                        sl = dynamic_round(fvg.top + (atr * 0.25))
+                        min_dist = abs(sl - entry_p) * 1.5
+                        opposing = [o.top for o in smc.order_blocks if o.direction == "BULLISH" and (entry_p - o.top) >= min_dist]
+                        eql = [lp.price for lp in smc.liquidity_pools if lp.type == "EQL" and (entry_p - lp.price) >= min_dist]
+                        cand_tp = opposing + eql
+                        tp = max(cand_tp) if cand_tp else dynamic_round(entry_p - max(atr * 3.0, abs(sl - entry_p) * 2.0))
+                        denom = max(entry_p * 0.001, abs(sl - entry_p))
+                        rr = round(abs(entry_p - tp) / denom, 2)
 
-        has_immediate_bullish_floor = False
-        if smc:
-            immediate_floors = [ob.top for ob in smc.order_blocks if ob.direction == "BULLISH" and not ob.mitigated and 0 < (current_price - ob.top) < (abs(bearish_sl - current_price) * 1.2)]
-            if immediate_floors:
-                has_immediate_bullish_floor = True
+                        if rr >= 1.5:
+                            sub_candles = candles[tap_idx:]
+                            sl_hit = any(c.high >= sl for c in sub_candles)
+                            tp_hit = any(c.low <= tp for c in sub_candles)
+                            if not sl_hit and not tp_hit:
+                                active_candidates.append({
+                                    "direction": "SHORT",
+                                    "entry_time": entry_t,
+                                    "entry_price": entry_p,
+                                    "entry_zone_high": dynamic_round(fvg.top),
+                                    "entry_zone_low": dynamic_round(fvg.bottom),
+                                    "sl": sl,
+                                    "tp": tp,
+                                    "rr": rr,
+                                    "name": f"A+ Setup: Uji FVG Premium ({fvg.id})",
+                                    "weight": 65.0
+                                })
 
-        # STRICT VALIDITY: Wajib ada Trigger Masuk Pasar (OB/FVG/Sweep), R:R >= 1.5, dan searah tren!
-        bullish_is_valid = (
-            bool(bullish_trigger_reason) and
-            bullish_rr >= 1.5 and
-            confluence_score >= 52.0 and
-            not is_bearish_bos and
-            current_trend != "BEARISH" and
-            not has_immediate_bearish_wall
-        )
+        # 4. Cek Turtle Soup (Liquidity Sweep)
+        if smc and smc.liquidity_pools:
+            for lp in smc.liquidity_pools:
+                if lp.swept and lp.sweep_time:
+                    sweep_idx = next((i for i, c in enumerate(candles) if c.time >= lp.sweep_time), None)
+                    if sweep_idx is not None and (len(candles) - 1 - sweep_idx) <= 25:
+                        if lp.type == "EQL":
+                            if is_bearish_bos or current_trend == "BEARISH":
+                                continue
+                            entry_t = candles[sweep_idx].time
+                            entry_p = dynamic_round(lp.price)
+                            sl = dynamic_round(min(c.low for c in candles[sweep_idx:]) - (atr * 0.2))
+                            tp = dynamic_round(entry_p + max(atr * 3.0, abs(entry_p - sl) * 2.0))
+                            denom = max(entry_p * 0.001, abs(entry_p - sl))
+                            rr = round(abs(tp - entry_p) / denom, 2)
+                            if rr >= 1.5:
+                                sub_candles = candles[sweep_idx:]
+                                sl_hit = any(c.low <= sl for c in sub_candles)
+                                tp_hit = any(c.high >= tp for c in sub_candles)
+                                if not sl_hit and not tp_hit:
+                                    active_candidates.append({
+                                        "direction": "LONG",
+                                        "entry_time": entry_t,
+                                        "entry_price": entry_p,
+                                        "entry_zone_high": dynamic_round(entry_p + (atr * 0.1)),
+                                        "entry_zone_low": dynamic_round(entry_p - (atr * 0.1)),
+                                        "sl": sl,
+                                        "tp": tp,
+                                        "rr": rr,
+                                        "name": "A+ Setup: Turtle Soup (Sapuan Likuiditas EQL)",
+                                        "weight": 65.0
+                                    })
+                        elif lp.type == "EQH":
+                            if is_bullish_bos or current_trend == "BULLISH":
+                                continue
+                            entry_t = candles[sweep_idx].time
+                            entry_p = dynamic_round(lp.price)
+                            sl = dynamic_round(max(c.high for c in candles[sweep_idx:]) + (atr * 0.2))
+                            tp = dynamic_round(entry_p - max(atr * 3.0, abs(sl - entry_p) * 2.0))
+                            denom = max(entry_p * 0.001, abs(sl - entry_p))
+                            rr = round(abs(entry_p - tp) / denom, 2)
+                            if rr >= 1.5:
+                                sub_candles = candles[sweep_idx:]
+                                sl_hit = any(c.high >= sl for c in sub_candles)
+                                tp_hit = any(c.low <= tp for c in sub_candles)
+                                if not sl_hit and not tp_hit:
+                                    active_candidates.append({
+                                        "direction": "SHORT",
+                                        "entry_time": entry_t,
+                                        "entry_price": entry_p,
+                                        "entry_zone_high": dynamic_round(entry_p + (atr * 0.1)),
+                                        "entry_zone_low": dynamic_round(entry_p - (atr * 0.1)),
+                                        "sl": sl,
+                                        "tp": tp,
+                                        "rr": rr,
+                                        "name": "A+ Setup: Turtle Soup (Sapuan Likuiditas EQH)",
+                                        "weight": 65.0
+                                    })
 
-        bullish_status = "VALID_ENTRY" if bullish_is_valid else (
-            "COUNTER_TREND" if (is_bearish_bos or current_trend == "BEARISH") else (
-                "NO_TRIGGER" if not bullish_trigger_reason else (
-                    "LOW_RR" if bullish_rr < 1.5 else (
-                        "IMMEDIATE_RESISTANCE" if has_immediate_bearish_wall else "PENDING_CONFLUENCE"
-                    )
-                )
-            )
-        )
+        # Urutkan berdasarkan entry_time paling baru (setup teranyar yang sedang aktif)
+        active_candidates.sort(key=lambda x: x["entry_time"], reverse=True)
+        active_setup = active_candidates[0] if active_candidates else None
 
-        bearish_is_valid = (
-            bool(bearish_trigger_reason) and
-            bearish_rr >= 1.5 and
-            confluence_score <= 48.0 and
-            not is_bullish_bos and
-            current_trend != "BULLISH" and
-            not has_immediate_bullish_floor
-        )
+        # Unit Test Fallback (ketika smc=None)
+        if smc is None and active_setup is None:
+            if confluence_score >= 65.0:
+                bull_sl = dynamic_round(current_price - (atr * 1.5))
+                bull_tp = dynamic_round(current_price + (atr * 3.5))
+                denom = max(current_price * 0.001, abs(current_price - bull_sl))
+                rr = round(abs(bull_tp - current_price) / denom, 2)
+                active_setup = {
+                    "direction": "LONG",
+                    "entry_time": last_time,
+                    "entry_price": current_price,
+                    "entry_zone_high": dynamic_round(current_price + (atr * 0.1)),
+                    "entry_zone_low": dynamic_round(current_price - (atr * 0.1)),
+                    "sl": bull_sl,
+                    "tp": bull_tp,
+                    "rr": rr,
+                    "name": "A+ Setup: Momentum Trend Continuation",
+                    "weight": confluence_score
+                }
+            elif confluence_score <= 35.0:
+                bear_sl = dynamic_round(current_price + (atr * 1.5))
+                bear_tp = dynamic_round(current_price - (atr * 3.5))
+                denom = max(current_price * 0.001, abs(bear_sl - current_price))
+                rr = round(abs(current_price - bear_tp) / denom, 2)
+                active_setup = {
+                    "direction": "SHORT",
+                    "entry_time": last_time,
+                    "entry_price": current_price,
+                    "entry_zone_high": dynamic_round(current_price + (atr * 0.1)),
+                    "entry_zone_low": dynamic_round(current_price - (atr * 0.1)),
+                    "sl": bear_sl,
+                    "tp": bear_tp,
+                    "rr": rr,
+                    "name": "A+ Setup: Momentum Breakdown Continuation",
+                    "weight": 100.0 - confluence_score
+                }
 
-        bearish_status = "VALID_ENTRY" if bearish_is_valid else (
-            "COUNTER_TREND" if (is_bullish_bos or current_trend == "BULLISH") else (
-                "NO_TRIGGER" if not bearish_trigger_reason else (
-                    "LOW_RR" if bearish_rr < 1.5 else (
-                        "IMMEDIATE_SUPPORT" if has_immediate_bullish_floor else "PENDING_CONFLUENCE"
-                    )
-                )
-            )
-        )
+        # -------------------------------------------------------------
+        # GENERATE FINAL SCENARIOS
+        # -------------------------------------------------------------
+        if active_setup:
+            structural_target = active_setup["tp"]
+            is_active_long = active_setup["direction"] == "LONG"
 
-        bullish_name = f"A+ Setup: {bullish_trigger_reason}" if bullish_is_valid else "Proyeksi Bullish (Menunggu Area Masuk)"
-        bearish_name = f"A+ Setup: {bearish_trigger_reason}" if bearish_is_valid else "Proyeksi Bearish (Menunggu Area Masuk)"
-
-        # Scenario A: Bullish Scenario
-        bullish_weight = max(20.0, min(80.0, confluence_score))
-        scenarios.append(ForecastScenario(
-            name=bullish_name,
-            direction="LONG",
-            entry_price=current_price,
-            entry_time=last_time,
-            entry_zone_high=bullish_entry_high,
-            entry_zone_low=bullish_entry_low,
-            is_valid=bullish_is_valid,
-            status=bullish_status,
-            confluence_weight=round(bullish_weight, 1),
-            probability=None,
-            target_price=bullish_target,
-            invalidation_price=dynamic_round(bullish_sl),
-            risk_reward_ratio=round(bullish_rr, 2),
-            path=[
+            active_path = [
+                {"time": active_setup["entry_time"], "price": active_setup["entry_price"]},
                 {"time": last_time, "price": current_price},
-                {"time": last_time + int(horizon * 0.3 * time_step), "price": dynamic_round(current_price - (atr * 0.4))},
-                {"time": last_time + int(horizon * 0.7 * time_step), "price": dynamic_round(current_price + (bullish_target - current_price) * 0.6)},
-                {"time": last_time + (horizon * time_step), "price": bullish_target}
+                {"time": last_time + int(horizon * 0.5 * time_step), "price": dynamic_round((current_price + active_setup["tp"]) / 2)},
+                {"time": last_time + (horizon * time_step), "price": active_setup["tp"]}
             ]
-        ))
 
-        # Scenario B: Bearish Scenario
-        bearish_weight = round(100.0 - bullish_weight, 1)
-        scenarios.append(ForecastScenario(
-            name=bearish_name,
-            direction="SHORT",
-            entry_price=current_price,
-            entry_time=last_time,
-            entry_zone_high=bearish_entry_high,
-            entry_zone_low=bearish_entry_low,
-            is_valid=bearish_is_valid,
-            status=bearish_status,
-            confluence_weight=bearish_weight,
-            probability=None,
-            target_price=bearish_target,
-            invalidation_price=dynamic_round(bearish_sl),
-            risk_reward_ratio=round(bearish_rr, 2),
-            path=[
-                {"time": last_time, "price": current_price},
-                {"time": last_time + int(horizon * 0.3 * time_step), "price": dynamic_round(current_price + (atr * 0.4))},
-                {"time": last_time + int(horizon * 0.7 * time_step), "price": dynamic_round(current_price - (current_price - bearish_target) * 0.6)},
-                {"time": last_time + (horizon * time_step), "price": bearish_target}
-            ]
-        ))
+            scenarios.append(ForecastScenario(
+                name=active_setup["name"],
+                direction=active_setup["direction"],
+                entry_price=active_setup["entry_price"],
+                entry_time=active_setup["entry_time"],
+                entry_zone_high=active_setup["entry_zone_high"],
+                entry_zone_low=active_setup["entry_zone_low"],
+                is_valid=True,
+                status="VALID_ENTRY",
+                confluence_weight=round(active_setup["weight"], 1),
+                probability=None,
+                target_price=active_setup["tp"],
+                invalidation_price=active_setup["sl"],
+                risk_reward_ratio=active_setup["rr"],
+                path=active_path
+            ))
+
+            # Tambahkan skenario berlawanan (berstatus non-valid / counter-trend)
+            opp_dir = "SHORT" if is_active_long else "LONG"
+            opp_sl = dynamic_round(current_price + (atr * 1.5)) if is_active_long else dynamic_round(current_price - (atr * 1.5))
+            opp_tp = dynamic_round(current_price - (atr * 3.0)) if is_active_long else dynamic_round(current_price + (atr * 3.0))
+            opp_status = "COUNTER_TREND" if ((is_active_long and current_trend == "BULLISH") or (not is_active_long and current_trend == "BEARISH")) else "NO_TRIGGER"
+            
+            scenarios.append(ForecastScenario(
+                name=f"Proyeksi {'Bearish' if is_active_long else 'Bullish'} (Menunggu Area Masuk)",
+                direction=opp_dir,
+                entry_price=current_price,
+                entry_time=last_time,
+                entry_zone_high=dynamic_round(current_price + (atr * 0.1)),
+                entry_zone_low=dynamic_round(current_price - (atr * 0.1)),
+                is_valid=False,
+                status=opp_status,
+                confluence_weight=round(100.0 - active_setup["weight"], 1),
+                probability=None,
+                target_price=opp_tp,
+                invalidation_price=opp_sl,
+                risk_reward_ratio=2.0,
+                path=[
+                    {"time": last_time, "price": current_price},
+                    {"time": last_time + (horizon * time_step), "price": opp_tp}
+                ]
+            ))
+
+        else:
+            # Tidak ada setup aktif dan harga tidak menyentuh level apa pun -> SEMUA NON-VALID
+            bull_status = "COUNTER_TREND" if (is_bearish_bos or current_trend == "BEARISH") else "NO_TRIGGER"
+            bear_status = "COUNTER_TREND" if (is_bullish_bos or current_trend == "BULLISH") else "NO_TRIGGER"
+
+            bull_sl = dynamic_round(current_price - (atr * 1.5))
+            bull_tp = dynamic_round(current_price + (atr * 3.0))
+            bear_sl = dynamic_round(current_price + (atr * 1.5))
+            bear_tp = dynamic_round(current_price - (atr * 3.0))
+            structural_target = bull_tp if confluence_score >= 50 else bear_tp
+
+            scenarios.append(ForecastScenario(
+                name="Proyeksi Bullish (Menunggu Area Masuk)",
+                direction="LONG",
+                entry_price=current_price,
+                entry_time=last_time,
+                entry_zone_high=dynamic_round(current_price + (atr * 0.1)),
+                entry_zone_low=dynamic_round(current_price - (atr * 0.1)),
+                is_valid=False,
+                status=bull_status,
+                confluence_weight=round(max(20.0, min(80.0, confluence_score)), 1),
+                probability=None,
+                target_price=bull_tp,
+                invalidation_price=bull_sl,
+                risk_reward_ratio=2.0,
+                path=[
+                    {"time": last_time, "price": current_price},
+                    {"time": last_time + (horizon * time_step), "price": bull_tp}
+                ]
+            ))
+
+            scenarios.append(ForecastScenario(
+                name="Proyeksi Bearish (Menunggu Area Masuk)",
+                direction="SHORT",
+                entry_price=current_price,
+                entry_time=last_time,
+                entry_zone_high=dynamic_round(current_price + (atr * 0.1)),
+                entry_zone_low=dynamic_round(current_price - (atr * 0.1)),
+                is_valid=False,
+                status=bear_status,
+                confluence_weight=round(100.0 - max(20.0, min(80.0, confluence_score)), 1),
+                probability=None,
+                target_price=bear_tp,
+                invalidation_price=bear_sl,
+                risk_reward_ratio=2.0,
+                path=[
+                    {"time": last_time, "price": current_price},
+                    {"time": last_time + (horizon * time_step), "price": bear_tp}
+                ]
+            ))
 
         return scenarios, structural_target

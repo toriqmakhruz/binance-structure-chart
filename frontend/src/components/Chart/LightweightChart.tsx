@@ -733,16 +733,19 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         const invalidationPrice = sc.invalidation_price
         const startTime = sc.entry_time || (currentCandle ? currentCandle.time : 0)
 
-        // End time is either the last path node or projected forward
-        let endTime = startTime
-        if (sc.path && sc.path.length > 0) {
-          endTime = sc.path[sc.path.length - 1].time
-        } else if (forecast.cone_points && forecast.cone_points.length > 0) {
-          endTime = forecast.cone_points[forecast.cone_points.length - 1].time
-        } else if (candles.length > 1) {
-          const step = candles[candles.length - 1].time - candles[candles.length - 2].time
-          endTime = startTime + (step * (forecast.horizon_candles || 15))
+        // Live Invalidation Check:
+        // Jika candle live saat ini telah menembus SL, box langsung terinvalidasi & tidak digambar
+        if (currentCandle) {
+          if (isLong && currentCandle.low <= invalidationPrice) return
+          if (!isLong && currentCandle.high >= invalidationPrice) return
         }
+
+        // End time diproyeksikan dari candle saat ini ke masa depan (agar box membentang mulus dari entry ke horizon)
+        const timeStep = candles.length > 1 ? (candles[1].time - candles[0].time) : 900
+        const projectionHorizon = forecast.horizon_candles || 15
+        const futureTime = (currentCandle ? currentCandle.time : startTime) + (timeStep * projectionHorizon)
+        const pathEndTime = (sc.path && sc.path.length > 0) ? sc.path[sc.path.length - 1].time : 0
+        const endTime = Math.max(futureTime, pathEndTime)
 
         const pStart = resolveCoord(startTime, entryPrice)
         const pEnd = resolveCoord(endTime, entryPrice)
