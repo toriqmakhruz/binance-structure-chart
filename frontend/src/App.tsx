@@ -4,7 +4,7 @@ import { SymbolSelector } from './components/Navigation/SymbolSelector'
 import { DrawingToolbar } from './components/Chart/DrawingToolbar'
 import { LayerToggles } from './components/Chart/LayerToggles'
 import { ChartContainer } from './components/Chart/ChartContainer'
-import { ConfluenceSidebar } from './components/HUD/ConfluenceSidebar'
+import { RightSidebar } from './components/HUD/RightSidebar'
 import { SettingsDrawer } from './components/Settings/SettingsDrawer'
 import { fetchAnalysis } from './services/api'
 import { BinanceWsClient } from './services/binanceWs'
@@ -268,8 +268,11 @@ export function App() {
           />
         </main>
 
-        {/* Right: Confluence & Dynamics HUD Sidebar */}
-        <ConfluenceSidebar
+        {/* Right: Collapsible Navigation Sidebar (Indeks & Kalkulator Posisi) */}
+        <RightSidebar
+          symbol={symbol}
+          market={market}
+          candles={candles}
           movement={analysis?.movement}
           smc={analysis?.smc}
           forecast={analysis?.forecast}

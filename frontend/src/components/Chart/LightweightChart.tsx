@@ -128,6 +128,12 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     }
 
     window.addEventListener('resize', handleResize)
+    const resizeObserver = typeof ResizeObserver !== 'undefined' && containerRef.current
+      ? new ResizeObserver(() => handleResize())
+      : null
+    if (resizeObserver && containerRef.current) {
+      resizeObserver.observe(containerRef.current)
+    }
 
     // Trigger canvas redraw on pan, zoom, scroll
     chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
@@ -141,6 +147,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
 
     return () => {
       window.removeEventListener('resize', handleResize)
+      resizeObserver?.disconnect()
       chart.remove()
       chartRef.current = null
     }
