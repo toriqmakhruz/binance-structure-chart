@@ -1,0 +1,38 @@
+# Python virtual environments & bytecode
+backend/venv/
+*/venv/
+venv/
+__pycache__/
+*/__pycache__/
+*/*/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Node dependencies & logs
+node_modules/
+*/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build outputs
+frontend/dist/
+dist/
+
+# Archives & temporary scripts
+*.tar.gz
+*.zip
+deploy_update.py
+test_vps.py
+
+# Environment variables
+.env
+.env.local
+
+# IDE & OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
