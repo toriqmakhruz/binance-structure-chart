@@ -17,12 +17,71 @@ import {
   AppSettings
 } from './types/analysis'
 
+const DEFAULT_VISIBILITY: LayerVisibility = {
+  smcSwings: true,
+  smcEvents: true,
+  orderBlocks: true,
+  fvgs: true,
+  patterns: true,
+  srLevels: true,
+  forecastCone: true,
+  forecastScenarios: true,
+  entryBoxes: true,
+  htfOverlay: true,
+  volume: true
+}
+
+const DEFAULT_SETTINGS: AppSettings = {
+  swingLength: 5,
+  fvgMinPct: 0.05,
+  forecastHorizon: 20,
+  htf: '4h'
+}
+
+function readStoredJson<T>(key: string, fallback: T, mergeWithDefaults = false): T {
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return fallback
+    const parsed = JSON.parse(raw)
+    if (mergeWithDefaults && parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return { ...fallback, ...parsed }
+    }
+    return parsed as T
+  } catch {
+    return fallback
+  }
+}
+
+function readStoredString<T extends string>(key: string, fallback: T, allowed?: readonly string[]): T {
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return fallback
+    if (allowed && !allowed.includes(raw)) return fallback
+    return raw as T
+  } catch {
+    return fallback
+  }
+}
+
+function writeStorage(key: string, value: unknown) {
+  try {
+    const str = typeof value === 'string' ? value : JSON.stringify(value)
+    localStorage.setItem(key, str)
+  } catch {
+    // ignore quota errors
+  }
+}
+
 export function App() {
-  // Navigation & Config States
-  const [symbol, setSymbol] = useState('BTCUSDT')
-  const [timeframe, setTimeframe] = useState('15m')
-  const [market, setMarket] = useState<'spot' | 'futures'>('futures')
-  const [layout, setLayout] = useState<'single' | 'split-vertical' | 'split-horizontal' | 'grid-4'>('single')
+  // Navigation & Config States (Persisted across sessions & pairs)
+  const [symbol, setSymbol] = useState<string>(() => readStoredString('cp_active_symbol', 'BTCUSDT'))
+  const [timeframe, setTimeframe] = useState<string>(() => readStoredString('cp_timeframe', '15m'))
+  const [market, setMarket] = useState<'spot' | 'futures'>(() =>
+    readStoredString('cp_market', 'futures', ['spot', 'futures'])
+  )
+  const [layout, setLayout] = useState<'single' | 'split-vertical' | 'split-horizontal' | 'grid-4'>(() =>
+    readStoredString('cp_layout', 'single', ['single', 'split-vertical', 'split-horizontal', 'grid-4'])
+  )
 
   // Analysis & Candle Data
   const [analysis, setAnalysis] = useState<FullAnalysisResponse | null>(null)
@@ -31,32 +90,30 @@ export function App() {
   const [isConnected, setIsConnected] = useState(false)
   const [streamStatus, setStreamStatus] = useState<StreamStatusType>('OFFLINE')
 
-  // Layer Visibility
-  const [visibility, setVisibility] = useState<LayerVisibility>({
-    smcSwings: true,
-    smcEvents: true,
-    orderBlocks: true,
-    fvgs: true,
-    patterns: true,
-    srLevels: true,
-    forecastCone: true,
-    forecastScenarios: true,
-    entryBoxes: true,
-    htfOverlay: true,
-    volume: true
-  })
+  // Layer Visibility (Global persistent across all pairs)
+  const [visibility, setVisibility] = useState<LayerVisibility>(() =>
+    readStoredJson<LayerVisibility>('cp_layer_visibility', DEFAULT_VISIBILITY, true)
+  )
 
   // Drawing Toolbar (Persistent per-symbol)
   const [activeTool, setActiveTool] = useState<DrawingToolType>('cursor')
-  const [drawingsBySymbol, setDrawingsBySymbol] = useState<Record<string, DrawingItem[]>>({})
+  const [drawingsBySymbol, setDrawingsBySymbol] = useState<Record<string, DrawingItem[]>>(() =>
+    readStoredJson<Record<string, DrawingItem[]>>('cp_drawings_by_symbol', {})
+  )
 
-  // Settings
-  const [settings, setSettings] = useState<AppSettings>({
-    swingLength: 5,
-    fvgMinPct: 0.05,
-    forecastHorizon: 20,
-    htf: '4h'
-  })
+  // Settings (Global persistent across all pairs)
+  const [settings, setSettings] = useState<AppSettings>(() =>
+    readStoredJson<AppSettings>('cp_app_settings', DEFAULT_SETTINGS, true)
+  )
+
+  // Persist global preferences & tools automatically
+  useEffect(() => { writeStorage('cp_active_symbol', symbol) }, [symbol])
+  useEffect(() => { writeStorage('cp_timeframe', timeframe) }, [timeframe])
+  useEffect(() => { writeStorage('cp_market', market) }, [market])
+  useEffect(() => { writeStorage('cp_layout', layout) }, [layout])
+  useEffect(() => { writeStorage('cp_layer_visibility', visibility) }, [visibility])
+  useEffect(() => { writeStorage('cp_app_settings', settings) }, [settings])
+  useEffect(() => { writeStorage('cp_drawings_by_symbol', drawingsBySymbol) }, [drawingsBySymbol])
 
   // Modals / Drawers
   const [isSymbolModalOpen, setIsSymbolModalOpen] = useState(false)

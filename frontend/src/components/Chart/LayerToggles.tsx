@@ -9,7 +9,8 @@ import {
   Compass, 
   BarChart2, 
   Clock,
-  Target 
+  Target,
+  Minus
 } from 'lucide-react'
 
 interface LayerTogglesProps {
@@ -29,6 +30,7 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
     { key: 'fvgs', label: 'Fair Value Gaps (FVG)', icon: <Layers className="w-3.5 h-3.5" />, color: 'text-cyan-400' },
     { key: 'smcSwings', label: 'Swings (HH/LL)', icon: <GitCommit className="w-3.5 h-3.5" />, color: 'text-purple-400' },
     { key: 'patterns', label: 'Pola Chart', icon: <Shapes className="w-3.5 h-3.5" />, color: 'text-emerald-400' },
+    { key: 'srLevels', label: 'S/R Levels', icon: <Minus className="w-3.5 h-3.5" />, color: 'text-teal-400' },
     { key: 'forecastCone', label: 'Forecast Cone', icon: <Compass className="w-3.5 h-3.5" />, color: 'text-yellow-400' },
     { key: 'forecastScenarios', label: 'Target Skenario', icon: <Compass className="w-3.5 h-3.5" />, color: 'text-orange-400' },
     { key: 'entryBoxes', label: 'Box Area Entry', icon: <Target className="w-3.5 h-3.5" />, color: 'text-emerald-400' },
