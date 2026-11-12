@@ -8,14 +8,16 @@ import {
 } from '../../types/analysis'
 import { ConfluenceSidebar } from './ConfluenceSidebar'
 import { PositionCalculator } from './PositionCalculator'
+import { CoinWatchlist } from './CoinWatchlist'
 import {
   Gauge,
   Calculator,
+  Coins,
   PanelRightClose,
   PanelRightOpen
 } from 'lucide-react'
 
-type RightTab = 'index' | 'calculator'
+type RightTab = 'index' | 'calculator' | 'watchlist'
 
 interface RightSidebarProps {
   symbol: string
@@ -26,6 +28,7 @@ interface RightSidebarProps {
   forecast?: ForecastResult
   patterns?: ChartPattern[]
   currentPrice?: number
+  onSelectSymbol: (symbol: string) => void
 }
 
 export const RightSidebar: React.FC<RightSidebarProps> = ({
@@ -36,7 +39,8 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   smc,
   forecast,
   patterns = [],
-  currentPrice
+  currentPrice,
+  onSelectSymbol
 }) => {
   const [isOpen, setIsOpen] = useState<boolean>(() => {
     try {
@@ -50,7 +54,10 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   const [activeTab, setActiveTab] = useState<RightTab>(() => {
     try {
       const saved = localStorage.getItem('cp_right_sidebar_tab')
-      return saved === 'calculator' ? 'calculator' : 'index'
+      if (saved === 'calculator' || saved === 'watchlist' || saved === 'index') {
+        return saved
+      }
+      return 'index'
     } catch {
       return 'index'
     }
@@ -129,6 +136,22 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
             <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-[#00c087] ring-2 ring-[#111620]" />
           )}
         </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setActiveTab('watchlist')
+            setIsOpen(true)
+          }}
+          title="Buka Daftar Koin (Watchlist)"
+          className={`p-2 rounded-lg transition-colors ${
+            activeTab === 'watchlist'
+              ? 'bg-[#1b2230] text-[#f0b90b] border border-[#30394b]'
+              : 'text-slate-400 hover:text-white hover:bg-[#1e2533]'
+          }`}
+        >
+          <Coins className="w-4 h-4" />
+        </button>
       </aside>
     )
   }
@@ -137,38 +160,51 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   return (
     <aside className="w-80 bg-[#111620] border-l border-[#21262d] flex flex-col h-full shrink-0 overflow-hidden">
       {/* Sidebar Navigation Bar + Collapse Toggle */}
-      <div className="flex items-center justify-between px-2 py-1.5 bg-[#0d1117] border-b border-[#21262d] shrink-0">
-        <div className="flex items-center space-x-1 flex-1 mr-1">
+      <div className="flex items-center justify-between px-1.5 py-1.5 bg-[#0d1117] border-b border-[#21262d] shrink-0">
+        <div className="grid grid-cols-3 gap-1 flex-1 mr-1">
           <button
             type="button"
             onClick={() => setActiveTab('index')}
-            className={`flex-1 flex items-center justify-center space-x-1.5 py-1.5 px-2 rounded-md text-[11px] font-bold transition-all ${
+            className={`flex items-center justify-center space-x-1 py-1.5 px-1.5 rounded-md text-[11px] font-bold transition-all ${
               activeTab === 'index'
                 ? 'bg-[#1b2230] text-white border border-[#2f394c] shadow-sm'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-[#151b26]'
             }`}
           >
-            <Gauge className={`w-3.5 h-3.5 ${activeTab === 'index' ? 'text-[#f0b90b]' : ''}`} />
+            <Gauge className={`w-3.5 h-3.5 shrink-0 ${activeTab === 'index' ? 'text-[#f0b90b]' : ''}`} />
             <span>Indeks</span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('calculator')}
-            className={`relative flex-1 flex items-center justify-center space-x-1.5 py-1.5 px-2 rounded-md text-[11px] font-bold transition-all ${
+            className={`relative flex items-center justify-center space-x-1 py-1.5 px-1.5 rounded-md text-[11px] font-bold transition-all ${
               activeTab === 'calculator'
                 ? 'bg-[#1b2230] text-white border border-[#2f394c] shadow-sm'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-[#151b26]'
             }`}
           >
-            <Calculator className={`w-3.5 h-3.5 ${activeTab === 'calculator' ? 'text-[#f0b90b]' : ''}`} />
-            <span>Kalkulator</span>
+            <Calculator className={`w-3.5 h-3.5 shrink-0 ${activeTab === 'calculator' ? 'text-[#f0b90b]' : ''}`} />
+            <span>Hitung</span>
             {hasActiveBox && (
               <span
-                className="w-1.5 h-1.5 rounded-full bg-[#00c087]"
+                className="w-1.5 h-1.5 rounded-full bg-[#00c087] shrink-0"
                 title="Ada Setup A+ Aktif"
               />
             )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('watchlist')}
+            className={`flex items-center justify-center space-x-1 py-1.5 px-1.5 rounded-md text-[11px] font-bold transition-all ${
+              activeTab === 'watchlist'
+                ? 'bg-[#1b2230] text-white border border-[#2f394c] shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-[#151b26]'
+            }`}
+          >
+            <Coins className={`w-3.5 h-3.5 shrink-0 ${activeTab === 'watchlist' ? 'text-[#f0b90b]' : ''}`} />
+            <span>Koin</span>
           </button>
         </div>
 
@@ -183,7 +219,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
       </div>
 
       {/* Tab Content */}
-      {activeTab === 'index' ? (
+      {activeTab === 'index' && (
         <div className="flex-1 flex flex-col overflow-hidden [&>aside]:w-full [&>aside]:border-l-0 [&>aside]:flex-1 [&>aside]:h-full">
           <ConfluenceSidebar
             movement={movement}
@@ -193,13 +229,24 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
             currentPrice={currentPrice}
           />
         </div>
-      ) : (
+      )}
+
+      {activeTab === 'calculator' && (
         <PositionCalculator
           symbol={symbol}
           market={market}
           candles={candles}
           forecast={forecast}
           currentPrice={currentPrice}
+        />
+      )}
+
+      {activeTab === 'watchlist' && (
+        <CoinWatchlist
+          market={market}
+          currentSymbol={symbol}
+          currentPrice={currentPrice}
+          onSelectSymbol={onSelectSymbol}
         />
       )}
     </aside>

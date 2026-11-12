@@ -278,6 +278,7 @@ export function App() {
           forecast={analysis?.forecast}
           patterns={analysis?.patterns?.patterns}
           currentPrice={lastCandle?.close}
+          onSelectSymbol={handleSelectSymbol}
         />
       </div>
 
