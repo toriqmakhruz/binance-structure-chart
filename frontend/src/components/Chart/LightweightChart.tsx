@@ -822,29 +822,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         // Entry Level Label
         ctx.fillStyle = '#38bdf8'
         ctx.font = 'bold 10px monospace'
-        ctx.fillText(`ENTRY: $${formatPrice(entryPrice)}`, startX + 8, yEntry - 4)
-
-        // 6. Central Floating HUD Pill (Long/Short, R:R, Status)
-        const badgeX = startX + Math.max(10, (boxWidth - 190) / 2)
-        const badgeY = yEntry - 14
-        ctx.fillStyle = '#0d1117'
-        ctx.fillRect(badgeX, badgeY, 190, 26)
-        ctx.strokeStyle = isLong ? '#00c087' : '#f6465d'
-        ctx.lineWidth = 1.5
-        ctx.strokeRect(badgeX, badgeY, 190, 26)
-
-        // Pill text
-        ctx.fillStyle = isLong ? '#00c087' : '#f6465d'
-        ctx.font = 'bold 9px monospace'
-        const dirText = isLong ? '▲ LONG ENTRY' : '▼ SHORT ENTRY'
-        ctx.fillText(dirText, badgeX + 6, badgeY + 11)
-
-        ctx.fillStyle = '#f0b90b'
-        ctx.fillText(`R:R 1:${sc.risk_reward_ratio}`, badgeX + 115, badgeY + 11)
-
-        ctx.fillStyle = '#94a3b8'
-        ctx.font = '8px sans-serif'
-        ctx.fillText(`Bobot: ${sc.confluence_weight}% | ${sc.status || 'VALID_ENTRY'}`, badgeX + 6, badgeY + 22)
+        ctx.fillText(`ENTRY: $${formatPrice(entryPrice)} (R:R 1:${sc.risk_reward_ratio})`, startX + 8, yEntry - 4)
       })
       }
     }
