@@ -1,9 +1,10 @@
+import math
+import time
 import httpx
-import json
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from ..config import settings
-from ..models.schemas import Candle
+from ..models.schemas import Candle, AnalysisMetadata
 
 logger = logging.getLogger("binance_service")
 
@@ -12,13 +13,46 @@ HEADERS = {
     "Accept": "application/json"
 }
 
+class DataUnavailableException(Exception):
+    """Raised when upstream Binance market data cannot be fetched from any valid endpoint."""
+    pass
+
+class DataMalformedException(Exception):
+    """Raised when data returned by upstream fails structural integrity validation."""
+    pass
+
 class BinanceService:
     def __init__(self):
-        self.spot_rest = settings.BINANCE_SPOT_REST
-        self.futures_rest = settings.BINANCE_FUTURES_REST
-        self.futures_fallback = settings.BINANCE_FUTURES_FALLBACK
+        self.spot_endpoints = settings.BINANCE_SPOT_REST_ENDPOINTS
+        self.futures_endpoints = settings.BINANCE_FUTURES_REST_ENDPOINTS
 
-    async def _fetch_raw_batch(self, symbol: str, interval: str, limit: int, market: str, end_time: Optional[int] = None) -> List[Any]:
+    def _get_candidate_urls(self, path: str, market: str) -> List[str]:
+        """
+        Build isolated candidate URLs according to market type.
+        Futures requests NEVER fall back to Spot endpoints, and vice versa.
+        """
+        market_clean = market.lower().strip()
+        if market_clean == "spot":
+            # Path usually /api/v3/klines or /api/v3/ticker/24hr
+            return [f"{base.rstrip('/')}{path}" for base in self.spot_endpoints]
+        elif market_clean == "futures":
+            # Path usually /fapi/v1/klines or /fapi/v1/ticker/24hr
+            return [f"{base.rstrip('/')}{path}" for base in self.futures_endpoints]
+        else:
+            raise ValueError(f"Unsupported market type: {market}. Must be 'spot' or 'futures'.")
+
+    async def _fetch_raw_batch(
+        self,
+        symbol: str,
+        interval: str,
+        limit: int,
+        market: str,
+        end_time: Optional[int] = None
+    ) -> Tuple[List[Any], str]:
+        """
+        Fetch a batch of klines from isolated upstream endpoints.
+        Returns: (raw_data, successful_source_name)
+        """
         params: Dict[str, Any] = {
             "symbol": symbol.upper(),
             "interval": interval,
@@ -27,25 +61,133 @@ class BinanceService:
         if end_time:
             params["endTime"] = end_time
 
-        urls = []
-        if market.lower() == "spot":
-            urls.append(f"{self.spot_rest}/api/v3/klines")
-        else:
-            urls.append(f"{self.futures_rest}/fapi/v1/klines")
-            urls.append(f"{self.futures_fallback}/api/v3/klines")
+        market_clean = market.lower().strip()
+        path = "/api/v3/klines" if market_clean == "spot" else "/fapi/v1/klines"
+        urls = self._get_candidate_urls(path, market_clean)
 
         data = None
-        async with httpx.AsyncClient(headers=HEADERS, timeout=10.0, verify=False) as client:
+        successful_source = ""
+        last_error = None
+
+        timeout = httpx.Timeout(settings.HTTP_TIMEOUT_SECONDS, connect=5.0)
+        async with httpx.AsyncClient(headers=HEADERS, timeout=timeout, verify=settings.TLS_VERIFY) as client:
             for url in urls:
                 try:
                     resp = await client.get(url, params=params)
                     if resp.status_code == 200:
-                        data = resp.json()
-                        break
-                except Exception:
+                        json_resp = resp.json()
+                        if isinstance(json_resp, list):
+                            data = json_resp
+                            successful_source = f"BINANCE_{market_clean.upper()}"
+                            break
+                        else:
+                            last_error = f"Unexpected response format from {url}: {type(json_resp)}"
+                    else:
+                        last_error = f"HTTP {resp.status_code} from {url}: {resp.text[:200]}"
+                except Exception as exc:
+                    last_error = f"Connection error contacting {url}: {exc}"
                     continue
 
-        return data or []
+        if data is None:
+            err_msg = f"Failed to fetch klines for {symbol} ({market}) from all endpoints. Last error: {last_error}"
+            logger.error(err_msg)
+            raise DataUnavailableException(err_msg)
+
+        return data, successful_source
+
+    def validate_and_clean_candles(
+        self,
+        raw_items: List[Any],
+        interval: str = "15m",
+        server_time_ms: Optional[int] = None
+    ) -> List[Candle]:
+        """
+        Validates OHLCV, timestamp sequence, finite values, and detects open/closed status.
+        Rejects corrupt, incomplete, or impossible candle data.
+        """
+        if not raw_items:
+            return []
+
+        cleaned_candles: List[Candle] = []
+        now_sec = int(time.time())
+
+        for idx, item in enumerate(raw_items):
+            if not isinstance(item, (list, tuple)) or len(item) < 6:
+                logger.warning(f"Skipping malformed kline row at index {idx}: insufficient columns")
+                continue
+
+            try:
+                open_time_ms = int(item[0])
+                open_price = float(item[1])
+                high_price = float(item[2])
+                low_price = float(item[3])
+                close_price = float(item[4])
+                volume = float(item[5])
+                close_time_ms = int(item[6]) if len(item) > 6 else (open_time_ms + 60000)
+                taker_buy_vol = float(item[9]) if len(item) > 9 else (volume * 0.5)
+            except (ValueError, TypeError) as parse_err:
+                logger.warning(f"Skipping row {idx} due to parsing failure: {parse_err}")
+                continue
+
+            # 1. Non-finite check
+            if not all(math.isfinite(x) for x in [open_price, high_price, low_price, close_price, volume, taker_buy_vol]):
+                logger.warning(f"Skipping row {idx}: non-finite numeric values detected")
+                continue
+
+            # 2. Positive price check
+            if open_price <= 0 or high_price <= 0 or low_price <= 0 or close_price <= 0:
+                logger.warning(f"Skipping row {idx}: non-positive price detected")
+                continue
+
+            # 3. OHLC mathematical relation integrity
+            # High must be >= max(open, close, low)
+            # Low must be <= min(open, close, high)
+            if high_price < open_price or high_price < close_price or high_price < low_price:
+                logger.warning(f"Skipping row {idx}: High ({high_price}) violated OHLC bounds")
+                continue
+            if low_price > open_price or low_price > close_price:
+                logger.warning(f"Skipping row {idx}: Low ({low_price}) violated OHLC bounds")
+                continue
+
+            # 4. Volume integrity
+            if volume < 0:
+                logger.warning(f"Skipping row {idx}: negative volume ({volume})")
+                continue
+            if taker_buy_vol < 0:
+                taker_buy_vol = 0.0
+            elif taker_buy_vol > volume:
+                # Slight precision overflow guard
+                taker_buy_vol = volume
+
+            # 5. Open vs Closed determination
+            # If server_time_ms is provided, use it; otherwise use local time in ms
+            ref_time_ms = server_time_ms or (now_sec * 1000)
+            is_closed = close_time_ms <= ref_time_ms
+
+            candle_sec = int(open_time_ms // 1000)
+            cleaned_candles.append(Candle(
+                time=candle_sec,
+                open=open_price,
+                high=high_price,
+                low=low_price,
+                close=close_price,
+                volume=volume,
+                taker_buy_volume=taker_buy_vol,
+                is_closed=is_closed
+            ))
+
+        if not cleaned_candles:
+            raise DataMalformedException("No valid candles remained after strict integrity validation.")
+
+        # 6. Deduplicate by timestamp and sort strictly ascending
+        candle_map: Dict[int, Candle] = {}
+        for c in cleaned_candles:
+            candle_map[c.time] = c
+
+        sorted_times = sorted(candle_map.keys())
+        sorted_candles = [candle_map[t] for t in sorted_times]
+
+        return sorted_candles
 
     async def get_klines(
         self,
@@ -53,94 +195,114 @@ class BinanceService:
         interval: str = "15m",
         limit: int = 1500,
         market: str = "futures"
-    ) -> List[Candle]:
+    ) -> Tuple[List[Candle], AnalysisMetadata]:
         """
-        Fetch historical candlestick data with pagination to support long history (1500+ candles).
+        Fetch historical candlestick data with pagination support and strict data validation.
+        Returns validated candles and associated source metadata.
         """
-        symbol = symbol.upper()
+        symbol = symbol.upper().strip()
+        market = market.lower().strip()
+        received_at = int(time.time())
+
         raw_items: List[Any] = []
+        source_name = f"BINANCE_{market.upper()}"
 
         if limit <= 1000:
-            raw_items = await self._fetch_raw_batch(symbol, interval, limit, market)
+            raw_items, source_name = await self._fetch_raw_batch(symbol, interval, limit, market)
         else:
             # Batch 1 (latest 1000)
-            b1 = await self._fetch_raw_batch(symbol, interval, 1000, market)
+            b1, source_name = await self._fetch_raw_batch(symbol, interval, 1000, market)
             if b1:
                 first_open_time = b1[0][0]
                 # Batch 2 (older candles before first_open_time)
                 remaining = min(limit - 1000, 1000)
-                b2 = await self._fetch_raw_batch(symbol, interval, remaining, market, end_time=first_open_time - 1)
-                raw_items = b2 + b1
+                try:
+                    b2, _ = await self._fetch_raw_batch(symbol, interval, remaining, market, end_time=first_open_time - 1)
+                    raw_items = b2 + b1
+                except Exception as b2_err:
+                    logger.warning(f"Batch 2 pagination failed ({b2_err}), using Batch 1 only.")
+                    raw_items = b1
             else:
                 raw_items = []
 
         if not raw_items:
-            raise RuntimeError(f"Gagal mengambil data candle dari Binance untuk {symbol}")
+            raise DataUnavailableException(f"DATA_UNAVAILABLE: No klines returned for {symbol} ({market}).")
 
-        candles: List[Candle] = []
-        for item in raw_items:
-            candles.append(Candle(
-                time=int(item[0] // 1000), # Unix seconds for TradingView Lightweight Charts
-                open=float(item[1]),
-                high=float(item[2]),
-                low=float(item[3]),
-                close=float(item[4]),
-                volume=float(item[5]),
-                taker_buy_volume=float(item[9]) if len(item) > 9 else float(item[5]) * 0.5
-            ))
+        candles = self.validate_and_clean_candles(raw_items, interval=interval)
 
-        # Deduplicate and sort strictly ascending by time for TradingView Lightweight Charts
-        candle_map = {}
-        for c in candles:
-            candle_map[c.time] = c
-        sorted_candles = [candle_map[t] for t in sorted(candle_map.keys())]
-        return sorted_candles
+        metadata = AnalysisMetadata(
+            symbol=symbol,
+            market_type=market,
+            interval=interval,
+            source=source_name,
+            server_time=raw_items[-1][6] // 1000 if len(raw_items[-1]) > 6 else None,
+            received_at=received_at,
+            total_candles=len(candles),
+            is_stale=False
+        )
 
-    async def get_symbols(self, market: str = "futures") -> List[Dict[str, Any]]:
+        return candles, metadata
+
+    async def get_symbols(self, market: str = "futures", demo_mode: bool = False) -> List[Dict[str, Any]]:
         """
-        Fetch 24h ticker info with fallback.
+        Fetch 24h ticker info strictly from the selected market.
+        NEVER injects synthetic or hardcoded prices in production.
         """
-        urls = []
-        if market.lower() == "spot":
-            urls.append(f"{self.spot_rest}/api/v3/ticker/24hr")
-        else:
-            urls.append(f"{self.futures_rest}/fapi/v1/ticker/24hr")
-            urls.append(f"{self.futures_fallback}/api/v3/ticker/24hr")
+        market_clean = market.lower().strip()
+        path = "/api/v3/ticker/24hr" if market_clean == "spot" else "/fapi/v1/ticker/24hr"
+        urls = self._get_candidate_urls(path, market_clean)
 
         tickers = None
-        async with httpx.AsyncClient(headers=HEADERS, timeout=10.0, verify=False) as client:
+        last_error = None
+        timeout = httpx.Timeout(settings.HTTP_TIMEOUT_SECONDS, connect=5.0)
+
+        async with httpx.AsyncClient(headers=HEADERS, timeout=timeout, verify=settings.TLS_VERIFY) as client:
             for url in urls:
                 try:
                     resp = await client.get(url)
                     if resp.status_code == 200:
-                        tickers = resp.json()
-                        break
-                except Exception:
+                        json_resp = resp.json()
+                        if isinstance(json_resp, list):
+                            tickers = json_resp
+                            break
+                        else:
+                            last_error = f"Expected list response from {url}, got {type(json_resp)}"
+                    else:
+                        last_error = f"HTTP {resp.status_code} from {url}"
+                except Exception as exc:
+                    last_error = str(exc)
                     continue
 
         if not tickers:
-            return [
-                {"symbol": "BTCUSDT", "lastPrice": 88500.0, "priceChangePercent": 2.45, "quoteVolume": 2500000000, "market": market},
-                {"symbol": "ETHUSDT", "lastPrice": 3200.0, "priceChangePercent": 1.82, "quoteVolume": 1200000000, "market": market},
-                {"symbol": "SOLUSDT", "lastPrice": 215.0, "priceChangePercent": 5.14, "quoteVolume": 850000000, "market": market},
-                {"symbol": "BNBUSDT", "lastPrice": 640.0, "priceChangePercent": -0.65, "quoteVolume": 400000000, "market": market},
-                {"symbol": "XRPUSDT", "lastPrice": 0.85, "priceChangePercent": 3.20, "quoteVolume": 350000000, "market": market},
-                {"symbol": "DOGEUSDT", "lastPrice": 0.38, "priceChangePercent": 8.50, "quoteVolume": 310000000, "market": market},
-                {"symbol": "SUIUSDT", "lastPrice": 3.25, "priceChangePercent": 6.80, "quoteVolume": 290000000, "market": market},
-                {"symbol": "PEPEUSDT", "lastPrice": 0.000021, "priceChangePercent": 12.3, "quoteVolume": 270000000, "market": market},
-            ]
+            if demo_mode:
+                logger.warning(f"Upstream tickers unavailable. Demo mode active, returning tagged DEMO data.")
+                return [
+                    {"symbol": "BTCUSDT", "lastPrice": 88500.0, "priceChangePercent": 2.45, "quoteVolume": 2500000000, "market": market_clean, "is_demo": True},
+                    {"symbol": "ETHUSDT", "lastPrice": 3200.0, "priceChangePercent": 1.82, "quoteVolume": 1200000000, "market": market_clean, "is_demo": True},
+                    {"symbol": "SOLUSDT", "lastPrice": 215.0, "priceChangePercent": 5.14, "quoteVolume": 850000000, "market": market_clean, "is_demo": True},
+                ]
+            err_msg = f"DATA_UNAVAILABLE: Failed to retrieve 24hr tickers for market '{market_clean}'. Last error: {last_error}"
+            logger.error(err_msg)
+            raise DataUnavailableException(err_msg)
 
         symbols_list = []
         for t in tickers:
+            if not isinstance(t, dict):
+                continue
             sym = t.get("symbol", "")
             if sym.endswith("USDT"):
-                symbols_list.append({
-                    "symbol": sym,
-                    "lastPrice": float(t.get("lastPrice", 0)),
-                    "priceChangePercent": float(t.get("priceChangePercent", 0)),
-                    "quoteVolume": float(t.get("quoteVolume", 0)),
-                    "market": market.lower()
-                })
+                try:
+                    symbols_list.append({
+                        "symbol": sym,
+                        "lastPrice": float(t.get("lastPrice", 0)),
+                        "priceChangePercent": float(t.get("priceChangePercent", 0)),
+                        "quoteVolume": float(t.get("quoteVolume", 0)),
+                        "market": market_clean,
+                        "source": f"BINANCE_{market_clean.upper()}",
+                        "is_demo": False
+                    })
+                except (ValueError, TypeError):
+                    continue
 
         symbols_list.sort(key=lambda x: x["quoteVolume"], reverse=True)
         return symbols_list[:80]

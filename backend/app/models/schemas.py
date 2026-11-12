@@ -9,11 +9,12 @@ class Candle(BaseModel):
     close: float
     volume: float
     taker_buy_volume: float = 0.0
+    is_closed: bool = True # Differentiates closed candle from in-progress ticking candle
 
 class SwingPoint(BaseModel):
     time: int
     price: float
-    type: str              # 'HH', 'HL', 'LH', 'LL'
+    type: str              # 'H', 'L', 'HH', 'HL', 'LH', 'LL'
     index: int
 
 class StructureEvent(BaseModel):
@@ -32,8 +33,10 @@ class OrderBlock(BaseModel):
     end_time: Optional[int] = None
     top: float
     bottom: float
+    status: str = "ACTIVE" # 'ACTIVE', 'MITIGATED', 'INVALIDATED'
     mitigated: bool = False
     mitigated_time: Optional[int] = None
+    invalidation_time: Optional[int] = None
 
 class FairValueGap(BaseModel):
     id: str
@@ -41,13 +44,19 @@ class FairValueGap(BaseModel):
     time: int
     top: float
     bottom: float
+    status: str = "UNFILLED" # 'UNFILLED', 'PARTIALLY_FILLED', 'FILLED', 'INVALIDATED'
+    fill_pct: float = 0.0
     mitigated: bool = False
+    mitigated_time: Optional[int] = None
 
 class LiquidityPool(BaseModel):
     id: str
     type: str              # 'EQH' or 'EQL'
     price: float
     times: List[int]
+    touches: int = 2
+    swept: bool = False
+    sweep_time: Optional[int] = None
 
 class SmcAnalysisResult(BaseModel):
     swings: List[SwingPoint]
@@ -61,12 +70,15 @@ class ChartPattern(BaseModel):
     id: str
     name: str              # 'Double Top', 'Double Bottom', 'Head and Shoulders', 'Triangle', etc.
     type: str              # 'BULLISH' or 'BEARISH' or 'NEUTRAL'
+    status: str = "FORMING"# 'FORMING', 'CONFIRMED', 'INVALIDATED'
     start_time: int
     end_time: int
     key_points: List[Dict[str, Any]]
     neckline: Optional[float] = None
     target_price: Optional[float] = None
     stop_loss: Optional[float] = None
+    breakout_time: Optional[int] = None
+    breakout_price: Optional[float] = None
 
 class SupportResistance(BaseModel):
     price: float
@@ -101,7 +113,15 @@ class ForecastPoint(BaseModel):
 
 class ForecastScenario(BaseModel):
     name: str                    # 'Bullish Breakout', 'Bearish Breakdown', 'Mean Reversion'
-    probability: float          # 0 - 100%
+    direction: str = "LONG"      # 'LONG' or 'SHORT'
+    entry_price: float = 0.0     # Recommended Entry level
+    entry_time: Optional[int] = None
+    entry_zone_high: Optional[float] = None
+    entry_zone_low: Optional[float] = None
+    is_valid: bool = True
+    status: str = "VALID_ENTRY"  # 'VALID_ENTRY', 'PENDING_CONFLUENCE', 'LOW_RR'
+    confluence_weight: float = 50.0 # Heuristic alignment weight 0-100
+    probability: Optional[float] = None # None until statistically calibrated
     target_price: float
     invalidation_price: float
     risk_reward_ratio: float
@@ -110,10 +130,26 @@ class ForecastScenario(BaseModel):
 class ForecastResult(BaseModel):
     horizon_candles: int
     predicted_trend: str
-    confidence_pct: float
+    confluence_score: float
+    confluence_bias: str = "NEUTRAL"
+    confidence_pct: float        # Legacy alias for backward compatibility
+    forecast_probability: Optional[float] = None
+    historical_win_rate: Optional[float] = None
+    model_calibration_status: str = "UNCALIBRATED_HEURISTIC"
+    model_assumptions: str = "Drift-adjusted ATR cone. Probabilities omitted until out-of-sample calibration."
     cone_points: List[ForecastPoint]
     scenarios: List[ForecastScenario]
     structural_target: Optional[float] = None
+
+class AnalysisMetadata(BaseModel):
+    symbol: str
+    market_type: str             # 'spot' or 'futures'
+    interval: str
+    source: str                  # 'BINANCE_SPOT' or 'BINANCE_FUTURES'
+    server_time: Optional[int] = None
+    received_at: int
+    total_candles: int
+    is_stale: bool = False
 
 class FullAnalysisResponse(BaseModel):
     symbol: str
@@ -125,3 +161,4 @@ class FullAnalysisResponse(BaseModel):
     movement: MovementMetrics
     forecast: ForecastResult
     htf_overlay: Optional[Dict[str, Any]] = None
+    metadata: Optional[AnalysisMetadata] = None

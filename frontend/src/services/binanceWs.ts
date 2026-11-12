@@ -3,6 +3,7 @@ import { Candle } from '../types/analysis'
 export interface WsCallback {
   onCandle: (candle: Candle, isClosed: boolean, symbol: string) => void
   onStatusChange?: (connected: boolean) => void
+  onUpstreamStatus?: (status: string, message?: string) => void
 }
 
 export class BinanceWsClient {
@@ -44,6 +45,18 @@ export class BinanceWsClient {
         try {
           if (event.data === 'pong') return
           const payload = JSON.parse(event.data)
+
+          // Handle explicit upstream connection and stale status
+          if (payload.type === 'UPSTREAM_STATUS') {
+            this.callbacks.onUpstreamStatus?.(payload.status, payload.message)
+            if (payload.status === 'CONNECTED') {
+              this.callbacks.onStatusChange?.(true)
+            } else if (payload.status === 'RECONNECTING' || payload.status === 'DATA_STALE') {
+              this.callbacks.onStatusChange?.(false)
+            }
+            return
+          }
+
           // Filter strictly for the active symbol
           if (payload.type === 'CANDLE_TICK' && payload.candle) {
             if (payload.symbol && payload.symbol.toUpperCase() !== this.activeSymbol) {
@@ -60,6 +73,7 @@ export class BinanceWsClient {
         this.stopPing()
         if (this.shouldReconnect) {
           this.callbacks.onStatusChange?.(false)
+          this.callbacks.onUpstreamStatus?.('DISCONNECTED', 'Backend socket disconnected')
           this.reconnectTimeout = setTimeout(() => this.connect(), 2000)
         }
       }

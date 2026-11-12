@@ -1,3 +1,4 @@
+import os
 import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,12 +16,37 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS configuration for frontend
+# Secure explicit CORS origins (Audit Section 6.2: do not use wildcard with credentials)
+allowed_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:3050",
+    "http://127.0.0.1:3050",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "http://localhost:8050",
+    "http://127.0.0.1:8050",
+    "http://38.47.191.164:3050",
+    "http://38.47.191.164:8050",
+    "http://38.47.191.164:3000",
+    "http://38.47.191.164:8000"
+]
+
+cors_env = os.getenv("CORS_ORIGINS")
+if cors_env:
+    for origin in cors_env.split(","):
+        clean_origin = origin.strip()
+        if clean_origin and clean_origin not in allowed_origins:
+            allowed_origins.append(clean_origin)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|38\.47\.191\.164)(:\d+)?",
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 

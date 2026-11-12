@@ -6,12 +6,13 @@ export interface Candle {
   close: number
   volume: number
   taker_buy_volume: number
+  is_closed?: boolean
 }
 
 export interface SwingPoint {
   time: number
   price: number
-  type: 'HH' | 'HL' | 'LH' | 'LL'
+  type: 'H' | 'L' | 'HH' | 'HL' | 'LH' | 'LL'
   index: number
 }
 
@@ -32,8 +33,10 @@ export interface OrderBlock {
   end_time?: number
   top: number
   bottom: number
+  status?: 'ACTIVE' | 'MITIGATED' | 'INVALIDATED'
   mitigated: boolean
   mitigated_time?: number
+  invalidation_time?: number
 }
 
 export interface FairValueGap {
@@ -42,7 +45,10 @@ export interface FairValueGap {
   time: number
   top: number
   bottom: number
+  status?: 'UNFILLED' | 'PARTIALLY_FILLED' | 'FILLED' | 'INVALIDATED'
+  fill_pct?: number
   mitigated: boolean
+  mitigated_time?: number
 }
 
 export interface LiquidityPool {
@@ -50,6 +56,9 @@ export interface LiquidityPool {
   type: 'EQH' | 'EQL'
   price: number
   times: number[]
+  touches?: number
+  swept?: boolean
+  sweep_time?: number
 }
 
 export interface SmcAnalysisResult {
@@ -58,19 +67,22 @@ export interface SmcAnalysisResult {
   order_blocks: OrderBlock[]
   fvgs: FairValueGap[]
   liquidity_pools: LiquidityPool[]
-  current_trend: 'BULLISH' | 'BEARISH' | 'RANGING'
+  current_trend: string // 'BULLISH', 'BEARISH', 'RANGING'
 }
 
 export interface ChartPattern {
   id: string
   name: string
   type: 'BULLISH' | 'BEARISH' | 'NEUTRAL'
+  status?: 'FORMING' | 'CONFIRMED' | 'INVALIDATED'
   start_time: number
   end_time: number
   key_points: { name: string; time: number; price: number }[]
   neckline?: number
   target_price?: number
   stop_loss?: number
+  breakout_time?: number
+  breakout_price?: number
 }
 
 export interface SupportResistance {
@@ -89,13 +101,13 @@ export interface MovementMetrics {
   volatility_atr: number
   volatility_atr_pct: number
   volatility_status: 'SQUEEZE' | 'EXPANDING' | 'NORMAL'
-  trend_direction: 'STRONG_BULLISH' | 'BULLISH' | 'NEUTRAL' | 'BEARISH' | 'STRONG_BEARISH'
+  trend_direction: string
   rsi: number
-  rsi_condition: 'OVERBOUGHT' | 'OVERSOLD' | 'NEUTRAL' | 'BULLISH_DIV' | 'BEARISH_DIV'
+  rsi_condition: string
   volume_delta: number
   volume_delta_ratio: number
   confluence_score: number
-  confluence_bias: 'STRONG BULLISH' | 'BULLISH' | 'NEUTRAL' | 'BEARISH' | 'STRONG BEARISH'
+  confluence_bias: string
   summary: string
 }
 
@@ -110,7 +122,15 @@ export interface ForecastPoint {
 
 export interface ForecastScenario {
   name: string
-  probability: number
+  direction?: 'LONG' | 'SHORT'
+  entry_price?: number
+  entry_time?: number
+  entry_zone_high?: number
+  entry_zone_low?: number
+  is_valid?: boolean
+  status?: string
+  confluence_weight: number
+  probability?: number | null
   target_price: number
   invalidation_price: number
   risk_reward_ratio: number
@@ -119,28 +139,41 @@ export interface ForecastScenario {
 
 export interface ForecastResult {
   horizon_candles: number
-  predicted_trend: 'BULLISH' | 'BEARISH' | 'NEUTRAL'
-  confidence_pct: number
+  predicted_trend: string
+  confluence_score: number
+  confluence_bias?: string
+  confidence_pct?: number
+  forecast_probability?: number | null
+  historical_win_rate?: number | null
+  model_calibration_status?: string
+  model_assumptions?: string
   cone_points: ForecastPoint[]
   scenarios: ForecastScenario[]
   structural_target?: number
 }
 
+export interface AnalysisMetadata {
+  symbol: string
+  market_type: string
+  interval: string
+  source: string
+  server_time?: number
+  received_at: number
+  total_candles: number
+  is_stale?: boolean
+}
+
 export interface FullAnalysisResponse {
   symbol: string
-  market: 'spot' | 'futures'
+  market: string
   timeframe: string
   candles: Candle[]
   smc: SmcAnalysisResult
   patterns: PatternAnalysisResult
   movement: MovementMetrics
   forecast: ForecastResult
-  htf_overlay?: {
-    timeframe: string
-    current_trend: string
-    order_blocks: OrderBlock[]
-    events: StructureEvent[]
-  }
+  htf_overlay?: any
+  metadata?: AnalysisMetadata
 }
 
 export interface LayerVisibility {
@@ -152,6 +185,7 @@ export interface LayerVisibility {
   srLevels: boolean
   forecastCone: boolean
   forecastScenarios: boolean
+  entryBoxes: boolean
   htfOverlay: boolean
   volume: boolean
 }

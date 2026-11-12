@@ -194,7 +194,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
 
     if (smc && visibility.smcSwings) {
       smc.swings.forEach((s) => {
-        const isHigh = s.type === 'HH' || s.type === 'LH'
+        const isHigh = s.type === 'HH' || s.type === 'LH' || s.type === 'H'
         const key = `${s.time}_swing`
         markerMap.set(key, {
           time: s.time as Time,
@@ -711,6 +711,142 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
           ctx.setLineDash([])
         }
       })
+    }
+
+    // F2. Render Valid Entry Box Area (Position Box: Entry Zone, TP Green Box, SL Red Box, R:R Badge)
+    // CRITICAL: Strictly draw ONLY when a setup is genuinely VALID (is_valid === true && R:R >= 1.5 && status === 'VALID_ENTRY')
+    // NEVER force or draw fallback boxes when setups are invalid (LOW_RR, COUNTER_TREND, etc.)!
+    if (forecast && visibility.entryBoxes && forecast.scenarios && forecast.scenarios.length > 0) {
+      const validSetups = forecast.scenarios.filter(
+        (s) => s.is_valid === true && (s.risk_reward_ratio || 0) >= 1.5 && s.status === 'VALID_ENTRY'
+      )
+
+      // If no valid setup exists, DRAW NOTHING! (Do not force an entry box!)
+      if (validSetups.length > 0) {
+        validSetups.slice(0, 1).forEach((sc) => {
+        const isLong = sc.direction === 'LONG' || sc.name.toLowerCase().includes('bullish')
+        const currentCandle = candles.length > 0 ? candles[candles.length - 1] : null
+        const entryPrice = sc.entry_price || (currentCandle ? currentCandle.close : 0)
+        if (entryPrice <= 0) return
+
+        const targetPrice = sc.target_price
+        const invalidationPrice = sc.invalidation_price
+        const startTime = sc.entry_time || (currentCandle ? currentCandle.time : 0)
+
+        // End time is either the last path node or projected forward
+        let endTime = startTime
+        if (sc.path && sc.path.length > 0) {
+          endTime = sc.path[sc.path.length - 1].time
+        } else if (forecast.cone_points && forecast.cone_points.length > 0) {
+          endTime = forecast.cone_points[forecast.cone_points.length - 1].time
+        } else if (candles.length > 1) {
+          const step = candles[candles.length - 1].time - candles[candles.length - 2].time
+          endTime = startTime + (step * (forecast.horizon_candles || 15))
+        }
+
+        const pStart = resolveCoord(startTime, entryPrice)
+        const pEnd = resolveCoord(endTime, entryPrice)
+        const yEntry = series.priceToCoordinate(entryPrice)
+        const yTarget = series.priceToCoordinate(targetPrice)
+        const yStop = series.priceToCoordinate(invalidationPrice)
+
+        if (!pStart || yEntry === null || yTarget === null || yStop === null) return
+
+        const startX = Math.max(10, pStart.x)
+        const endX = pEnd ? Math.max(startX + 120, pEnd.x) : Math.min(width - 65, startX + 220)
+        const boxWidth = Math.max(100, endX - startX)
+
+        if (startX > width || startX + boxWidth < 0) return
+
+        // 1. Take Profit Box (Green Zone)
+        const tpY = Math.min(yEntry, yTarget)
+        const tpHeight = Math.max(4, Math.abs(yEntry - yTarget))
+        ctx.fillStyle = 'rgba(0, 192, 135, 0.16)'
+        ctx.strokeStyle = '#00c087'
+        ctx.lineWidth = 1.5
+
+        ctx.fillRect(startX, tpY, boxWidth, tpHeight)
+        ctx.strokeRect(startX, tpY, boxWidth, tpHeight)
+
+        // 2. Stop Loss Box (Red Zone)
+        const slY = Math.min(yEntry, yStop)
+        const slHeight = Math.max(4, Math.abs(yEntry - yStop))
+        ctx.fillStyle = 'rgba(246, 70, 93, 0.16)'
+        ctx.strokeStyle = '#f6465d'
+        ctx.lineWidth = 1.5
+
+        ctx.fillRect(startX, slY, boxWidth, slHeight)
+        ctx.strokeRect(startX, slY, boxWidth, slHeight)
+
+        // 3. Optional Entry Zone Buffer (High - Low bounds if available)
+        if (sc.entry_zone_high && sc.entry_zone_low && sc.entry_zone_high > sc.entry_zone_low) {
+          const yZh = series.priceToCoordinate(sc.entry_zone_high)
+          const yZl = series.priceToCoordinate(sc.entry_zone_low)
+          if (yZh !== null && yZl !== null) {
+            const zTop = Math.min(yZh, yZl)
+            const zHeight = Math.max(3, Math.abs(yZh - yZl))
+            ctx.fillStyle = 'rgba(56, 189, 248, 0.15)'
+            ctx.strokeStyle = '#38bdf8'
+            ctx.lineWidth = 1
+            ctx.setLineDash([3, 3])
+            ctx.fillRect(startX, zTop, boxWidth, zHeight)
+            ctx.strokeRect(startX, zTop, boxWidth, zHeight)
+            ctx.setLineDash([])
+          }
+        }
+
+        // 4. Center Entry Divider Line
+        ctx.beginPath()
+        ctx.strokeStyle = '#38bdf8'
+        ctx.lineWidth = 2
+        ctx.moveTo(startX, yEntry)
+        ctx.lineTo(startX + boxWidth, yEntry)
+        ctx.stroke()
+
+        // 5. Badges & Text Labels
+        const profitPct = Math.abs(((targetPrice - entryPrice) / entryPrice) * 100)
+        const lossPct = Math.abs(((invalidationPrice - entryPrice) / entryPrice) * 100)
+
+        // TP Label
+        ctx.fillStyle = '#00c087'
+        ctx.font = 'bold 10px monospace'
+        const tpLabel = `TP: $${formatPrice(targetPrice)} (+${profitPct.toFixed(2)}%)`
+        ctx.fillText(tpLabel, startX + 8, isLong ? tpY + 12 : tpY + tpHeight - 4)
+
+        // SL Label
+        ctx.fillStyle = '#f6465d'
+        ctx.font = 'bold 10px monospace'
+        const slLabel = `SL: $${formatPrice(invalidationPrice)} (-${lossPct.toFixed(2)}%)`
+        ctx.fillText(slLabel, startX + 8, isLong ? slY + slHeight - 4 : slY + 12)
+
+        // Entry Level Label
+        ctx.fillStyle = '#38bdf8'
+        ctx.font = 'bold 10px monospace'
+        ctx.fillText(`ENTRY: $${formatPrice(entryPrice)}`, startX + 8, yEntry - 4)
+
+        // 6. Central Floating HUD Pill (Long/Short, R:R, Status)
+        const badgeX = startX + Math.max(10, (boxWidth - 190) / 2)
+        const badgeY = yEntry - 14
+        ctx.fillStyle = '#0d1117'
+        ctx.fillRect(badgeX, badgeY, 190, 26)
+        ctx.strokeStyle = isLong ? '#00c087' : '#f6465d'
+        ctx.lineWidth = 1.5
+        ctx.strokeRect(badgeX, badgeY, 190, 26)
+
+        // Pill text
+        ctx.fillStyle = isLong ? '#00c087' : '#f6465d'
+        ctx.font = 'bold 9px monospace'
+        const dirText = isLong ? '▲ LONG ENTRY' : '▼ SHORT ENTRY'
+        ctx.fillText(dirText, badgeX + 6, badgeY + 11)
+
+        ctx.fillStyle = '#f0b90b'
+        ctx.fillText(`R:R 1:${sc.risk_reward_ratio}`, badgeX + 115, badgeY + 11)
+
+        ctx.fillStyle = '#94a3b8'
+        ctx.font = '8px sans-serif'
+        ctx.fillText(`Bobot: ${sc.confluence_weight}% | ${sc.status || 'VALID_ENTRY'}`, badgeX + 6, badgeY + 22)
+      })
+      }
     }
 
     // G. Render Manual Drawings

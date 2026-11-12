@@ -213,35 +213,84 @@ export const ConfluenceSidebar: React.FC<ConfluenceSidebarProps> = ({
             </div>
           </div>
 
-          {forecast.scenarios.map((sc, idx) => (
-            <div
-              key={idx}
-              className="bg-[#0d1117] p-3 rounded-lg border border-[#21262d] space-y-2 hover:border-[#384358] transition-colors"
-            >
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-white text-[11px]">{sc.name}</span>
-                <span className="font-mono font-bold text-[#f0b90b] text-[11px]">
-                  {sc.probability}% Prob
-                </span>
+          {/* Banner jika belum ada setup valid */}
+          {!forecast.scenarios.some(s => s.is_valid === true && (s.risk_reward_ratio || 0) >= 1.5 && s.status === 'VALID_ENTRY') && (
+            <div className="bg-[#141a24] p-2.5 rounded-lg border border-[#2b3548] space-y-1">
+              <div className="flex items-center text-amber-400 font-bold text-[11px]">
+                <ShieldAlert className="w-3.5 h-3.5 mr-1 text-amber-400" />
+                <span>Status: Wait & See (Belum Valid)</span>
               </div>
-
-              <div className="grid grid-cols-2 gap-2 text-[10px] font-mono">
-                <div className="bg-[#161b22] p-1.5 rounded">
-                  <span className="text-slate-500 block">Target (TP)</span>
-                  <span className="font-bold text-[#00c087]">${formatPrice(sc.target_price)}</span>
-                </div>
-                <div className="bg-[#161b22] p-1.5 rounded">
-                  <span className="text-slate-500 block">Invalidasi (SL)</span>
-                  <span className="font-bold text-[#f6465d]">${formatPrice(sc.invalidation_price)}</span>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-[#1c222e]">
-                <span>Risk:Reward Ratio</span>
-                <span className="font-mono font-bold text-white">1 : {sc.risk_reward_ratio}</span>
-              </div>
+              <p className="text-[10px] text-slate-400 leading-tight">
+                Box Entry tidak digambar pada chart karena belum ada setup yang memenuhi kriteria R:R ≥ 1:1.5 dan arah struktur SMC.
+              </p>
             </div>
-          ))}
+          )}
+
+          {forecast.scenarios.map((sc, idx) => {
+            const isLong = sc.direction === 'LONG' || sc.name.toLowerCase().includes('bullish')
+            return (
+              <div
+                key={idx}
+                className="bg-[#0d1117] p-3 rounded-lg border border-[#21262d] space-y-2 hover:border-[#384358] transition-colors"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-1.5 truncate max-w-[170px]">
+                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                      isLong 
+                        ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' 
+                        : 'bg-rose-950 text-rose-400 border border-rose-800'
+                    }`}>
+                      {isLong ? 'LONG' : 'SHORT'}
+                    </span>
+                    <span className="font-bold text-white text-[11px] truncate">{sc.name}</span>
+                  </div>
+                  <span className="font-mono font-bold text-[#f0b90b] text-[11px]">
+                    {sc.probability != null ? `${sc.probability}% Prob` : `Bobot: ${sc.confluence_weight}%`}
+                  </span>
+                </div>
+
+                {/* Entry Level & Zone */}
+                <div className="bg-[#131924] p-1.5 rounded border border-[#232b3b] flex items-center justify-between text-[10px]">
+                  <span className="text-slate-400 font-medium">Titik Entry:</span>
+                  <span className="font-mono font-bold text-sky-400">
+                    {sc.entry_price ? `$${formatPrice(sc.entry_price)}` : (currentPrice ? `$${formatPrice(currentPrice)}` : '-')}
+                    {sc.entry_zone_low && sc.entry_zone_high && (
+                      <span className="text-[9px] text-slate-400 font-normal ml-1">
+                        (${formatPrice(sc.entry_zone_low)} - ${formatPrice(sc.entry_zone_high)})
+                      </span>
+                    )}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-[10px] font-mono">
+                  <div className="bg-[#161b22] p-1.5 rounded">
+                    <span className="text-slate-500 block">Target (TP)</span>
+                    <span className="font-bold text-[#00c087]">${formatPrice(sc.target_price)}</span>
+                  </div>
+                  <div className="bg-[#161b22] p-1.5 rounded">
+                    <span className="text-slate-500 block">Invalidasi (SL)</span>
+                    <span className="font-bold text-[#f6465d]">${formatPrice(sc.invalidation_price)}</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-[#1c222e]">
+                  <span>Risk:Reward Ratio</span>
+                  <div className="flex items-center space-x-1.5">
+                    <span className="font-mono font-bold text-white">1 : {sc.risk_reward_ratio}</span>
+                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
+                      sc.is_valid
+                        ? 'bg-emerald-950 text-emerald-400 border-emerald-800'
+                        : sc.status === 'LOW_RR'
+                        ? 'bg-amber-950/80 text-amber-400 border-amber-800'
+                        : 'bg-slate-900 text-slate-400 border-slate-700'
+                    }`}>
+                      {sc.is_valid ? 'VALID ENTRY' : (sc.status || 'NO SETUP')}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
         </div>
       )}
     </aside>

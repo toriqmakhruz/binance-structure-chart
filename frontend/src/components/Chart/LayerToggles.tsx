@@ -8,7 +8,8 @@ import {
   Split, 
   Compass, 
   BarChart2, 
-  Clock 
+  Clock,
+  Target 
 } from 'lucide-react'
 
 interface LayerTogglesProps {
@@ -30,6 +31,7 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
     { key: 'patterns', label: 'Pola Chart', icon: <Shapes className="w-3.5 h-3.5" />, color: 'text-emerald-400' },
     { key: 'forecastCone', label: 'Forecast Cone', icon: <Compass className="w-3.5 h-3.5" />, color: 'text-yellow-400' },
     { key: 'forecastScenarios', label: 'Target Skenario', icon: <Compass className="w-3.5 h-3.5" />, color: 'text-orange-400' },
+    { key: 'entryBoxes', label: 'Box Area Entry', icon: <Target className="w-3.5 h-3.5" />, color: 'text-emerald-400' },
     { key: 'volume', label: 'Volume Delta', icon: <BarChart2 className="w-3.5 h-3.5" />, color: 'text-blue-400' },
   ]
 

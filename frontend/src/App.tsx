@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
-import { TopNavbar } from './components/Navigation/TopNavbar'
+import { TopNavbar, StreamStatusType } from './components/Navigation/TopNavbar'
 import { SymbolSelector } from './components/Navigation/SymbolSelector'
 import { DrawingToolbar } from './components/Chart/DrawingToolbar'
 import { LayerToggles } from './components/Chart/LayerToggles'
@@ -29,6 +29,7 @@ export function App() {
   const [candles, setCandles] = useState<Candle[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [isConnected, setIsConnected] = useState(false)
+  const [streamStatus, setStreamStatus] = useState<StreamStatusType>('OFFLINE')
 
   // Layer Visibility
   const [visibility, setVisibility] = useState<LayerVisibility>({
@@ -40,6 +41,7 @@ export function App() {
     srLevels: true,
     forecastCone: true,
     forecastScenarios: true,
+    entryBoxes: true,
     htfOverlay: true,
     volume: true
   })
@@ -105,7 +107,17 @@ export function App() {
     }
 
     const wsClient = new BinanceWsClient(symbol, timeframe, market, {
-      onStatusChange: (connected) => setIsConnected(connected),
+      onStatusChange: (connected) => {
+        setIsConnected(connected)
+        if (!connected) setStreamStatus('OFFLINE')
+      },
+      onUpstreamStatus: (status) => {
+        if (status === 'CONNECTED') setStreamStatus('LIVE')
+        else if (status === 'DATA_STALE') setStreamStatus('STALE')
+        else if (status === 'RECONNECTING') setStreamStatus('RECONNECTING')
+        else if (status === 'CONNECTING') setStreamStatus('CONNECTING')
+        else setStreamStatus('OFFLINE')
+      },
       onCandle: (liveCandle, isClosed, candleSym) => {
         // Discard any ticks from previous or mismatched pair
         if (candleSym.toUpperCase() !== activeSymbolRef.current) {
@@ -207,6 +219,7 @@ export function App() {
         market={market}
         layout={layout}
         isConnected={isConnected}
+        streamStatus={streamStatus}
         isLoading={isLoading}
         lastPrice={lastCandle?.close}
         onSymbolClick={() => setIsSymbolModalOpen(true)}
@@ -239,6 +252,8 @@ export function App() {
           <ChartContainer
             symbol={symbol}
             timeframe={timeframe}
+            market={market}
+            settings={settings}
             layout={layout}
             candles={candles}
             smc={analysis?.smc}

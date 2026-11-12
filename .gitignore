@@ -36,3 +36,11 @@ test_vps.py
 .idea/
 .DS_Store
 Thumbs.db
+
+# Pytest cache
+.pytest_cache/
+*/.pytest_cache/
+
+# Deploy artifacts
+deploy_to_vps.py
+binance_chart_deploy.tar.gz

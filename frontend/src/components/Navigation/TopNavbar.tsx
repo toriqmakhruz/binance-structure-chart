@@ -13,12 +13,15 @@ import {
 } from 'lucide-react'
 import { formatPrice } from '../../utils/formatters'
 
+export type StreamStatusType = 'LIVE' | 'CONNECTING' | 'RECONNECTING' | 'STALE' | 'OFFLINE'
+
 interface TopNavbarProps {
   symbol: string
   timeframe: string
   market: 'spot' | 'futures'
   layout: 'single' | 'split-vertical' | 'split-horizontal' | 'grid-4'
   isConnected: boolean
+  streamStatus?: StreamStatusType
   isLoading: boolean
   lastPrice?: number
   onSymbolClick: () => void
@@ -37,6 +40,7 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
   market,
   layout,
   isConnected,
+  streamStatus = 'OFFLINE',
   isLoading,
   lastPrice,
   onSymbolClick,
@@ -46,6 +50,48 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
   onRefresh,
   onOpenSettings
 }) => {
+  const getBadgeConfig = () => {
+    switch (streamStatus) {
+      case 'LIVE':
+        return {
+          title: 'Binance WebSocket Terhubung & Real-time Live',
+          className: 'bg-emerald-950/60 text-emerald-400 border border-emerald-800/50',
+          dot: 'bg-emerald-400 animate-pulse',
+          label: 'LIVE'
+        }
+      case 'STALE':
+        return {
+          title: 'DATA STALE: Tidak ada tick baru dari Binance dalam 45 detik',
+          className: 'bg-amber-950/60 text-amber-400 border border-amber-800/50',
+          dot: 'bg-amber-400',
+          label: 'STALE'
+        }
+      case 'RECONNECTING':
+        return {
+          title: 'Upstream terputus, mencoba menghubungkan ulang...',
+          className: 'bg-yellow-950/60 text-yellow-300 border border-yellow-800/50',
+          dot: 'bg-yellow-400 animate-ping',
+          label: 'RECONNECTING'
+        }
+      case 'CONNECTING':
+        return {
+          title: 'Menghubungkan ke upstream Binance...',
+          className: 'bg-blue-950/60 text-blue-300 border border-blue-800/50',
+          dot: 'bg-blue-400 animate-pulse',
+          label: 'CONNECTING'
+        }
+      default:
+        return {
+          title: 'WebSocket Terputus',
+          className: 'bg-rose-950/60 text-rose-400 border border-rose-800/50',
+          dot: 'bg-rose-400',
+          label: 'OFFLINE'
+        }
+    }
+  }
+
+  const badge = getBadgeConfig()
+
   return (
     <header className="h-14 bg-[#111620] border-b border-[#21262d] flex items-center justify-between px-3 z-30 select-none">
       {/* Left: Branding & Symbol Search */}
@@ -152,22 +198,11 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
 
         {/* Live WS Status Badge */}
         <div 
-          title={isConnected ? "Binance WebSocket Terhubung (Real-time)" : "WebSocket Terputus"}
-          className={`flex items-center space-x-1 px-2 py-1 rounded-md text-xs font-mono font-medium ${
-            isConnected ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-800/50' : 'bg-rose-950/60 text-rose-400 border border-rose-800/50'
-          }`}
+          title={badge.title}
+          className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-xs font-mono font-medium ${badge.className}`}
         >
-          {isConnected ? (
-            <>
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-              <span className="hidden xl:inline">LIVE</span>
-            </>
-          ) : (
-            <>
-              <span className="w-2 h-2 rounded-full bg-rose-400"></span>
-              <span className="hidden xl:inline">OFFLINE</span>
-            </>
-          )}
+          <span className={`w-2 h-2 rounded-full ${badge.dot}`}></span>
+          <span className="hidden xl:inline">{badge.label}</span>
         </div>
 
         {/* Refresh / Re-analyze Button */}

@@ -1,5 +1,5 @@
 import numpy as np
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from ..models.schemas import Candle, MovementMetrics, SmcAnalysisResult, PatternAnalysisResult
 from .utils import dynamic_round
 
@@ -15,7 +15,7 @@ class MovementEngine:
         patterns: Optional[PatternAnalysisResult] = None
     ) -> MovementMetrics:
         n = len(candles)
-        if n < self.rsi_period + 5:
+        if n < self.rsi_period + 1:
             return MovementMetrics(
                 volatility_atr=0.0,
                 volatility_atr_pct=0.0,
@@ -39,7 +39,7 @@ class MovementEngine:
         # 1. ATR & Volatility Status
         atr, atr_pct, vol_status = self._calculate_atr_and_volatility(highs, lows, closes)
 
-        # 2. RSI & Divergence
+        # 2. RSI & Divergence with Edge Case Safety
         rsi, rsi_cond = self._calculate_rsi(closes)
 
         # 3. Trend Direction from EMAs
@@ -74,7 +74,7 @@ class MovementEngine:
 
     def _calculate_atr_and_volatility(
         self, highs: np.ndarray, lows: np.ndarray, closes: np.ndarray
-    ) -> tuple[float, float, str]:
+    ) -> Tuple[float, float, str]:
         n = len(closes)
         tr = np.zeros(n)
         tr[0] = highs[0] - lows[0]
@@ -85,18 +85,17 @@ class MovementEngine:
                 abs(lows[i] - closes[i - 1])
             )
 
-        # Simple moving average for ATR
-        atr = float(np.mean(tr[-self.atr_period:]))
+        period = min(self.atr_period, n)
+        atr = float(np.mean(tr[-period:])) if period > 0 else 0.0
         atr_pct = float((atr / closes[-1]) * 100) if closes[-1] > 0 else 0.0
 
         # Bollinger Bandwidth for Squeeze detection
-        period = min(20, n)
-        recent_closes = closes[-period:]
+        period_bb = min(20, n)
+        recent_closes = closes[-period_bb:]
         sma = np.mean(recent_closes)
         std = np.std(recent_closes)
         bandwidth = (4 * std) / sma if sma > 0 else 0
 
-        # Check bandwidth squeeze
         if bandwidth < 0.015:
             vol_status = "SQUEEZE"
         elif bandwidth > 0.045:
@@ -106,14 +105,33 @@ class MovementEngine:
 
         return atr, atr_pct, vol_status
 
-    def _calculate_rsi(self, closes: np.ndarray) -> tuple[float, str]:
+    def _calculate_rsi(self, closes: np.ndarray) -> Tuple[float, str]:
+        """
+        RSI calculation with strict edge case handling (Audit Section 4.2):
+        - When all price changes are positive (down == 0): RSI is 100.0 (NOT 50.0).
+        - When all price changes are negative (up == 0): RSI is 0.0.
+        - When price is strictly flat (up == 0 and down == 0): RSI is 50.0 (Neutral).
+        """
+        if len(closes) < self.rsi_period + 1:
+            return 50.0, "NEUTRAL"
+
         deltas = np.diff(closes)
         seed = deltas[:self.rsi_period]
-        up = seed[seed >= 0].sum() / self.rsi_period
-        down = -seed[seed < 0].sum() / self.rsi_period
-        rs = up / down if down != 0 else 1.0
+        up = float(seed[seed > 0].sum() / self.rsi_period)
+        down = float(-seed[seed < 0].sum() / self.rsi_period)
+
+        def compute_rsi_point(u: float, d: float) -> float:
+            if d == 0.0 and u == 0.0:
+                return 50.0
+            if d == 0.0:
+                return 100.0
+            if u == 0.0:
+                return 0.0
+            rs = u / d
+            return 100.0 - (100.0 / (1.0 + rs))
+
         rsi_series = np.zeros_like(closes)
-        rsi_series[:self.rsi_period] = 100.0 - 100.0 / (1.0 + rs)
+        rsi_series[:self.rsi_period] = compute_rsi_point(up, down)
 
         up_val = up
         down_val = down
@@ -122,12 +140,14 @@ class MovementEngine:
             if delta > 0:
                 up_val = (up_val * (self.rsi_period - 1) + delta) / self.rsi_period
                 down_val = (down_val * (self.rsi_period - 1)) / self.rsi_period
-            else:
+            elif delta < 0:
                 up_val = (up_val * (self.rsi_period - 1)) / self.rsi_period
                 down_val = (down_val * (self.rsi_period - 1) - delta) / self.rsi_period
+            else:
+                up_val = (up_val * (self.rsi_period - 1)) / self.rsi_period
+                down_val = (down_val * (self.rsi_period - 1)) / self.rsi_period
 
-            rs = up_val / down_val if down_val != 0 else 1.0
-            rsi_series[i + 1] = 100.0 - 100.0 / (1.0 + rs)
+            rsi_series[i + 1] = compute_rsi_point(up_val, down_val)
 
         current_rsi = float(rsi_series[-1])
 
@@ -136,10 +156,9 @@ class MovementEngine:
         elif current_rsi <= 30:
             cond = "OVERSOLD"
         else:
-            # Check for divergence in last 15 candles
-            if closes[-1] < closes[-10] and rsi_series[-1] > rsi_series[-10]:
+            if len(closes) >= 11 and closes[-1] < closes[-10] and rsi_series[-1] > rsi_series[-10]:
                 cond = "BULLISH_DIV"
-            elif closes[-1] > closes[-10] and rsi_series[-1] < rsi_series[-10]:
+            elif len(closes) >= 11 and closes[-1] > closes[-10] and rsi_series[-1] < rsi_series[-10]:
                 cond = "BEARISH_DIV"
             else:
                 cond = "NEUTRAL"
@@ -148,7 +167,9 @@ class MovementEngine:
 
     def _calculate_trend_direction(self, closes: np.ndarray) -> str:
         n = len(closes)
-        # EMA 20 & EMA 50
+        if n < 2:
+            return "NEUTRAL"
+
         def calc_ema(arr, span):
             alpha = 2 / (span + 1)
             ema = [arr[0]]
@@ -176,10 +197,9 @@ class MovementEngine:
 
     def _calculate_volume_delta(
         self, volumes: np.ndarray, buy_volumes: np.ndarray
-    ) -> tuple[float, float]:
-        # Recent 5 candles volume sum
-        recent_v = np.sum(volumes[-5:])
-        recent_buy = np.sum(buy_volumes[-5:])
+    ) -> Tuple[float, float]:
+        recent_v = np.sum(volumes[-5:]) if len(volumes) >= 5 else np.sum(volumes)
+        recent_buy = np.sum(buy_volumes[-5:]) if len(buy_volumes) >= 5 else np.sum(buy_volumes)
         recent_sell = recent_v - recent_buy
 
         delta = float(recent_buy - recent_sell)
@@ -194,12 +214,10 @@ class MovementEngine:
         vol_ratio: float,
         smc: Optional[SmcAnalysisResult],
         patterns: Optional[PatternAnalysisResult]
-    ) -> tuple[float, str, str]:
-        # Base neutral score: 50
+    ) -> Tuple[float, str, str]:
         score = 50.0
         reasons = []
 
-        # 1. Trend (max +/- 25)
         if trend_dir == "STRONG_BULLISH":
             score += 25
             reasons.append("Tren kuat di atas EMA 20 & 50")
@@ -213,7 +231,6 @@ class MovementEngine:
             score -= 15
             reasons.append("Harga di bawah EMA 20")
 
-        # 2. SMC Structure (max +/- 25)
         if smc:
             if smc.current_trend == "BULLISH":
                 score += 20
@@ -222,7 +239,6 @@ class MovementEngine:
                 score -= 20
                 reasons.append("Struktur pasar SMC membentuk lower high/low")
 
-            # Recent events
             if smc.events:
                 last_event = smc.events[-1]
                 if last_event.direction == "BULLISH":
@@ -232,7 +248,6 @@ class MovementEngine:
                     score -= 5
                     reasons.append(f"Terjadi Bearish {last_event.type}")
 
-        # 3. Volume Delta Pressure (max +/- 15)
         if vol_ratio > 0.60:
             score += 15
             reasons.append("Dominasi volume beli agresif (>60%)")
@@ -244,7 +259,6 @@ class MovementEngine:
         elif vol_ratio < 0.48:
             score -= 8
 
-        # 4. RSI & Divergence (max +/- 15)
         if rsi_cond == "BULLISH_DIV":
             score += 15
             reasons.append("Terdeteksi Bullish Divergence pada RSI")
@@ -252,13 +266,12 @@ class MovementEngine:
             score -= 15
             reasons.append("Terdeteksi Bearish Divergence pada RSI")
         elif rsi < 30:
-            score += 10 # Oversold bounce potential
+            score += 10
             reasons.append("RSI Oversold (potensi pullback naik)")
         elif rsi > 70:
-            score -= 10 # Overbought
+            score -= 10
             reasons.append("RSI Overbought (potensi koreksi turun)")
 
-        # 5. Patterns (max +/- 10)
         if patterns and patterns.patterns:
             last_p = patterns.patterns[-1]
             if last_p.type == "BULLISH":
@@ -268,7 +281,6 @@ class MovementEngine:
                 score -= 10
                 reasons.append(f"Pola {last_p.name} aktif (Bearish)")
 
-        # Clamp score between 0 and 100
         final_score = max(5.0, min(95.0, score))
 
         if final_score >= 75:
