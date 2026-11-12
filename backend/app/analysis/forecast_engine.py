@@ -173,7 +173,8 @@ class ForecastEngine:
                        (p_dir == "SHORT" and (is_bullish_bos or current_trend == "BULLISH")):
                         continue
 
-                    breakout_time = p.key_points[-1].time if p.key_points else last_time
+                    last_kp = p.key_points[-1] if p.key_points else {}
+                    breakout_time = last_kp.get("time", last_time) if isinstance(last_kp, dict) else getattr(last_kp, "time", last_time)
                     k_idx = next((i for i, c in enumerate(candles) if c.time >= breakout_time), len(candles) - 1)
                     entry_p = dynamic_round(candles[k_idx].close)
                     sl = dynamic_round(p.stop_loss)
