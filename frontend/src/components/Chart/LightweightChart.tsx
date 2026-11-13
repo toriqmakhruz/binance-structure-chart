@@ -271,40 +271,8 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
       }
     }
 
-    // Markers for Swings and BOS/CHoCH with strict deduplication and time ordering
-    const markerMap = new Map<string, SeriesMarker<Time>>()
-
-    if (smc && visibility.smcSwings) {
-      smc.swings.forEach((s) => {
-        const isHigh = s.type === 'HH' || s.type === 'LH' || s.type === 'H'
-        const key = `${s.time}_swing`
-        markerMap.set(key, {
-          time: s.time as Time,
-          position: isHigh ? 'aboveBar' : 'belowBar',
-          color: isHigh ? '#a855f7' : '#3b82f6',
-          shape: isHigh ? 'arrowDown' : 'arrowUp',
-          text: s.type,
-          size: 1
-        })
-      })
-    }
-
-    if (smc && visibility.smcEvents) {
-      smc.events.forEach((ev) => {
-        const key = `${ev.break_time}_event`
-        markerMap.set(key, {
-          time: ev.break_time as Time,
-          position: ev.direction === 'BULLISH' ? 'aboveBar' : 'belowBar',
-          color: ev.type === 'CHoCH' ? '#ec4899' : '#f59e0b',
-          shape: 'circle',
-          text: `${ev.type} (${ev.direction[0]})`,
-          size: 1
-        })
-      })
-    }
-
-    const sortedMarkers = Array.from(markerMap.values()).sort((a, b) => Number(a.time) - Number(b.time))
-    candleSeriesRef.current.setMarkers(sortedMarkers)
+    // Markers: Swings and BOS/CHoCH are now rendered on high-fidelity Canvas overlay
+    candleSeriesRef.current.setMarkers([])
 
     redrawCanvasRef.current()
   }, [candles, smc, visibility, symbol, timeframe, focusRecentBars])
@@ -388,7 +356,158 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
       })
     }
 
-    // B. Order Blocks (OB)
+    // B1. SMC Liquidity Pools (EQH & EQL - Dotted Lines)
+    if (smc && visibility.smcEvents && smc.liquidity_pools) {
+      smc.liquidity_pools.forEach((lp) => {
+        if (!lp.times || lp.times.length < 2) return
+        const t1 = lp.times[0]
+        const t2 = lp.times[lp.times.length - 1]
+        const p1 = resolveCoord(t1, lp.price)
+        const p2 = resolveCoord(t2, lp.price)
+        const y = series.priceToCoordinate(lp.price)
+        if (!p1 || !p2 || y === null) return
+
+        const isEqh = lp.type === 'EQH'
+        const color = isEqh ? '#f6465d' : '#00c087'
+
+        ctx.save()
+        ctx.beginPath()
+        ctx.setLineDash([2, 3])
+        ctx.strokeStyle = color
+        ctx.lineWidth = 1.2
+        ctx.moveTo(p1.x, y)
+        ctx.lineTo(p2.x, y)
+        ctx.stroke()
+        ctx.setLineDash([])
+
+        ctx.font = 'bold 9px Inter, monospace'
+        ctx.fillStyle = color
+        const midX = (p1.x + p2.x) / 2
+        ctx.fillText(lp.type, midX - 10, isEqh ? y - 5 : y + 12)
+        ctx.restore()
+      })
+    }
+
+    // B2. SMC Market Structure (BOS & CHoCH Horizontal Lines with Centered Badge)
+    if (smc && visibility.smcEvents && smc.events) {
+      smc.events.forEach((ev) => {
+        const pStart = resolveCoord(ev.level_time, ev.level_price)
+        const pBreak = resolveCoord(ev.break_time, ev.break_price)
+        const yLevel = series.priceToCoordinate(ev.level_price)
+        if (!pStart || !pBreak || yLevel === null) return
+
+        const startX = pStart.x
+        const endX = pBreak.x
+        if (endX < 0 || startX > width - 65 || endX <= startX) return
+
+        const isBull = ev.direction === 'BULLISH'
+        const isChoch = ev.type === 'CHoCH'
+        const color = isBull ? '#00c087' : '#f6465d'
+
+        ctx.save()
+
+        // 1. If CHoCH, render subtle vertical dashed line at reversal pivot candle
+        if (isChoch) {
+          let pivotTime = ev.level_time
+          if (smc.swings && smc.swings.length > 0) {
+            const candidates = smc.swings.filter(s => s.time >= ev.level_time && s.time <= ev.break_time)
+            if (candidates.length > 0) {
+              if (isBull) {
+                const minLow = candidates.reduce((prev, curr) => curr.price < prev.price ? curr : prev)
+                pivotTime = minLow.time
+              } else {
+                const maxHigh = candidates.reduce((prev, curr) => curr.price > prev.price ? curr : prev)
+                pivotTime = maxHigh.time
+              }
+            }
+          }
+          const pPivot = resolveCoord(pivotTime, ev.level_price)
+          if (pPivot && pPivot.x >= 0 && pPivot.x <= width - 65) {
+            ctx.beginPath()
+            ctx.setLineDash([4, 4])
+            ctx.strokeStyle = 'rgba(148, 163, 184, 0.4)'
+            ctx.lineWidth = 1
+            ctx.moveTo(pPivot.x, 0)
+            ctx.lineTo(pPivot.x, height - 26)
+            ctx.stroke()
+            ctx.setLineDash([])
+          }
+        }
+
+        // 2. Horizontal Structure Line (Solid for CHoCH, Dashed for BOS)
+        ctx.beginPath()
+        ctx.strokeStyle = color
+        ctx.lineWidth = isChoch ? 1.5 : 1.2
+        ctx.setLineDash(isChoch ? [] : [5, 4])
+        ctx.moveTo(startX, yLevel)
+        ctx.lineTo(endX, yLevel)
+        ctx.stroke()
+        ctx.setLineDash([])
+
+        // 3. Vertical Step Connector at Breakout Candle
+        const yBreak = series.priceToCoordinate(ev.break_price)
+        if (yBreak !== null && Math.abs(yBreak - yLevel) > 2) {
+          ctx.beginPath()
+          ctx.strokeStyle = color
+          ctx.lineWidth = 1.2
+          ctx.setLineDash([3, 3])
+          ctx.moveTo(endX, yLevel)
+          ctx.lineTo(endX, yBreak)
+          ctx.stroke()
+          ctx.setLineDash([])
+        }
+
+        // 4. Centered Label (BOS / CHoCH)
+        const labelText = ev.type
+        ctx.font = isChoch ? 'bold 11px Inter, monospace' : 'bold 10px Inter, monospace'
+        const textMetrics = ctx.measureText(labelText)
+        const textW = textMetrics.width
+        const midX = (startX + endX) / 2
+        const padX = isChoch ? 6 : 5
+        const pillW = textW + padX * 2
+        const pillH = isChoch ? 16 : 14
+        const pillX = midX - pillW / 2
+        const pillY = isBull ? yLevel - pillH - 3 : yLevel + 3
+
+        // Draw pill background for clean readability over candles
+        ctx.fillStyle = 'rgba(11, 14, 20, 0.9)'
+        ctx.strokeStyle = color
+        ctx.lineWidth = 1
+        ctx.beginPath()
+        if (typeof (ctx as any).roundRect === 'function') {
+          (ctx as any).roundRect(pillX, pillY, pillW, pillH, 3)
+        } else {
+          ctx.rect(pillX, pillY, pillW, pillH)
+        }
+        ctx.fill()
+        ctx.stroke()
+
+        // Text inside badge
+        ctx.fillStyle = color
+        ctx.fillText(labelText, pillX + padX, pillY + (isChoch ? 12 : 11))
+
+        ctx.restore()
+      })
+    }
+
+    // B3. SMC Swings (Clean Text Labels: HH, HL, LH, LL)
+    if (smc && visibility.smcSwings && smc.swings) {
+      smc.swings.forEach((s) => {
+        const c = resolveCoord(s.time, s.price)
+        if (!c || c.x < 0 || c.x > width - 65) return
+        const isHigh = s.type === 'HH' || s.type === 'LH' || s.type === 'H'
+        const color = isHigh ? '#f6465d' : '#00c087'
+
+        ctx.save()
+        ctx.font = 'bold 9px Inter, monospace'
+        ctx.fillStyle = color
+        const w = ctx.measureText(s.type).width
+        ctx.fillText(s.type, c.x - w / 2, isHigh ? c.y - 7 : c.y + 14)
+        ctx.restore()
+      })
+    }
+
+    // B4. Order Blocks (OB)
     if (smc && visibility.orderBlocks) {
       smc.order_blocks.forEach((ob) => {
         const pStart = resolveCoord(ob.start_time, ob.top)
