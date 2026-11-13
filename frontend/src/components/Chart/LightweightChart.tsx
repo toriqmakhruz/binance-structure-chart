@@ -17,6 +17,7 @@ import {
   DrawingItem
 } from '../../types/analysis'
 import { formatPrice, getPricePrecision } from '../../utils/formatters'
+import { Crosshair } from 'lucide-react'
 
 interface LightweightChartProps {
   symbol: string
@@ -55,7 +56,22 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
 
   // Ref to always hold the latest redrawCanvas function (avoids stale closures during pan/scroll)
   const redrawCanvasRef = useRef<() => void>(() => {})
-  const lastSymbolRef = useRef<string>(symbol)
+  const lastViewKeyRef = useRef<string>('')
+
+  // Snap directly to the front (recent ~75 candles + right margin for active setup box)
+  const focusRecentBars = useCallback((totalCandles: number) => {
+    if (!chartRef.current || totalCandles <= 0) return
+    const barsToShow = Math.min(totalCandles, 75)
+    const rightMarginBars = 16
+    chartRef.current.timeScale().applyOptions({
+      rightOffset: rightMarginBars
+    })
+    chartRef.current.timeScale().setVisibleLogicalRange({
+      from: Math.max(0, totalCandles - barsToShow),
+      to: totalCandles + rightMarginBars - 1
+    })
+    chartRef.current.priceScale('right').applyOptions({ autoScale: true })
+  }, [])
 
   // Drawing state
   const [isDrawing, setIsDrawing] = useState(false)
@@ -153,17 +169,18 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     }
   }, [])
 
-  // 2. Auto-Fit Chart Scale when Symbol changes
+  // 2. On Symbol / Timeframe change or initial load: auto-focus on point to latest price
   useEffect(() => {
     if (candles.length > 0 && chartRef.current) {
-      if (lastSymbolRef.current !== symbol) {
-        lastSymbolRef.current = symbol
-        // Reset scale and auto-fit view for the new symbol
-        chartRef.current.timeScale().fitContent()
-        chartRef.current.priceScale('right').applyOptions({ autoScale: true })
+      const currentKey = `${symbol}_${timeframe}`
+      if (lastViewKeyRef.current !== currentKey) {
+        lastViewKeyRef.current = currentKey
+        requestAnimationFrame(() => {
+          focusRecentBars(candles.length)
+        })
       }
     }
-  }, [symbol, candles])
+  }, [symbol, timeframe, candles, focusRecentBars])
 
   // 3. Update Candle & Volume Data with Dynamic Price Precision
   useEffect(() => {
@@ -1045,7 +1062,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
 
   return (
     <div 
-      className="relative w-full h-full overflow-hidden select-none"
+      className="relative w-full h-full overflow-hidden select-none group"
       onWheel={handleInteraction}
       onMouseMove={handleInteraction}
     >
@@ -1059,6 +1076,19 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
           activeTool !== 'cursor' ? 'cursor-crosshair pointer-events-auto' : 'pointer-events-none'
         }`}
       />
+
+      {/* Floating Action: Snap View On Point to the latest price & setup */}
+      {candles.length > 0 && (
+        <button
+          type="button"
+          onClick={() => focusRecentBars(candles.length)}
+          title="Fokus ke harga terbaru & area setup (On Point)"
+          className="absolute bottom-8 right-16 z-20 flex items-center space-x-1.5 px-2 py-1 rounded bg-[#161b22]/90 hover:bg-[#1f2634] border border-[#30363d] hover:border-[#f0b90b]/60 text-slate-300 hover:text-[#f0b90b] text-[10px] font-mono font-semibold shadow-lg backdrop-blur-sm transition-all"
+        >
+          <Crosshair className="w-3 h-3 text-[#f0b90b]" />
+          <span>On Point</span>
+        </button>
+      )}
     </div>
   )
 }
