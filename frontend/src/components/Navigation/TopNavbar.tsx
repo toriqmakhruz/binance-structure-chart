@@ -36,6 +36,8 @@ interface TopNavbarProps {
   onRefresh: () => void
   onOpenSettings: () => void
   onOpenTrade?: (setup: any) => void
+  isSetupLocked?: boolean
+  onUnlockSetup?: () => void
 }
 
 const TIMEFRAMES = ['1m', '3m', '5m', '15m', '30m', '1h', '4h', '1d']
@@ -58,7 +60,9 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
   onLayoutChange,
   onRefresh,
   onOpenSettings,
-  onOpenTrade
+  onOpenTrade,
+  isSetupLocked = false,
+  onUnlockSetup
 }) => {
   const getBadgeConfig = () => {
     switch (streamStatus) {
@@ -154,21 +158,39 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
           )}
         </button>
 
-        {/* Quick Open Position Button when active valid setup exists */}
-        {activeSetup && onOpenTrade && (
-          <button
-            type="button"
-            onClick={() => onOpenTrade(activeSetup)}
-            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg font-bold text-xs shadow-md transition-all ${
-              activeSetup.direction === 'LONG'
-                ? 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-emerald-950/40'
-                : 'bg-rose-500 hover:bg-rose-400 text-white shadow-rose-950/40'
-            }`}
-            title={`Buka Posisi ${activeSetup.direction} untuk setup aktif ini`}
-          >
-            <Zap className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Open Posisi</span>
-          </button>
+        {/* Quick Open Position Button or Locked Active Setup Indicator */}
+        {isSetupLocked ? (
+          <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold">
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping shrink-0" />
+            <span className="hidden sm:inline">Box Terkunci (Posisi Aktif)</span>
+            <span className="sm:hidden font-mono text-[10px]">LOCKED</span>
+            {onUnlockSetup && (
+              <button
+                type="button"
+                onClick={onUnlockSetup}
+                title="Lepas Kunci Setup (Kembali ke Analisa Dinamis)"
+                className="ml-1 px-1 py-0.5 hover:bg-amber-400/20 rounded text-amber-400 text-[10px] font-bold transition-colors"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        ) : (
+          activeSetup && onOpenTrade && (
+            <button
+              type="button"
+              onClick={() => onOpenTrade(activeSetup)}
+              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg font-bold text-xs shadow-md transition-all ${
+                activeSetup.direction === 'LONG'
+                  ? 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-emerald-950/40'
+                  : 'bg-rose-500 hover:bg-rose-400 text-white shadow-rose-950/40'
+              }`}
+              title={`Buka Posisi ${activeSetup.direction} untuk setup aktif ini`}
+            >
+              <Zap className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Open Posisi</span>
+            </button>
+          )
         )}
       </div>
 

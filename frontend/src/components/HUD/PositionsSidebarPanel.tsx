@@ -18,6 +18,7 @@ interface PositionsSidebarPanelProps {
   market: 'spot' | 'futures'
   onSelectSymbol: (symbol: string) => void
   onOpenTradeModal?: () => void
+  onPositionClosed?: (symbol: string) => void
 }
 
 function getStoredCredentials() {
@@ -32,7 +33,8 @@ export const PositionsSidebarPanel: React.FC<PositionsSidebarPanelProps> = ({
   currentSymbol,
   market,
   onSelectSymbol,
-  onOpenTradeModal
+  onOpenTradeModal,
+  onPositionClosed
 }) => {
   const [mode, setMode] = useState<TradeAccountMode>(() => {
     try {
@@ -97,6 +99,7 @@ export const PositionsSidebarPanel: React.FC<PositionsSidebarPanelProps> = ({
     try {
       const res = await closeTradePosition(sym, market, mode, apiKey, apiSecret)
       if (res.success) {
+        onPositionClosed?.(sym)
         loadData(true)
       } else {
         alert(res.message || 'Gagal menutup posisi')

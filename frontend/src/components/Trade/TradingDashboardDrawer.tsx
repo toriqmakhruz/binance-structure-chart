@@ -35,6 +35,7 @@ interface TradingDashboardDrawerProps {
   currentSymbol: string
   onSelectSymbol: (symbol: string) => void
   refreshTrigger?: number
+  onPositionClosed?: (symbol: string) => void
 }
 
 function getStoredCredentials() {
@@ -51,7 +52,8 @@ export const TradingDashboardDrawer: React.FC<TradingDashboardDrawerProps> = ({
   market,
   currentSymbol,
   onSelectSymbol,
-  refreshTrigger = 0
+  refreshTrigger = 0,
+  onPositionClosed
 }) => {
   const [activeTab, setActiveTab] = useState<'positions' | 'orders'>('positions')
   const [mode, setMode] = useState<TradeAccountMode>(() => {
@@ -125,6 +127,7 @@ export const TradingDashboardDrawer: React.FC<TradingDashboardDrawerProps> = ({
       const res = await closeTradePosition(sym, market, mode, apiKey, apiSecret)
       if (res.success) {
         setStatusNotice(`Posisi ${sym} berhasil ditutup!`)
+        onPositionClosed?.(sym)
         loadData(true)
         setTimeout(() => setStatusNotice(null), 3000)
       } else {

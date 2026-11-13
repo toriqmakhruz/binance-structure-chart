@@ -121,6 +121,7 @@ export interface ForecastPoint {
 }
 
 export interface ForecastScenario {
+  id?: string
   name: string
   direction?: 'LONG' | 'SHORT'
   entry_price?: number
@@ -333,5 +334,24 @@ export interface TradeOrderItem {
   time: number
   is_simulated?: boolean
 }
+
+export interface LockedTradeSetup {
+  symbol: string
+  market: 'spot' | 'futures'
+  mode?: TradeAccountMode
+  direction: 'LONG' | 'SHORT'
+  name: string
+  entry_price: number
+  invalidation_price: number
+  target_price: number
+  risk_reward_ratio: number
+  confluence_score?: number
+  order_id?: number | string
+  leverage?: number
+  entry_time: number
+  status: 'ACTIVE'
+  created_at: number
+}
+
 
 

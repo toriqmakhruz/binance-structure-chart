@@ -806,6 +806,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
       // If no valid setup exists, DRAW NOTHING! (Do not force an entry box!)
       if (validSetups.length > 0) {
         validSetups.slice(0, 1).forEach((sc) => {
+        const isLocked = Boolean(sc.id?.startsWith('locked_') || sc.name?.includes('[POSISI AKTIF]'))
         const isLong = sc.direction === 'LONG' || sc.name.toLowerCase().includes('bullish')
         const currentCandle = candles.length > 0 ? candles[candles.length - 1] : null
         const entryPrice = sc.entry_price || (currentCandle ? currentCandle.close : 0)
@@ -815,9 +816,9 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         const invalidationPrice = sc.invalidation_price
         const startTime = sc.entry_time || (currentCandle ? currentCandle.time : 0)
 
-        // Live Invalidation Check:
-        // Jika candle live saat ini telah menembus SL, box langsung terinvalidasi & tidak digambar
-        if (currentCandle) {
+        // Live Invalidation Check for uncommitted setup forecasts:
+        // (Jika bukan posisi aktif terkunci, candle yang menembus SL akan menghapus box)
+        if (!isLocked && currentCandle) {
           if (isLong && currentCandle.low <= invalidationPrice) return
           if (!isLong && currentCandle.high >= invalidationPrice) return
         }
@@ -907,7 +908,20 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         // Entry Level Label
         ctx.fillStyle = '#38bdf8'
         ctx.font = 'bold 10px monospace'
-        ctx.fillText(`ENTRY: $${formatPrice(entryPrice)} (R:R 1:${sc.risk_reward_ratio})`, startX + 8, yEntry - 4)
+        const entryText = isLocked
+          ? `🔒 POSISI AKTIF: $${formatPrice(entryPrice)} (R:R 1:${sc.risk_reward_ratio})`
+          : `ENTRY: $${formatPrice(entryPrice)} (R:R 1:${sc.risk_reward_ratio})`
+        ctx.fillText(entryText, startX + 8, yEntry - 4)
+
+        // If locked position, render status banner above the entry line
+        if (isLocked) {
+          ctx.fillStyle = isLong ? 'rgba(0, 192, 135, 0.92)' : 'rgba(246, 70, 93, 0.92)'
+          const bannerY = isLong ? Math.max(tpY + 2, yEntry - 22) : Math.min(slY + slHeight - 16, yEntry + 8)
+          ctx.fillRect(startX + 8, bannerY, 155, 14)
+          ctx.fillStyle = '#0b0e14'
+          ctx.font = 'bold 9px sans-serif'
+          ctx.fillText(`● POSISI AKTIF (${isLong ? 'BUY' : 'SELL'})`, startX + 14, bannerY + 10)
+        }
       })
       }
     }

@@ -17,7 +17,10 @@ import {
   LayerVisibility,
   DrawingToolType,
   DrawingItem,
-  AppSettings
+  AppSettings,
+  LockedTradeSetup,
+  ForecastScenario,
+  ForecastResult
 } from './types/analysis'
 
 const DEFAULT_VISIBILITY: LayerVisibility = {
@@ -135,6 +138,43 @@ export function App() {
   const removeToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id))
   }, [])
+
+  // Locked Trade Setups: Box Setup terkunci untuk posisi aktif / open order (tidak boleh berubah sampai close/TP/SL)
+  const [lockedSetups, setLockedSetups] = useState<Record<string, LockedTradeSetup>>(() =>
+    readStoredJson<Record<string, LockedTradeSetup>>('cp_locked_trade_setups', {})
+  )
+
+  useEffect(() => {
+    writeStorage('cp_locked_trade_setups', lockedSetups)
+  }, [lockedSetups])
+
+  const lockSetup = useCallback((setup: LockedTradeSetup) => {
+    const symKey = setup.symbol.toUpperCase()
+    setLockedSetups((prev) => {
+      const next = { ...prev, [symKey]: setup }
+      writeStorage('cp_locked_trade_setups', next)
+      return next
+    })
+  }, [])
+
+  const unlockSetup = useCallback((sym: string, notifyReason?: string) => {
+    const symKey = sym.toUpperCase()
+    setLockedSetups((prev) => {
+      if (!prev[symKey]) return prev
+      const next = { ...prev }
+      delete next[symKey]
+      writeStorage('cp_locked_trade_setups', next)
+      return next
+    })
+    if (notifyReason) {
+      addToast({
+        type: 'info',
+        title: `Kunci Setup Dilepas (${symKey})`,
+        message: notifyReason,
+        duration: 4000
+      })
+    }
+  }, [addToast])
 
   const wsClientRef = useRef<BinanceWsClient | null>(null)
   const activeSymbolRef = useRef(symbol)
@@ -285,12 +325,51 @@ export function App() {
 
   const lastCandle = candles.length > 0 ? candles[candles.length - 1] : undefined
 
-  // Active chart setup if valid
+  // Current symbol active locked trade setup (if any)
+  const currentLockedSetup = lockedSetups[symbol.toUpperCase()]
+
+  // Effective Forecast: When trade is active/open, setup box is LOCKED and immune to background recalculation
+  const effectiveForecast: ForecastResult | undefined = useMemo(() => {
+    if (!currentLockedSetup) return analysis?.forecast || undefined
+
+    const lockedScenario: ForecastScenario = {
+      id: `locked_${currentLockedSetup.symbol}`,
+      name: `${currentLockedSetup.name || 'Setup Posisi Aktif'} [POSISI AKTIF]`,
+      direction: currentLockedSetup.direction,
+      status: 'VALID_ENTRY',
+      is_valid: true,
+      probability: 0.99,
+      confluence_weight: currentLockedSetup.confluence_score || 90,
+      risk_reward_ratio: currentLockedSetup.risk_reward_ratio || 2.0,
+      entry_price: currentLockedSetup.entry_price,
+      invalidation_price: currentLockedSetup.invalidation_price,
+      target_price: currentLockedSetup.target_price,
+      entry_time: currentLockedSetup.entry_time,
+      path: []
+    }
+
+    if (analysis?.forecast) {
+      return {
+        ...analysis.forecast,
+        scenarios: [lockedScenario]
+      }
+    }
+
+    return {
+      horizon_candles: 25,
+      predicted_trend: currentLockedSetup.direction === 'LONG' ? 'BULLISH' : 'BEARISH',
+      confluence_score: currentLockedSetup.confluence_score || 90,
+      cone_points: [],
+      scenarios: [lockedScenario]
+    }
+  }, [analysis?.forecast, currentLockedSetup])
+
+  // Active chart setup if valid (observes locked setup first)
   const activeValidScenario = useMemo(() => {
-    return analysis?.forecast?.scenarios?.find(
+    return effectiveForecast?.scenarios?.find(
       (s) => s.is_valid === true && (s.risk_reward_ratio || 0) >= 1.5 && s.status === 'VALID_ENTRY'
     )
-  }, [analysis?.forecast])
+  }, [effectiveForecast])
 
   const activeSetupTarget: SetupTradeTarget | undefined = useMemo(() => {
     if (!activeValidScenario) return undefined
@@ -303,9 +382,68 @@ export function App() {
       invalidation_price: activeValidScenario.invalidation_price,
       target_price: activeValidScenario.target_price,
       risk_reward_ratio: activeValidScenario.risk_reward_ratio,
-      confluence_score: analysis?.forecast?.confluence_score
+      confluence_score: effectiveForecast?.confluence_score
     }
-  }, [activeValidScenario, symbol, market, lastCandle?.close, analysis?.forecast?.confluence_score])
+  }, [activeValidScenario, symbol, market, lastCandle?.close, effectiveForecast?.confluence_score])
+
+  // Auto-detection: Unlock box when price hits Take Profit or Stop Loss
+  useEffect(() => {
+    if (!currentLockedSetup || !lastCandle) return
+    const price = lastCandle.close
+    if (price <= 0) return
+    const isLong = currentLockedSetup.direction === 'LONG'
+
+    // 1. Take Profit hit
+    const tp = currentLockedSetup.target_price
+    const hitTp = isLong ? price >= tp : price <= tp
+    if (tp > 0 && hitTp) {
+      unlockSetup(symbol)
+      addToast({
+        type: 'success',
+        title: `🎯 Target TP Tercapai (${symbol})!`,
+        message: `Harga pasar ($${price}) telah menyentuh target Take Profit ($${tp}). Posisi selesai & box chart kembali ke analisa dinamis.`,
+        details: {
+          symbol,
+          side: currentLockedSetup.direction as any,
+          price,
+          takeProfit: tp
+        },
+        duration: 9000
+      })
+      loadAnalysis(symbol, timeframe, market, settings)
+      return
+    }
+
+    // 2. Stop Loss hit
+    const sl = currentLockedSetup.invalidation_price
+    const hitSl = isLong ? price <= sl : price >= sl
+    if (sl > 0 && hitSl) {
+      unlockSetup(symbol)
+      addToast({
+        type: 'warning',
+        title: `🛑 Stop Loss Tersentuh (${symbol})`,
+        message: `Harga pasar ($${price}) telah menembus batas Stop Loss ($${sl}). Posisi ditutup & box dilepas.`,
+        details: {
+          symbol,
+          side: currentLockedSetup.direction as any,
+          price,
+          stopLoss: sl
+        },
+        duration: 9000
+      })
+      loadAnalysis(symbol, timeframe, market, settings)
+    }
+  }, [
+    currentLockedSetup,
+    lastCandle?.close,
+    symbol,
+    timeframe,
+    market,
+    settings,
+    unlockSetup,
+    addToast,
+    loadAnalysis
+  ])
 
   const handleOpenTrade = useCallback((setup: any) => {
     if (!setup) return
@@ -345,6 +483,8 @@ export function App() {
         onRefresh={() => loadAnalysis(symbol, timeframe, market, settings)}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenTrade={handleOpenTrade}
+        isSetupLocked={Boolean(currentLockedSetup)}
+        onUnlockSetup={() => unlockSetup(symbol, 'Kunci box setup chart dilepas manual.')}
       />
 
       {/* 2. Layer Toggles Bar */}
@@ -376,7 +516,7 @@ export function App() {
               candles={candles}
               smc={analysis?.smc}
               patterns={analysis?.patterns}
-              forecast={analysis?.forecast}
+              forecast={effectiveForecast}
               htfOverlay={analysis?.htf_overlay}
               visibility={visibility}
               activeTool={activeTool}
@@ -394,6 +534,11 @@ export function App() {
             currentSymbol={symbol}
             onSelectSymbol={handleSelectSymbol}
             refreshTrigger={tradeRefreshSeq}
+            onPositionClosed={(closedSym) => {
+              unlockSetup(closedSym, 'Posisi ditutup. Box setup chart kembali ke analisa dinamis.')
+              setTradeRefreshSeq((prev) => prev + 1)
+              loadAnalysis(symbol, timeframe, market, settings)
+            }}
           />
         </main>
 
@@ -406,11 +551,16 @@ export function App() {
           candles={candles}
           movement={analysis?.movement}
           smc={analysis?.smc}
-          forecast={analysis?.forecast}
+          forecast={effectiveForecast}
           patterns={analysis?.patterns?.patterns}
           currentPrice={lastCandle?.close}
           onSelectSymbol={handleSelectSymbol}
           onOpenTrade={handleOpenTrade}
+          onPositionClosed={(closedSym) => {
+            unlockSetup(closedSym, 'Posisi ditutup. Box setup chart kembali ke analisa dinamis.')
+            setTradeRefreshSeq((prev) => prev + 1)
+            loadAnalysis(symbol, timeframe, market, settings)
+          }}
         />
       </div>
 
@@ -440,21 +590,49 @@ export function App() {
         onSuccess={(orderRes) => {
           setTradeRefreshSeq((prev) => prev + 1)
           setIsDashboardDrawerOpen(true)
+
+          const sym = (orderRes.symbol || selectedTradeTarget?.symbol || symbol).toUpperCase()
+          const dir = (orderRes.side === 'BUY' || selectedTradeTarget?.direction === 'LONG') ? 'LONG' : 'SHORT'
+          const entryP = orderRes.avg_price || selectedTradeTarget?.entry_price || lastCandle?.close || 0
+          const slP = selectedTradeTarget?.invalidation_price || 0
+          const tpP = selectedTradeTarget?.target_price || 0
+          const rr = selectedTradeTarget?.risk_reward_ratio || 2.0
+
+          // Lock Box Setup on chart immediately!
+          lockSetup({
+            symbol: sym,
+            market: (orderRes.market as any) || selectedTradeTarget?.market || market,
+            mode: (orderRes.mode as any) || 'demo',
+            direction: dir,
+            name: selectedTradeTarget?.name || 'Setup Posisi Aktif',
+            entry_price: entryP,
+            invalidation_price: slP,
+            target_price: tpP,
+            risk_reward_ratio: rr,
+            confluence_score: selectedTradeTarget?.confluence_score,
+            order_id: orderRes.order_id,
+            leverage: orderRes.leverage || 10,
+            entry_time: lastCandle?.time || Math.floor(Date.now() / 1000),
+            status: 'ACTIVE',
+            created_at: Date.now()
+          })
+
           addToast({
             type: 'success',
             title: 'Posisi Berhasil Dibuka! 🚀',
+            message: 'Box setup di chart TERKUNCI dan tidak akan berubah sampai posisi ditutup atau menyentuh TP/SL.',
             details: {
-              symbol: orderRes.symbol || selectedTradeTarget?.symbol,
-              side: (orderRes.side as any) || (selectedTradeTarget?.direction === 'LONG' ? 'BUY' : 'SELL'),
+              symbol: sym,
+              side: (orderRes.side as any) || (dir === 'LONG' ? 'BUY' : 'SELL'),
               quantity: orderRes.executed_qty,
-              price: orderRes.avg_price || selectedTradeTarget?.entry_price,
+              price: entryP,
               leverage: orderRes.leverage,
               mode: orderRes.mode as 'demo' | 'live',
               orderId: orderRes.order_id,
-              stopLoss: selectedTradeTarget?.invalidation_price,
-              takeProfit: selectedTradeTarget?.target_price
+              stopLoss: slP,
+              takeProfit: tpP
             },
-            duration: 6000
+            duration: 7000
           })
         }}
       />

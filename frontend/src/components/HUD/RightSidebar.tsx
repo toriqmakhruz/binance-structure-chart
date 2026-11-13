@@ -37,6 +37,7 @@ interface RightSidebarProps {
   currentPrice?: number
   onSelectSymbol: (symbol: string) => void
   onOpenTrade?: (setup: any) => void
+  onPositionClosed?: (symbol: string) => void
 }
 
 export const RightSidebar: React.FC<RightSidebarProps> = ({
@@ -51,7 +52,8 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   patterns = [],
   currentPrice,
   onSelectSymbol,
-  onOpenTrade
+  onOpenTrade,
+  onPositionClosed
 }) => {
   const [isOpen, setIsOpen] = useState<boolean>(() => {
     try {
@@ -316,6 +318,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           market={market}
           onSelectSymbol={onSelectSymbol}
           onOpenTradeModal={() => onOpenTrade?.({ symbol, market, direction: 'LONG', entry_price: currentPrice || 0 })}
+          onPositionClosed={onPositionClosed}
         />
       )}
 
