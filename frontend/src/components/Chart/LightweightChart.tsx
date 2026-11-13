@@ -58,11 +58,15 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
   const redrawCanvasRef = useRef<() => void>(() => {})
   const lastViewKeyRef = useRef<string>('')
 
-  // Snap directly to the front (recent ~75 candles + right margin for active setup box)
+  // Snap directly to the front with balanced TradingView zoom (~140-160 candles on desktop, not overly zoomed)
   const focusRecentBars = useCallback((totalCandles: number) => {
     if (!chartRef.current || totalCandles <= 0) return
-    const barsToShow = Math.min(totalCandles, 75)
+    const containerWidth = containerRef.current?.clientWidth || 1200
+    // Balanced ~8px per bar (standard TradingView default density, avoiding overly zoomed fat bars)
+    const targetBars = Math.max(100, Math.min(200, Math.round(containerWidth / 8)))
+    const barsToShow = Math.min(totalCandles, targetBars)
     const rightMarginBars = 16
+
     chartRef.current.timeScale().applyOptions({
       rightOffset: rightMarginBars
     })
