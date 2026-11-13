@@ -388,8 +388,14 @@ class AutoBotService:
                     self._add_log("WARN", f"Saldo margin tidak cukup untuk {sym}: Perlu ${required_margin:.2f}, Tersedia ${available_balance:.2f}.")
                     continue
 
-                # Eksekusi Langsung Market Order (Sesuai Tombol 'Buka Posisi' di Modal Setup)
-                self._add_log("INFO", f"⚡ Eksekusi setup teratas Tab Setup: {sym} ({direction}) di harga ${live_p}...")
+                mode_label = "BINANCE LIVE" if self.config.mode == "live" else "DEMO/TESTNET"
+
+                if self.config.mode == "live" and (not api_key or not api_secret):
+                    self._add_log("ERROR", "❌ [BINANCE LIVE] Gagal eksekusi: API Key & Secret Binance Live belum diisi! Masukkan kunci di pengaturan.")
+                    return
+
+                # Eksekusi Langsung Market Order
+                self._add_log("INFO", f"⚡ [{mode_label}] Mengirim order {sym} ({direction}) di harga ${live_p} (SL: ${sl_p}, TP: ${tp_p})...")
                 exec_res = await trade_service.execute_order(
                     symbol=sym,
                     market=self.config.market,
@@ -407,9 +413,10 @@ class AutoBotService:
                 )
                 if exec_res.get("success"):
                     available_balance -= required_margin
-                    self._add_log("SUCCESS", f"🚀 POSISI AKTIF: {sym} {direction} di harga ${live_p} (SL: ${sl_p}, TP: ${tp_p}, Risk: ${self.config.risk_per_trade_usd})")
+                    order_id_str = f" #{exec_res.get('order_id')}" if exec_res.get('order_id') else ""
+                    self._add_log("SUCCESS", f"🚀 [{mode_label}] POSISI AKTIF{order_id_str}: {sym} {direction} di harga ${live_p} (SL: ${sl_p}, TP: ${tp_p}, Risk: ${self.config.risk_per_trade_usd})")
                 else:
-                    self._add_log("ERROR", f"Gagal eksekusi {sym}: {exec_res.get('message')}")
+                    self._add_log("ERROR", f"❌ [{mode_label}] Ditolak: {sym} - {exec_res.get('message')}")
 
         except Exception as exc:
             logger.error(f"Error in autobot cycle: {exc}", exc_info=True)

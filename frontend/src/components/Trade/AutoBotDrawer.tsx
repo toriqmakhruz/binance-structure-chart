@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   RotateCcw,
   ShieldAlert,
+  ShieldCheck,
   Sliders,
   Terminal,
   Activity,
@@ -15,7 +16,12 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Zap,
-  Info
+  Info,
+  KeyRound,
+  Eye,
+  EyeOff,
+  RefreshCw,
+  Wallet
 } from 'lucide-react'
 import {
   AutoBotStatusResponse,
@@ -27,6 +33,7 @@ import {
   resetAutoBotCircuitBreaker,
   panicCloseAllAutoBot
 } from '../../services/autobotApi'
+import { testTradeConnection, fetchTradeBalance } from '../../services/api'
 import { formatPrice } from '../../utils/formatters'
 
 interface AutoBotDrawerProps {
@@ -56,13 +63,22 @@ export const AutoBotDrawer: React.FC<AutoBotDrawerProps> = ({
   const [isSavingConfig, setIsSavingConfig] = useState<boolean>(false)
   const [confirmPanic, setConfirmPanic] = useState<boolean>(false)
 
+  // API Credentials states
+  const [liveApiKey, setLiveApiKey] = useState<string>('')
+  const [liveApiSecret, setLiveApiSecret] = useState<string>('')
+  const [demoApiKey, setDemoApiKey] = useState<string>('')
+  const [demoApiSecret, setDemoApiSecret] = useState<string>('')
+  const [showSecret, setShowSecret] = useState<boolean>(false)
+  const [isTestingConn, setIsTestingConn] = useState<boolean>(false)
+  const [connResult, setConnResult] = useState<{ success: boolean; message: string; balance?: number } | null>(null)
+
   // Sync credentials from LocalStorage
   const getStoredCredentials = () => {
     try {
-      const raw = localStorage.getItem('cp_trade_credentials_v1')
+      const raw = localStorage.getItem('cp_trade_credentials') || localStorage.getItem('cp_trade_credentials_v1')
       if (raw) return JSON.parse(raw)
     } catch {}
-    return { demoApiKey: '', demoApiSecret: '', liveApiKey: '', liveApiSecret: '' }
+    return { demoApiKey: '', demoApiSecret: '', liveApiKey: '', liveApiSecret: '', useSimulatedDemo: true }
   }
 
   // Load status
@@ -74,7 +90,6 @@ export const AutoBotDrawer: React.FC<AutoBotDrawerProps> = ({
       setMaxDailyLoss(res.config.max_daily_loss_usd)
       setMaxPositions(res.config.max_concurrent_positions)
       setLeverage(res.config.leverage)
-      setMode(res.config.mode)
       setTimeframe(res.config.timeframe)
     }
   }
@@ -82,6 +97,19 @@ export const AutoBotDrawer: React.FC<AutoBotDrawerProps> = ({
   useEffect(() => {
     if (isOpen) {
       loadStatus()
+      const creds = getStoredCredentials()
+      if (creds.liveApiKey) setLiveApiKey(creds.liveApiKey)
+      if (creds.liveApiSecret) setLiveApiSecret(creds.liveApiSecret)
+      if (creds.demoApiKey) setDemoApiKey(creds.demoApiKey)
+      if (creds.demoApiSecret) setDemoApiSecret(creds.demoApiSecret)
+
+      try {
+        const savedMode = localStorage.getItem('cp_trade_active_mode')
+        if (savedMode === 'live' || savedMode === 'demo') {
+          setMode(savedMode)
+        }
+      } catch {}
+
       const interval = setInterval(loadStatus, 4000)
       return () => clearInterval(interval)
     }
@@ -89,13 +117,80 @@ export const AutoBotDrawer: React.FC<AutoBotDrawerProps> = ({
 
   const showNotification = (success: boolean, text: string) => {
     setActionMsg({ success, text })
-    setTimeout(() => setActionMsg(null), 4000)
+    setTimeout(() => setActionMsg(null), 5000)
+  }
+
+  // Save Credentials
+  const handleSaveCredentials = async () => {
+    const creds = {
+      demoApiKey: demoApiKey.trim(),
+      demoApiSecret: demoApiSecret.trim(),
+      liveApiKey: liveApiKey.trim(),
+      liveApiSecret: liveApiSecret.trim(),
+      useSimulatedDemo: true
+    }
+    localStorage.setItem('cp_trade_credentials', JSON.stringify(creds))
+    localStorage.setItem('cp_trade_active_mode', mode)
+
+    const ok = await updateAutoBotConfig({
+      mode,
+      api_key: mode === 'live' ? creds.liveApiKey : creds.demoApiKey,
+      api_secret: mode === 'live' ? creds.liveApiSecret : creds.demoApiSecret
+    })
+    if (ok) {
+      showNotification(true, 'Kredensial API Binance berhasil disimpan & disinkronkan ke bot!')
+    } else {
+      showNotification(false, 'Gagal menyinkronkan kredensial ke server bot.')
+    }
+  }
+
+  // Test Binance Connection
+  const handleTestConnection = async () => {
+    const key = mode === 'live' ? liveApiKey.trim() : demoApiKey.trim()
+    const sec = mode === 'live' ? liveApiSecret.trim() : demoApiSecret.trim()
+
+    if (!key || !sec) {
+      setConnResult({ success: false, message: 'Harap isi API Key dan API Secret terlebih dahulu.' })
+      return
+    }
+
+    setIsTestingConn(true)
+    setConnResult(null)
+    try {
+      const testRes = await testTradeConnection('futures', mode, key, sec)
+      if (testRes.success) {
+        const balRes = await fetchTradeBalance('futures', mode, key, sec)
+        const bal = balRes?.availableBalance ?? 0
+        setConnResult({
+          success: true,
+          message: `Terhubung ke Binance Futures! Saldo: $${bal.toFixed(2)} USDT`,
+          balance: bal
+        })
+        showNotification(true, `Koneksi Binance Live Berhasil! Saldo: $${bal.toFixed(2)} USDT`)
+      } else {
+        setConnResult({
+          success: false,
+          message: `Gagal: ${testRes.message || 'Koneksi ditolak Binance'}`
+        })
+        showNotification(false, `Gagal koneksi Binance: ${testRes.message}`)
+      }
+    } catch (e: any) {
+      setConnResult({
+        success: false,
+        message: `Error: ${e?.message || 'Gagal menghubungi server'}`
+      })
+    } finally {
+      setIsTestingConn(false)
+    }
   }
 
   // Handle Save Settings
   const handleSaveConfig = async () => {
     setIsSavingConfig(true)
     const creds = getStoredCredentials()
+    const activeKey = mode === 'live' ? (liveApiKey || creds.liveApiKey || '') : (demoApiKey || creds.demoApiKey || '')
+    const activeSec = mode === 'live' ? (liveApiSecret || creds.liveApiSecret || '') : (demoApiSecret || creds.demoApiSecret || '')
+
     const payload: Partial<AutoBotConfig> = {
       risk_per_trade_usd: Number(riskPerTrade),
       max_daily_loss_usd: Number(maxDailyLoss),
@@ -103,13 +198,13 @@ export const AutoBotDrawer: React.FC<AutoBotDrawerProps> = ({
       leverage: Number(leverage),
       mode,
       timeframe,
-      api_key: mode === 'live' ? creds.liveApiKey : creds.demoApiKey,
-      api_secret: mode === 'live' ? creds.liveApiSecret : creds.demoApiSecret
+      api_key: activeKey.trim(),
+      api_secret: activeSec.trim()
     }
     const ok = await updateAutoBotConfig(payload)
     setIsSavingConfig(false)
     if (ok) {
-      showNotification(true, 'Pengaturan risiko bot berhasil disimpan!')
+      showNotification(true, 'Pengaturan bot berhasil disimpan!')
       loadStatus()
     } else {
       showNotification(false, 'Gagal menyimpan pengaturan bot.')
@@ -124,8 +219,17 @@ export const AutoBotDrawer: React.FC<AutoBotDrawerProps> = ({
       const res = await stopAutoBot()
       showNotification(res.success, res.message)
     } else {
-      // First save current inputs and credentials
+      // Validate live mode requirements
       const creds = getStoredCredentials()
+      const activeKey = (mode === 'live' ? (liveApiKey || creds.liveApiKey || '') : (demoApiKey || creds.demoApiKey || '')).trim()
+      const activeSec = (mode === 'live' ? (liveApiSecret || creds.liveApiSecret || '') : (demoApiSecret || creds.demoApiSecret || '')).trim()
+
+      if (mode === 'live' && (!activeKey || !activeSec)) {
+        setIsLoading(false)
+        showNotification(false, '❌ GAGAL: Masukkan API Key & Secret Binance Live Anda di bawah sebelum mengaktifkan mode Live!')
+        return
+      }
+
       await updateAutoBotConfig({
         risk_per_trade_usd: Number(riskPerTrade) || 4.0,
         max_daily_loss_usd: Number(maxDailyLoss) || 16.0,
@@ -133,8 +237,8 @@ export const AutoBotDrawer: React.FC<AutoBotDrawerProps> = ({
         leverage: Number(leverage) || 10,
         mode,
         timeframe,
-        api_key: mode === 'live' ? creds.liveApiKey : creds.demoApiKey,
-        api_secret: mode === 'live' ? creds.liveApiSecret : creds.demoApiSecret
+        api_key: activeKey,
+        api_secret: activeSec
       })
       const res = await startAutoBot()
       showNotification(res.success, res.message)
@@ -320,6 +424,143 @@ export const AutoBotDrawer: React.FC<AutoBotDrawerProps> = ({
                   </button>
                 </div>
               )}
+            </div>
+          </div>
+
+          {/* Binance Account Connection Card */}
+          <div className="p-5 rounded-2xl bg-[#161b22] border border-[#30363d] space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center space-x-2">
+                <KeyRound className="w-4 h-4 text-[#f0b90b]" />
+                <h3 className="text-xs font-bold uppercase tracking-wider text-white">
+                  Koneksi Akun Binance ({mode === 'live' ? '🔴 Live Real Binance' : '🟢 Demo Testnet'})
+                </h3>
+              </div>
+
+              {/* Mode Switcher Tabs */}
+              <div className="flex rounded-lg p-0.5 bg-[#0d1117] border border-[#21262d]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode('live')
+                    localStorage.setItem('cp_trade_active_mode', 'live')
+                  }}
+                  className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${
+                    mode === 'live'
+                      ? 'bg-rose-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  🔴 Live Binance
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode('demo')
+                    localStorage.setItem('cp_trade_active_mode', 'demo')
+                  }}
+                  className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${
+                    mode === 'demo'
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  🟢 Demo Testnet
+                </button>
+              </div>
+            </div>
+
+            {/* Mode Warning Notice */}
+            {mode === 'live' ? (
+              <div className="p-3 rounded-xl bg-rose-950/40 border border-rose-800/60 text-xs text-rose-300 flex items-start space-x-2.5">
+                <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <div className="font-bold text-rose-200">EKSEKUSI RIIL KE AKUN BINANCE FUTURES</div>
+                  <div className="text-[11px] text-rose-300/80 leading-relaxed">
+                    Bot akan menempatkan order riil langsung ke akun Binance Futures Anda menggunakan saldo USDT riil. Pastikan API Key &amp; Secret terisi dan dites sebelum menyalakan bot.
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="p-3 rounded-xl bg-blue-950/40 border border-blue-800/60 text-xs text-blue-300 flex items-start space-x-2.5">
+                <ShieldCheck className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <div className="font-bold text-blue-200">MODE DEMO / TESTNET AKTIF</div>
+                  <div className="text-[11px] text-blue-300/80 leading-relaxed">
+                    Mode simulasi aman tanpa risiko saldo riil. Anda dapat mengisi API Key Testnet jika ingin terhubung ke Binance Futures Testnet resmi.
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* API Key Inputs */}
+            <div className="space-y-3 pt-1">
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">
+                  {mode === 'live' ? 'Binance Live API Key (USDS-M Futures):' : 'Binance Testnet API Key (Opsional):'}
+                </label>
+                <input
+                  type="text"
+                  placeholder={mode === 'live' ? 'Masukkan Binance Live API Key...' : 'Binance Testnet API Key...'}
+                  value={mode === 'live' ? liveApiKey : demoApiKey}
+                  onChange={(e) => mode === 'live' ? setLiveApiKey(e.target.value) : setDemoApiKey(e.target.value)}
+                  className="w-full bg-[#0d1117] border border-[#30363d] focus:border-[#f0b90b] rounded-lg px-3 py-2 text-xs font-mono text-white outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">
+                  {mode === 'live' ? 'Binance Live API Secret:' : 'Binance Testnet API Secret (Opsional):'}
+                </label>
+                <div className="relative">
+                  <input
+                    type={showSecret ? 'text' : 'password'}
+                    placeholder={mode === 'live' ? 'Masukkan Binance Live API Secret...' : 'Binance Testnet API Secret...'}
+                    value={mode === 'live' ? liveApiSecret : demoApiSecret}
+                    onChange={(e) => mode === 'live' ? setLiveApiSecret(e.target.value) : setDemoApiSecret(e.target.value)}
+                    className="w-full bg-[#0d1117] border border-[#30363d] focus:border-[#f0b90b] rounded-lg px-3 py-2 pr-9 text-xs font-mono text-white outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowSecret(!showSecret)}
+                    className="absolute right-2.5 top-2.5 text-slate-400 hover:text-white"
+                  >
+                    {showSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Connection Result Banner */}
+              {connResult && (
+                <div className={`p-2.5 rounded-xl text-xs flex items-center space-x-2 ${
+                  connResult.success
+                    ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-800'
+                    : 'bg-rose-950/80 text-rose-300 border border-rose-800'
+                }`}>
+                  {connResult.success ? <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" /> : <ShieldAlert className="w-4 h-4 shrink-0 text-rose-400" />}
+                  <span className="font-mono">{connResult.message}</span>
+                </div>
+              )}
+
+              {/* Action Buttons for API Key */}
+              <div className="flex items-center space-x-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handleSaveCredentials}
+                  className="px-4 py-2 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-white text-xs font-bold transition-all border border-[#30363d]"
+                >
+                  💾 Simpan Kunci API
+                </button>
+                <button
+                  type="button"
+                  onClick={handleTestConnection}
+                  disabled={isTestingConn}
+                  className="flex items-center space-x-1.5 px-4 py-2 rounded-lg bg-[#1e2535] hover:bg-[#283247] text-[#f0b90b] text-xs font-bold transition-all border border-[#f0b90b]/40 disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isTestingConn ? 'animate-spin' : ''}`} />
+                  <span>Test Koneksi Binance</span>
+                </button>
+              </div>
             </div>
           </div>
 
@@ -553,34 +794,18 @@ export const AutoBotDrawer: React.FC<AutoBotDrawerProps> = ({
                 />
               </div>
 
-              {/* Account Mode */}
+              {/* Account Mode Status Display */}
               <div>
                 <label className="block text-xs font-medium text-slate-300 mb-1">
-                  Mode Akun Eksekusi:
+                  Target Bursa Eksekusi:
                 </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setMode('demo')}
-                    className={`py-1.5 rounded-lg text-xs font-bold transition-all ${
-                      mode === 'demo'
-                        ? 'bg-blue-600 text-white shadow-sm'
-                        : 'bg-[#21262d] text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    Demo (Testnet)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setMode('live')}
-                    className={`py-1.5 rounded-lg text-xs font-bold transition-all ${
-                      mode === 'live'
-                        ? 'bg-rose-600 text-white shadow-sm'
-                        : 'bg-[#21262d] text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    Live (Akun Riil)
-                  </button>
+                <div className={`p-2 rounded-lg text-xs font-bold border flex items-center justify-between ${
+                  mode === 'live'
+                    ? 'bg-rose-950/40 text-rose-300 border-rose-800/60'
+                    : 'bg-blue-950/40 text-blue-300 border-blue-800/60'
+                }`}>
+                  <span>{mode === 'live' ? '🔴 Binance Futures Live (Real)' : '🟢 Demo Testnet / Simulasi'}</span>
+                  <span className="text-[10px] font-normal text-slate-400">Atur di atas</span>
                 </div>
               </div>
 
