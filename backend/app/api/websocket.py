@@ -6,9 +6,11 @@ import logging
 import websockets
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from ..config import settings
+from ..services.binance_service import binance_service
 
 logger = logging.getLogger("websocket_router")
 ws_router = APIRouter()
+_STALLED_TICKER_WS_UNTIL: dict[str, float] = {}
 
 
 def _resolve_market_ws(market: str):
@@ -39,7 +41,7 @@ async def websocket_tickers_relay(
         return
 
     stop_event = asyncio.Event()
-    stream_name = "!ticker@arr"
+    stream_name = "!miniTicker@arr"
 
     async def send_status(status_label: str, message: str = ""):
         try:
@@ -54,10 +56,34 @@ async def websocket_tickers_relay(
         except Exception:
             pass
 
+    async def poll_live_rest_tickers():
+        """Shared-cache REST fallback (~2.5s) when upstream WS silently drops frames."""
+        await send_status("CONNECTED", f"Connected to {source_name} live feed")
+        while not stop_event.is_set():
+            try:
+                updates = await binance_service.get_live_ticker_batch(market_clean)
+                if updates:
+                    await websocket.send_text(json.dumps({
+                        "type": "TICKER_BATCH",
+                        "market": market_clean,
+                        "source": source_name,
+                        "tickers": updates
+                    }))
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                logger.warning(f"REST ticker feed error ({market_clean}): {exc}")
+            await asyncio.sleep(2.5)
+
     async def forward_tickers():
         backoff = 1.0
         active_url_idx = 0
 
+        if time.time() < _STALLED_TICKER_WS_UNTIL.get(market_clean, 0):
+            await poll_live_rest_tickers()
+            return
+
+        # If WS endpoints silently drop frames from this VPS, switch fast after 1 attempt
         while not stop_event.is_set():
             base_url = ws_endpoints[active_url_idx % len(ws_endpoints)]
             target_url = f"{base_url.rstrip('/')}/{stream_name}"
@@ -68,17 +94,22 @@ async def websocket_tickers_relay(
                     target_url,
                     ping_interval=20,
                     ping_timeout=20,
-                    open_timeout=8,
+                    open_timeout=5,
                     max_size=4 * 1024 * 1024
                 ) as b_ws:
-                    await send_status("CONNECTED", f"Connected to {source_name} tickers")
+                    connected_announced = False
                     backoff = 1.0
 
                     while not stop_event.is_set():
-                        msg_str = await b_ws.recv()
+                        # Enforce strict frame timeout so stalled WS handshakes fall back immediately
+                        msg_str = await asyncio.wait_for(b_ws.recv(), timeout=4.0)
                         raw_list = json.loads(msg_str)
                         if not isinstance(raw_list, list):
                             continue
+
+                        if not connected_announced:
+                            await send_status("CONNECTED", f"Connected to {source_name} tickers")
+                            connected_announced = True
 
                         updates = []
                         for t in raw_list:
@@ -91,10 +122,15 @@ async def websocket_tickers_relay(
                                 price = float(t.get("c", 0))
                                 if price <= 0:
                                     continue
+                                if "P" in t:
+                                    pct = float(t["P"])
+                                else:
+                                    open_price = float(t.get("o", 0))
+                                    pct = ((price - open_price) / open_price * 100.0) if open_price > 0 else 0.0
                                 updates.append({
                                     "s": sym,
                                     "c": price,
-                                    "P": float(t.get("P", 0)),
+                                    "P": pct,
                                     "q": float(t.get("q", 0)),
                                 })
                             except (ValueError, TypeError):
@@ -110,14 +146,17 @@ async def websocket_tickers_relay(
             except asyncio.CancelledError:
                 break
             except Exception as exc:
-                logger.warning(f"Ticker WS relay error on {target_url}: {exc}")
+                logger.warning(f"Ticker WS relay stalled/failed on {target_url}: {exc}; falling back to live 2.5s feed")
+                _STALLED_TICKER_WS_UNTIL[market_clean] = time.time() + 300.0
+                await poll_live_rest_tickers()
+                return
 
             if not stop_event.is_set():
-                wait_time = min(backoff + random.uniform(0.1, 0.75), 25.0)
+                wait_time = min(backoff + random.uniform(0.1, 0.75), 10.0)
                 await send_status("RECONNECTING", f"Ticker stream disconnected. Reconnecting in {wait_time:.1f}s...")
                 active_url_idx += 1
                 await asyncio.sleep(wait_time)
-                backoff = min(backoff * 2.0, 20.0)
+                backoff = min(backoff * 2.0, 10.0)
 
     forward_task = asyncio.create_task(forward_tickers())
     try:

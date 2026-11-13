@@ -34,6 +34,12 @@ class BinanceService:
         self.futures_endpoints = settings.BINANCE_FUTURES_REST_ENDPOINTS
         self._exchange_meta_cache: Dict[str, Tuple[float, Dict[str, str]]] = {}
         self._exchange_meta_ttl = 600.0
+        self._tickers_cache: Dict[str, Tuple[float, List[Dict[str, Any]]]] = {}
+        self._tickers_locks: Dict[str, asyncio.Lock] = {
+            "spot": asyncio.Lock(),
+            "futures": asyncio.Lock()
+        }
+        self._tickers_cache_ttl = 2.5
 
     def _get_candidate_urls(self, path: str, market: str) -> List[str]:
         """
@@ -314,6 +320,76 @@ class BinanceService:
 
         return cached[1] if cached else None
 
+    async def _fetch_raw_tickers_24hr(
+        self,
+        client: httpx.AsyncClient,
+        market_clean: str
+    ) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
+        """Fetch 24h tickers with a short shared lock+cache to prevent rate-limit spikes."""
+        lock = self._tickers_locks.setdefault(market_clean, asyncio.Lock())
+        async with lock:
+            now = time.time()
+            cached = self._tickers_cache.get(market_clean)
+            if cached and now < cached[0]:
+                return cached[1], None
+
+            path = "/api/v3/ticker/24hr" if market_clean == "spot" else "/fapi/v1/ticker/24hr"
+            urls = self._get_candidate_urls(path, market_clean)
+            last_error = None
+
+            for url in urls:
+                try:
+                    resp = await client.get(url)
+                    if resp.status_code == 200:
+                        json_resp = resp.json()
+                        if isinstance(json_resp, list):
+                            self._tickers_cache[market_clean] = (time.time() + self._tickers_cache_ttl, json_resp)
+                            return json_resp, None
+                        last_error = f"Expected list response from {url}, got {type(json_resp)}"
+                    else:
+                        last_error = f"HTTP {resp.status_code} from {url}"
+                except Exception as exc:
+                    last_error = str(exc)
+
+            return (cached[1] if cached else None), last_error
+
+    async def get_live_ticker_batch(self, market: str = "futures") -> List[Dict[str, Any]]:
+        """Return compact live ticker updates {s, c, P, q} for active USDT pairs."""
+        market_clean = market.lower().strip()
+        timeout = httpx.Timeout(settings.HTTP_TIMEOUT_SECONDS, connect=5.0)
+        async with httpx.AsyncClient(headers=HEADERS, timeout=timeout, verify=settings.TLS_VERIFY) as client:
+            tickers, allowed_map = await asyncio.gather(
+                self._fetch_raw_tickers_24hr(client, market_clean),
+                self._get_allowed_crypto_usdt_map(client, market_clean)
+            )
+
+        raw_list, _ = tickers
+        if not raw_list:
+            return []
+
+        updates: List[Dict[str, Any]] = []
+        for t in raw_list:
+            if not isinstance(t, dict):
+                continue
+            sym = t.get("symbol", "")
+            if not sym.endswith("USDT"):
+                continue
+            if allowed_map is not None and sym not in allowed_map:
+                continue
+            try:
+                price = float(t.get("lastPrice", 0))
+                if price <= 0:
+                    continue
+                updates.append({
+                    "s": sym,
+                    "c": price,
+                    "P": float(t.get("priceChangePercent", 0)),
+                    "q": float(t.get("quoteVolume", 0)),
+                })
+            except (ValueError, TypeError):
+                continue
+        return updates
+
     async def get_symbols(self, market: str = "futures", demo_mode: bool = False) -> List[Dict[str, Any]]:
         """
         Fetch 24h ticker info strictly from the selected market, filtered to active crypto USDT pairs
@@ -321,33 +397,11 @@ class BinanceService:
         NEVER injects synthetic or hardcoded prices in production.
         """
         market_clean = market.lower().strip()
-        path = "/api/v3/ticker/24hr" if market_clean == "spot" else "/fapi/v1/ticker/24hr"
-        urls = self._get_candidate_urls(path, market_clean)
-
-        tickers = None
-        last_error = None
-        allowed_map: Optional[Dict[str, str]] = None
         timeout = httpx.Timeout(settings.HTTP_TIMEOUT_SECONDS, connect=5.0)
 
-        async def fetch_tickers(client: httpx.AsyncClient):
-            nonlocal last_error
-            for url in urls:
-                try:
-                    resp = await client.get(url)
-                    if resp.status_code == 200:
-                        json_resp = resp.json()
-                        if isinstance(json_resp, list):
-                            return json_resp
-                        last_error = f"Expected list response from {url}, got {type(json_resp)}"
-                    else:
-                        last_error = f"HTTP {resp.status_code} from {url}"
-                except Exception as exc:
-                    last_error = str(exc)
-            return None
-
         async with httpx.AsyncClient(headers=HEADERS, timeout=timeout, verify=settings.TLS_VERIFY) as client:
-            tickers, allowed_map = await asyncio.gather(
-                fetch_tickers(client),
+            (tickers, last_error), allowed_map = await asyncio.gather(
+                self._fetch_raw_tickers_24hr(client, market_clean),
                 self._get_allowed_crypto_usdt_map(client, market_clean)
             )
 
