@@ -396,6 +396,7 @@ class AutoBotService:
                     api_secret=api_secret,
                     side="BUY" if direction == "LONG" else "SELL",
                     order_type="MARKET",
+                    price=live_p,
                     quantity=formatted_qty,
                     leverage=self.config.leverage,
                     take_profit=tp_p,
