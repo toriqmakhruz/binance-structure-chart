@@ -189,9 +189,37 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
   // 3. Update Candle & Volume Data with Dynamic Price Precision & Smooth Live Ticks
   const prevCandlesCountRef = useRef<number>(0)
   const prevLastTimeRef = useRef<number>(0)
+  const loadedSymbolRef = useRef<string>(symbol)
+  const loadedTimeframeRef = useRef<string>(timeframe)
 
   useEffect(() => {
-    if (!candleSeriesRef.current || !volumeSeriesRef.current || candles.length === 0) return
+    if (!candleSeriesRef.current || !volumeSeriesRef.current) return
+
+    // If candles are reset to empty (switching coins), immediately wipe old series & canvas
+    if (candles.length === 0) {
+      candleSeriesRef.current.setData([])
+      volumeSeriesRef.current.setData([])
+      candleSeriesRef.current.setMarkers([])
+      prevCandlesCountRef.current = 0
+      prevLastTimeRef.current = 0
+      if (canvasRef.current) {
+        const ctx = canvasRef.current.getContext('2d')
+        if (ctx) {
+          ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height)
+        }
+      }
+      return
+    }
+
+    const isNewSeries =
+      symbol !== loadedSymbolRef.current ||
+      timeframe !== loadedTimeframeRef.current ||
+      prevCandlesCountRef.current === 0
+
+    if (isNewSeries) {
+      loadedSymbolRef.current = symbol
+      loadedTimeframeRef.current = timeframe
+    }
 
     // Dynamically adjust price precision for micro-coins (PEPE, SHIB, DOGE) vs macro-coins (BTC, ETH)
     const precisionOpts = getPricePrecision(candles)
@@ -221,11 +249,13 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     const lastVolume = formattedVolumes[formattedVolumes.length - 1]
     const lastTimeNum = Number(lastCandle.time)
 
-    // Smooth real-time update: use update() if ticking the existing live candle bar
-    if (
+    // Smooth real-time update: ONLY if it's NOT a new series and count & time match
+    const isIncrementalUpdate =
+      !isNewSeries &&
       prevCandlesCountRef.current === formattedCandles.length &&
       prevLastTimeRef.current === lastTimeNum
-    ) {
+
+    if (isIncrementalUpdate) {
       candleSeriesRef.current.update(lastCandle)
       if (visibility.volume) {
         volumeSeriesRef.current.update(lastVolume)
@@ -235,6 +265,10 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
       volumeSeriesRef.current.setData(visibility.volume ? formattedVolumes : [])
       prevCandlesCountRef.current = formattedCandles.length
       prevLastTimeRef.current = lastTimeNum
+
+      if (isNewSeries) {
+        focusRecentBars(formattedCandles.length)
+      }
     }
 
     // Markers for Swings and BOS/CHoCH with strict deduplication and time ordering
@@ -273,7 +307,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     candleSeriesRef.current.setMarkers(sortedMarkers)
 
     redrawCanvasRef.current()
-  }, [candles, smc, visibility])
+  }, [candles, smc, visibility, symbol, timeframe, focusRecentBars])
 
   // 4. Robust Coordinate Resolver
   const resolveCoord = useCallback((time: number, price: number): { x: number; y: number } | null => {

@@ -182,7 +182,8 @@ export function App() {
         }
 
         setCandles((prev) => {
-          if (prev.length === 0) return [liveCandle]
+          // Do not append a single tick until full historical candles are loaded
+          if (prev.length === 0) return prev
           const last = prev[prev.length - 1]
 
           if (last.time === liveCandle.time) {

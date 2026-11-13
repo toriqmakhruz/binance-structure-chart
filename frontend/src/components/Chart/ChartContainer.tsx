@@ -138,6 +138,7 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
         <div className="flex-1 w-full h-full relative">
           {isSub ? (
             <SubTimeframeChart
+              key={`${symbol}_${effectiveTf}`}
               symbol={symbol}
               timeframe={effectiveTf}
               market={market}
@@ -150,6 +151,7 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
             />
           ) : (
             <LightweightChart
+              key={`${symbol}_${timeframe}`}
               symbol={symbol}
               timeframe={timeframe}
               candles={candles}
