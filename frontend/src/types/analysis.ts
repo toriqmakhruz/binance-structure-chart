@@ -300,3 +300,38 @@ export interface TradeOrderResponse {
   message: string
 }
 
+export interface TradePositionItem {
+  id?: string
+  symbol: string
+  side: 'LONG' | 'SHORT'
+  positionAmt: number
+  entryPrice: number
+  markPrice: number
+  unrealizedProfit: number
+  roePct: number
+  liquidationPrice?: number
+  leverage: number
+  margin: number
+  notional?: number
+  stopLoss?: number
+  takeProfit?: number
+  time?: number
+  is_simulated?: boolean
+}
+
+export interface TradeOrderItem {
+  orderId: number | string
+  symbol: string
+  status: string
+  clientOrderId?: string
+  type: string
+  side: 'BUY' | 'SELL'
+  price: number
+  stopPrice?: number
+  origQty: number
+  executedQty?: number
+  time: number
+  is_simulated?: boolean
+}
+
+

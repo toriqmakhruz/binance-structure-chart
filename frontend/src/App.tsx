@@ -7,6 +7,7 @@ import { ChartContainer } from './components/Chart/ChartContainer'
 import { RightSidebar } from './components/HUD/RightSidebar'
 import { SettingsDrawer } from './components/Settings/SettingsDrawer'
 import { OpenPositionModal, SetupTradeTarget } from './components/Trade/OpenPositionModal'
+import { TradingDashboardDrawer } from './components/Trade/TradingDashboardDrawer'
 import { fetchAnalysis } from './services/api'
 import { BinanceWsClient } from './services/binanceWs'
 import {
@@ -121,6 +122,8 @@ export function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isTradeModalOpen, setIsTradeModalOpen] = useState(false)
   const [selectedTradeTarget, setSelectedTradeTarget] = useState<SetupTradeTarget | null>(null)
+  const [isDashboardDrawerOpen, setIsDashboardDrawerOpen] = useState(false)
+  const [tradeRefreshSeq, setTradeRefreshSeq] = useState(0)
 
   const wsClientRef = useRef<BinanceWsClient | null>(null)
   const activeSymbolRef = useRef(symbol)
@@ -322,6 +325,8 @@ export function App() {
         isLoading={isLoading}
         lastPrice={lastCandle?.close}
         activeSetup={activeSetupTarget}
+        isDashboardOpen={isDashboardDrawerOpen}
+        onToggleDashboard={() => setIsDashboardDrawerOpen((prev) => !prev)}
         onSymbolClick={() => setIsSymbolModalOpen(true)}
         onTimeframeChange={handleTimeframeChange}
         onMarketChange={handleMarketChange}
@@ -348,24 +353,36 @@ export function App() {
           drawingCount={currentDrawings.length}
         />
 
-        {/* Center: Interactive Chart Workspace */}
-        <main className="flex-1 h-full relative overflow-hidden bg-[#0b0e14]">
-          <ChartContainer
-            symbol={symbol}
-            timeframe={timeframe}
+        {/* Center: Interactive Chart Workspace with Bottom Trading Dashboard */}
+        <main className="flex-1 h-full relative overflow-hidden bg-[#0b0e14] flex flex-col">
+          <div className="flex-1 w-full h-full relative overflow-hidden">
+            <ChartContainer
+              symbol={symbol}
+              timeframe={timeframe}
+              market={market}
+              settings={settings}
+              layout={layout}
+              candles={candles}
+              smc={analysis?.smc}
+              patterns={analysis?.patterns}
+              forecast={analysis?.forecast}
+              htfOverlay={analysis?.htf_overlay}
+              visibility={visibility}
+              activeTool={activeTool}
+              drawings={currentDrawings}
+              onAddDrawing={handleAddDrawing}
+              onRemoveDrawing={handleRemoveDrawing}
+            />
+          </div>
+
+          {/* Bottom Dock: Trading Dashboard Drawer (Monitor Posisi Terbuka & Order Limit) */}
+          <TradingDashboardDrawer
+            isOpen={isDashboardDrawerOpen}
+            onToggle={() => setIsDashboardDrawerOpen((prev) => !prev)}
             market={market}
-            settings={settings}
-            layout={layout}
-            candles={candles}
-            smc={analysis?.smc}
-            patterns={analysis?.patterns}
-            forecast={analysis?.forecast}
-            htfOverlay={analysis?.htf_overlay}
-            visibility={visibility}
-            activeTool={activeTool}
-            drawings={currentDrawings}
-            onAddDrawing={handleAddDrawing}
-            onRemoveDrawing={handleRemoveDrawing}
+            currentSymbol={symbol}
+            onSelectSymbol={handleSelectSymbol}
+            refreshTrigger={tradeRefreshSeq}
           />
         </main>
 
@@ -409,6 +426,10 @@ export function App() {
         target={selectedTradeTarget}
         currentPrice={lastCandle?.close}
         onClose={() => setIsTradeModalOpen(false)}
+        onSuccess={() => {
+          setTradeRefreshSeq((prev) => prev + 1)
+          setIsDashboardDrawerOpen(true)
+        }}
       />
     </div>
   )

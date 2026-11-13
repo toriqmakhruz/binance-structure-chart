@@ -11,16 +11,18 @@ import { ConfluenceSidebar } from './ConfluenceSidebar'
 import { PositionCalculator } from './PositionCalculator'
 import { CoinWatchlist } from './CoinWatchlist'
 import { SetupRadarPanel } from './SetupRadarPanel'
+import { PositionsSidebarPanel } from './PositionsSidebarPanel'
 import {
   Gauge,
   Target,
   Calculator,
   Coins,
   PanelRightClose,
-  PanelRightOpen
+  PanelRightOpen,
+  Activity
 } from 'lucide-react'
 
-type RightTab = 'index' | 'setup' | 'calculator' | 'watchlist'
+type RightTab = 'index' | 'setup' | 'positions' | 'calculator' | 'watchlist'
 
 interface RightSidebarProps {
   symbol: string
@@ -149,6 +151,22 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
         <button
           type="button"
           onClick={() => {
+            setActiveTab('positions')
+            setIsOpen(true)
+          }}
+          title="Buka Monitor Posisi & Order"
+          className={`p-2 rounded-lg transition-colors ${
+            activeTab === 'positions'
+              ? 'bg-[#1b2230] text-[#00c087] border border-[#30394b]'
+              : 'text-slate-400 hover:text-white hover:bg-[#1e2533]'
+          }`}
+        >
+          <Activity className="w-4 h-4" />
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
             setActiveTab('calculator')
             setIsOpen(true)
           }}
@@ -188,12 +206,12 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   return (
     <aside className="w-80 bg-[#111620] border-l border-[#21262d] flex flex-col h-full shrink-0 overflow-hidden">
       {/* Sidebar Navigation Bar + Collapse Toggle */}
-      <div className="flex items-center justify-between px-1.5 py-1.5 bg-[#0d1117] border-b border-[#21262d] shrink-0">
-        <div className="grid grid-cols-4 gap-1 flex-1 mr-1">
+      <div className="flex items-center justify-between px-1 py-1.5 bg-[#0d1117] border-b border-[#21262d] shrink-0">
+        <div className="grid grid-cols-5 gap-0.5 flex-1 mr-1">
           <button
             type="button"
             onClick={() => setActiveTab('index')}
-            className={`flex items-center justify-center space-x-1 py-1.5 px-1 rounded-md text-[10px] font-bold transition-all ${
+            className={`flex items-center justify-center space-x-0.5 py-1.5 px-0.5 rounded-md text-[10px] font-bold transition-all ${
               activeTab === 'index'
                 ? 'bg-[#1b2230] text-white border border-[#2f394c] shadow-sm'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-[#151b26]'
@@ -206,7 +224,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('setup')}
-            className={`relative flex items-center justify-center space-x-1 py-1.5 px-1 rounded-md text-[10px] font-bold transition-all ${
+            className={`relative flex items-center justify-center space-x-0.5 py-1.5 px-0.5 rounded-md text-[10px] font-bold transition-all ${
               activeTab === 'setup'
                 ? 'bg-[#1b2230] text-white border border-[#2f394c] shadow-sm'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-[#151b26]'
@@ -218,8 +236,21 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
 
           <button
             type="button"
+            onClick={() => setActiveTab('positions')}
+            className={`relative flex items-center justify-center space-x-0.5 py-1.5 px-0.5 rounded-md text-[10px] font-bold transition-all ${
+              activeTab === 'positions'
+                ? 'bg-[#1b2230] text-white border border-[#2f394c] shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-[#151b26]'
+            }`}
+          >
+            <Activity className={`w-3 h-3 shrink-0 ${activeTab === 'positions' ? 'text-[#00c087]' : ''}`} />
+            <span>Posisi</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setActiveTab('calculator')}
-            className={`relative flex items-center justify-center space-x-1 py-1.5 px-1 rounded-md text-[10px] font-bold transition-all ${
+            className={`relative flex items-center justify-center space-x-0.5 py-1.5 px-0.5 rounded-md text-[10px] font-bold transition-all ${
               activeTab === 'calculator'
                 ? 'bg-[#1b2230] text-white border border-[#2f394c] shadow-sm'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-[#151b26]'
@@ -227,18 +258,12 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           >
             <Calculator className={`w-3 h-3 shrink-0 ${activeTab === 'calculator' ? 'text-[#f0b90b]' : ''}`} />
             <span>Hitung</span>
-            {hasActiveBox && (
-              <span
-                className="w-1.5 h-1.5 rounded-full bg-[#00c087] shrink-0"
-                title="Ada Setup A+ Aktif"
-              />
-            )}
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('watchlist')}
-            className={`flex items-center justify-center space-x-1 py-1.5 px-1 rounded-md text-[10px] font-bold transition-all ${
+            className={`flex items-center justify-center space-x-0.5 py-1.5 px-0.5 rounded-md text-[10px] font-bold transition-all ${
               activeTab === 'watchlist'
                 ? 'bg-[#1b2230] text-white border border-[#2f394c] shadow-sm'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-[#151b26]'
@@ -282,6 +307,15 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           currentPrice={currentPrice}
           onSelectSymbol={onSelectSymbol}
           onOpenTrade={onOpenTrade}
+        />
+      )}
+
+      {activeTab === 'positions' && (
+        <PositionsSidebarPanel
+          currentSymbol={symbol}
+          market={market}
+          onSelectSymbol={onSelectSymbol}
+          onOpenTradeModal={() => onOpenTrade?.({ symbol, market, direction: 'LONG', entry_price: currentPrice || 0 })}
         />
       )}
 

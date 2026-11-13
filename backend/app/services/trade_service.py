@@ -593,4 +593,410 @@ class TradeService:
                     "message": f"Gagal mengeksekusi order di Binance: {str(exc)}"
                 }
 
+    async def get_positions(
+        self,
+        market: str = "futures",
+        mode: str = "demo",
+        api_key: str = "",
+        api_secret: str = "",
+        symbol: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Fetch active open positions.
+        - Simulated paper trading: returns in-memory positions with live mark price & unrealized PnL.
+        - Binance Testnet / Live: queries /fapi/v2/positionRisk.
+        """
+        sym_clean = symbol.upper().strip() if symbol else None
+        market_clean = market.lower().strip()
+        mode_clean = mode.lower().strip()
+
+        api_key = (api_key or "").strip()
+        api_secret = (api_secret or "").strip()
+
+        # Simulated Paper Trading
+        if mode_clean == "demo" and (not api_key or not api_secret):
+            open_pos = [p for p in self._paper_positions if p.get("status") == "FILLED"]
+            if sym_clean:
+                open_pos = [p for p in open_pos if p.get("symbol") == sym_clean]
+
+            # Try to enrich with live price
+            price_map = {}
+            try:
+                from .binance_service import BinanceService
+                bs = BinanceService()
+                tickers = await bs.get_live_ticker_batch(market=market_clean)
+                price_map = {t["s"]: t["c"] for t in tickers}
+            except Exception:
+                pass
+
+            formatted_positions = []
+            total_unpnl = 0.0
+
+            for p in open_pos:
+                pos_sym = p.get("symbol", "")
+                entry_p = float(p.get("price", 0))
+                mark_p = price_map.get(pos_sym, entry_p)
+                qty = float(p.get("quantity", 0))
+                is_long = p.get("side") == "BUY"
+                margin = float(p.get("margin", 0))
+
+                price_diff = (mark_p - entry_p) if is_long else (entry_p - mark_p)
+                unrealized_pnl = round(price_diff * qty, 2)
+                roe_pct = round((unrealized_pnl / margin) * 100, 2) if margin > 0 else 0.0
+                total_unpnl += unrealized_pnl
+
+                formatted_positions.append({
+                    "id": p.get("id"),
+                    "symbol": pos_sym,
+                    "side": "LONG" if is_long else "SHORT",
+                    "positionAmt": qty if is_long else -qty,
+                    "entryPrice": entry_p,
+                    "markPrice": mark_p,
+                    "unrealizedProfit": unrealized_pnl,
+                    "roePct": roe_pct,
+                    "margin": round(margin, 2),
+                    "leverage": p.get("leverage", 1),
+                    "stopLoss": p.get("stop_loss"),
+                    "takeProfit": p.get("take_profit"),
+                    "time": p.get("time", int(time.time())),
+                    "is_simulated": True
+                })
+
+            return {
+                "success": True,
+                "mode": "demo",
+                "market": market_clean,
+                "is_simulated": True,
+                "total_unrealized_pnl": round(total_unpnl, 2),
+                "positions": formatted_positions
+            }
+
+        if not api_key or not api_secret:
+            return {
+                "success": False,
+                "message": "API Key dan Secret Key diperlukan untuk melihat posisi Live."
+            }
+
+        base_url = self._get_base_url(market_clean, mode_clean)
+        headers = {**HEADERS_BASE, "X-MBX-APIKEY": api_key}
+        timeout = httpx.Timeout(12.0, connect=5.0)
+
+        async with httpx.AsyncClient(headers=headers, timeout=timeout) as client:
+            try:
+                if market_clean == "futures":
+                    query_params = {}
+                    if sym_clean:
+                        query_params["symbol"] = sym_clean
+                    signed_query = self._sign_payload(query_params, api_secret)
+                    url = f"{base_url}/fapi/v2/positionRisk?{signed_query}"
+
+                    resp = await client.get(url)
+                    if resp.status_code == 200:
+                        raw_positions = resp.json()
+                        formatted_positions = []
+                        total_unpnl = 0.0
+
+                        for p in raw_positions:
+                            amt = float(p.get("positionAmt", 0))
+                            if amt == 0:
+                                continue
+
+                            entry_p = float(p.get("entryPrice", 0))
+                            mark_p = float(p.get("markPrice", 0))
+                            unpnl = float(p.get("unRealizedProfit", 0))
+                            notional = abs(float(p.get("notional", 0)))
+                            lev = int(p.get("leverage", 1))
+                            isolated_margin = float(p.get("isolatedMargin", 0))
+                            margin = isolated_margin if isolated_margin > 0 else (notional / lev if lev > 0 else notional)
+                            roe_pct = round((unpnl / margin) * 100, 2) if margin > 0 else 0.0
+                            total_unpnl += unpnl
+
+                            formatted_positions.append({
+                                "symbol": p.get("symbol"),
+                                "side": "LONG" if amt > 0 else "SHORT",
+                                "positionAmt": amt,
+                                "entryPrice": entry_p,
+                                "markPrice": mark_p,
+                                "unrealizedProfit": round(unpnl, 2),
+                                "roePct": roe_pct,
+                                "liquidationPrice": float(p.get("liquidationPrice", 0)),
+                                "leverage": lev,
+                                "marginType": p.get("marginType", "cross"),
+                                "margin": round(margin, 2),
+                                "notional": round(notional, 2),
+                                "is_simulated": False
+                            })
+
+                        return {
+                            "success": True,
+                            "mode": mode_clean,
+                            "market": market_clean,
+                            "is_simulated": False,
+                            "total_unrealized_pnl": round(total_unpnl, 2),
+                            "positions": formatted_positions
+                        }
+                    else:
+                        err_payload = resp.json() if resp.text else {}
+                        return {
+                            "success": False,
+                            "message": err_payload.get("msg") or f"HTTP {resp.status_code}"
+                        }
+                else:
+                    return {
+                        "success": True,
+                        "mode": mode_clean,
+                        "market": "spot",
+                        "positions": [],
+                        "total_unrealized_pnl": 0.0,
+                        "message": "Spot tidak memiliki posisi margin/leverage terbuka."
+                    }
+            except Exception as exc:
+                return {"success": False, "message": f"Gagal mengambil posisi: {str(exc)}"}
+
+    async def get_open_orders(
+        self,
+        market: str = "futures",
+        mode: str = "demo",
+        api_key: str = "",
+        api_secret: str = "",
+        symbol: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Fetch active open orders (Limits, Stop Loss, Take Profit bracket orders).
+        """
+        sym_clean = symbol.upper().strip() if symbol else None
+        market_clean = market.lower().strip()
+        mode_clean = mode.lower().strip()
+
+        api_key = (api_key or "").strip()
+        api_secret = (api_secret or "").strip()
+
+        # Simulated Paper Orders
+        if mode_clean == "demo" and (not api_key or not api_secret):
+            paper_orders = []
+            for p in self._paper_positions:
+                if p.get("status") == "FILLED":
+                    pos_sym = p.get("symbol")
+                    if sym_clean and pos_sym != sym_clean:
+                        continue
+                    sl = p.get("stop_loss")
+                    tp = p.get("take_profit")
+                    if sl:
+                        paper_orders.append({
+                            "orderId": int(f"{p['id']}1"),
+                            "symbol": pos_sym,
+                            "status": "NEW",
+                            "type": "STOP_MARKET",
+                            "side": "SELL" if p.get("side") == "BUY" else "BUY",
+                            "price": 0.0,
+                            "stopPrice": float(sl),
+                            "origQty": float(p.get("quantity", 0)),
+                            "time": p.get("time", int(time.time())),
+                            "is_simulated": True
+                        })
+                    if tp:
+                        paper_orders.append({
+                            "orderId": int(f"{p['id']}2"),
+                            "symbol": pos_sym,
+                            "status": "NEW",
+                            "type": "TAKE_PROFIT_MARKET",
+                            "side": "SELL" if p.get("side") == "BUY" else "BUY",
+                            "price": 0.0,
+                            "stopPrice": float(tp),
+                            "origQty": float(p.get("quantity", 0)),
+                            "time": p.get("time", int(time.time())),
+                            "is_simulated": True
+                        })
+
+            return {
+                "success": True,
+                "mode": "demo",
+                "market": market_clean,
+                "is_simulated": True,
+                "orders": paper_orders
+            }
+
+        if not api_key or not api_secret:
+            return {"success": False, "message": "API Key dan Secret Key diperlukan."}
+
+        base_url = self._get_base_url(market_clean, mode_clean)
+        headers = {**HEADERS_BASE, "X-MBX-APIKEY": api_key}
+        timeout = httpx.Timeout(12.0, connect=5.0)
+
+        async with httpx.AsyncClient(headers=headers, timeout=timeout) as client:
+            try:
+                query_params = {}
+                if sym_clean:
+                    query_params["symbol"] = sym_clean
+
+                path = "/fapi/v1/openOrders" if market_clean == "futures" else "/api/v3/openOrders"
+                signed_query = self._sign_payload(query_params, api_secret)
+                url = f"{base_url}{path}?{signed_query}"
+
+                resp = await client.get(url)
+                if resp.status_code == 200:
+                    raw_orders = resp.json()
+                    formatted_orders = []
+                    for o in raw_orders:
+                        raw_t = o.get("time", 0)
+                        formatted_orders.append({
+                            "orderId": o.get("orderId"),
+                            "symbol": o.get("symbol"),
+                            "status": o.get("status"),
+                            "clientOrderId": o.get("clientOrderId"),
+                            "type": o.get("type"),
+                            "side": o.get("side"),
+                            "price": float(o.get("price", 0)),
+                            "stopPrice": float(o.get("stopPrice", 0)),
+                            "origQty": float(o.get("origQty", 0)),
+                            "executedQty": float(o.get("executedQty", 0)),
+                            "time": int(raw_t // 1000) if raw_t > 10000000000 else int(raw_t),
+                            "is_simulated": False
+                        })
+                    return {
+                        "success": True,
+                        "mode": mode_clean,
+                        "market": market_clean,
+                        "is_simulated": False,
+                        "orders": formatted_orders
+                    }
+                else:
+                    err_payload = resp.json() if resp.text else {}
+                    return {"success": False, "message": err_payload.get("msg") or f"HTTP {resp.status_code}"}
+            except Exception as exc:
+                return {"success": False, "message": f"Gagal mengambil order: {str(exc)}"}
+
+    async def close_position(
+        self,
+        symbol: str,
+        market: str = "futures",
+        mode: str = "demo",
+        api_key: str = "",
+        api_secret: str = ""
+    ) -> Dict[str, Any]:
+        """
+        Instantly close an open position at MARKET and cancel its remaining SL/TP bracket orders.
+        """
+        sym_clean = symbol.upper().strip()
+        market_clean = market.lower().strip()
+        mode_clean = mode.lower().strip()
+
+        api_key = (api_key or "").strip()
+        api_secret = (api_secret or "").strip()
+
+        # Paper Trading Close
+        if mode_clean == "demo" and (not api_key or not api_secret):
+            matched = [p for p in self._paper_positions if p.get("symbol") == sym_clean and p.get("status") == "FILLED"]
+            if not matched:
+                return {"success": False, "message": f"Tidak ada posisi paper aktif untuk {sym_clean}."}
+
+            for p in matched:
+                p["status"] = "CLOSED"
+                margin = float(p.get("margin", 0))
+                self._paper_wallet["USDT"] = self._paper_wallet.get("USDT", 10000.0) + margin
+
+            return {
+                "success": True,
+                "message": f"Posisi {sym_clean} berhasil ditutup (Market Close Paper Trading)."
+            }
+
+        if not api_key or not api_secret:
+            return {"success": False, "message": "API Key dan Secret Key diperlukan."}
+
+        base_url = self._get_base_url(market_clean, mode_clean)
+        headers = {**HEADERS_BASE, "X-MBX-APIKEY": api_key}
+        timeout = httpx.Timeout(15.0, connect=5.0)
+
+        async with httpx.AsyncClient(headers=headers, timeout=timeout) as client:
+            try:
+                # 1. Fetch current open amount
+                signed_pos = self._sign_payload({"symbol": sym_clean}, api_secret)
+                pos_resp = await client.get(f"{base_url}/fapi/v2/positionRisk?{signed_pos}")
+                if pos_resp.status_code != 200:
+                    return {"success": False, "message": "Gagal membaca posisi saat ini dari Binance."}
+
+                positions = pos_resp.json()
+                active_p = next((p for p in positions if p.get("symbol") == sym_clean and float(p.get("positionAmt", 0)) != 0), None)
+                if not active_p:
+                    return {"success": False, "message": f"Tidak ditemukan posisi terbuka untuk {sym_clean}."}
+
+                pos_amt = float(active_p.get("positionAmt", 0))
+                close_side = "SELL" if pos_amt > 0 else "BUY"
+                close_qty = abs(pos_amt)
+
+                # 2. Market Close with reduceOnly=true
+                close_params = {
+                    "symbol": sym_clean,
+                    "side": close_side,
+                    "type": "MARKET",
+                    "quantity": close_qty,
+                    "reduceOnly": "true"
+                }
+                signed_close = self._sign_payload(close_params, api_secret)
+                close_resp = await client.post(f"{base_url}/fapi/v1/order?{signed_close}")
+
+                if close_resp.status_code != 200:
+                    err_json = close_resp.json() if close_resp.text else {}
+                    return {"success": False, "message": err_json.get("msg") or f"Gagal close: HTTP {close_resp.status_code}"}
+
+                # 3. Cancel remaining open orders (SL/TP) for this symbol
+                try:
+                    signed_del = self._sign_payload({"symbol": sym_clean}, api_secret)
+                    await client.delete(f"{base_url}/fapi/v1/allOpenOrders?{signed_del}")
+                except Exception as del_err:
+                    logger.warning(f"Failed to cancel remaining orders after close: {del_err}")
+
+                return {
+                    "success": True,
+                    "message": f"Posisi {sym_clean} ({close_side} {close_qty}) berhasil ditutup di Binance {mode_clean.upper()}!"
+                }
+            except Exception as exc:
+                return {"success": False, "message": f"Gagal menutup posisi: {str(exc)}"}
+
+    async def cancel_order(
+        self,
+        symbol: str,
+        order_id: int,
+        market: str = "futures",
+        mode: str = "demo",
+        api_key: str = "",
+        api_secret: str = ""
+    ) -> Dict[str, Any]:
+        """
+        Cancel a pending order.
+        """
+        sym_clean = symbol.upper().strip()
+        market_clean = market.lower().strip()
+        mode_clean = mode.lower().strip()
+
+        api_key = (api_key or "").strip()
+        api_secret = (api_secret or "").strip()
+
+        if mode_clean == "demo" and (not api_key or not api_secret):
+            return {
+                "success": True,
+                "message": f"Order #{order_id} berhasil dibatalkan (Simulasi)."
+            }
+
+        if not api_key or not api_secret:
+            return {"success": False, "message": "API Key dan Secret Key diperlukan."}
+
+        base_url = self._get_base_url(market_clean, mode_clean)
+        headers = {**HEADERS_BASE, "X-MBX-APIKEY": api_key}
+        timeout = httpx.Timeout(12.0, connect=5.0)
+
+        async with httpx.AsyncClient(headers=headers, timeout=timeout) as client:
+            try:
+                path = "/fapi/v1/order" if market_clean == "futures" else "/api/v3/order"
+                signed_cancel = self._sign_payload({"symbol": sym_clean, "orderId": order_id}, api_secret)
+                url = f"{base_url}{path}?{signed_cancel}"
+                resp = await client.delete(url)
+                if resp.status_code == 200:
+                    return {"success": True, "message": f"Order #{order_id} ({sym_clean}) berhasil dibatalkan di Binance."}
+                else:
+                    err_json = resp.json() if resp.text else {}
+                    return {"success": False, "message": err_json.get("msg") or f"HTTP {resp.status_code}"}
+            except Exception as exc:
+                return {"success": False, "message": f"Gagal membatalkan order: {str(exc)}"}
+
 trade_service = TradeService()

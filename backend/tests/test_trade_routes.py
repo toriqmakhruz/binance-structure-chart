@@ -69,3 +69,22 @@ def test_trade_execute_simulated_demo_order():
     assert data["status"] == "FILLED"
     assert data["bracket_orders"]["stop_loss"] == 93500.0
     assert data["bracket_orders"]["take_profit"] == 98000.0
+
+def test_trade_get_positions_and_close():
+    # 1. Fetch positions
+    resp = client.post("/api/trade/positions", json={"market": "futures", "mode": "demo"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is True
+    assert "positions" in data
+
+    # 2. Fetch open orders
+    resp_orders = client.post("/api/trade/open-orders", json={"market": "futures", "mode": "demo"})
+    assert resp_orders.status_code == 200
+    orders_data = resp_orders.json()
+    assert orders_data["success"] is True
+
+    # 3. Close position
+    resp_close = client.post("/api/trade/close-position", json={"symbol": "BTCUSDT", "market": "futures", "mode": "demo"})
+    assert resp_close.status_code == 200
+    assert resp_close.json()["success"] is True

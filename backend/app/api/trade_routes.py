@@ -92,3 +92,85 @@ async def execute_order(req: OrderExecuteRequest):
         reduce_only=req.reduce_only
     )
     return result
+
+class ClosePositionRequest(BaseModel):
+    symbol: str
+    market: str = Field("futures", pattern="^(spot|futures)$")
+    mode: str = Field("demo", pattern="^(demo|live)$")
+    api_key: Optional[str] = ""
+    api_secret: Optional[str] = ""
+
+class CancelOrderRequest(BaseModel):
+    symbol: str
+    order_id: int
+    market: str = Field("futures", pattern="^(spot|futures)$")
+    mode: str = Field("demo", pattern="^(demo|live)$")
+    api_key: Optional[str] = ""
+    api_secret: Optional[str] = ""
+
+class PositionsRequest(BaseModel):
+    market: str = Field("futures", pattern="^(spot|futures)$")
+    mode: str = Field("demo", pattern="^(demo|live)$")
+    api_key: Optional[str] = ""
+    api_secret: Optional[str] = ""
+    symbol: Optional[str] = None
+
+class OpenOrdersRequest(BaseModel):
+    market: str = Field("futures", pattern="^(spot|futures)$")
+    mode: str = Field("demo", pattern="^(demo|live)$")
+    api_key: Optional[str] = ""
+    api_secret: Optional[str] = ""
+    symbol: Optional[str] = None
+
+@trade_router.post("/positions")
+async def get_positions(req: PositionsRequest):
+    """
+    Fetch active open positions with live Mark Price, Unrealized PnL, and ROE%.
+    """
+    return await trade_service.get_positions(
+        market=req.market,
+        mode=req.mode,
+        api_key=req.api_key or "",
+        api_secret=req.api_secret or "",
+        symbol=req.symbol
+    )
+
+@trade_router.post("/open-orders")
+async def get_open_orders(req: OpenOrdersRequest):
+    """
+    Fetch pending open orders (Limits, Stop Loss, Take Profit bracket orders).
+    """
+    return await trade_service.get_open_orders(
+        market=req.market,
+        mode=req.mode,
+        api_key=req.api_key or "",
+        api_secret=req.api_secret or "",
+        symbol=req.symbol
+    )
+
+@trade_router.post("/close-position")
+async def close_position(req: ClosePositionRequest):
+    """
+    Instantly close an open position at MARKET and cancel remaining SL/TP bracket orders.
+    """
+    return await trade_service.close_position(
+        symbol=req.symbol,
+        market=req.market,
+        mode=req.mode,
+        api_key=req.api_key or "",
+        api_secret=req.api_secret or ""
+    )
+
+@trade_router.post("/cancel-order")
+async def cancel_order(req: CancelOrderRequest):
+    """
+    Cancel an individual open order.
+    """
+    return await trade_service.cancel_order(
+        symbol=req.symbol,
+        order_id=req.order_id,
+        market=req.market,
+        mode=req.mode,
+        api_key=req.api_key or "",
+        api_secret=req.api_secret or ""
+    )

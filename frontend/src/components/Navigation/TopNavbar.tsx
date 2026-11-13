@@ -10,7 +10,8 @@ import {
   Search,
   Wifi,
   WifiOff,
-  Zap
+  Zap,
+  Activity
 } from 'lucide-react'
 import { formatPrice } from '../../utils/formatters'
 
@@ -26,6 +27,8 @@ interface TopNavbarProps {
   isLoading: boolean
   lastPrice?: number
   activeSetup?: any
+  isDashboardOpen?: boolean
+  onToggleDashboard?: () => void
   onSymbolClick: () => void
   onTimeframeChange: (tf: string) => void
   onMarketChange: (m: 'spot' | 'futures') => void
@@ -47,6 +50,8 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
   isLoading,
   lastPrice,
   activeSetup,
+  isDashboardOpen,
+  onToggleDashboard,
   onSymbolClick,
   onTimeframeChange,
   onMarketChange,
@@ -226,6 +231,22 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
           <span className={`w-2 h-2 rounded-full ${badge.dot}`}></span>
           <span className="hidden xl:inline">{badge.label}</span>
         </div>
+
+        {/* Toggle Dashboard Monitor */}
+        {onToggleDashboard && (
+          <button
+            type="button"
+            onClick={onToggleDashboard}
+            title="Buka / Tutup Dashboard Monitor Posisi & Order"
+            className={`p-2 rounded-lg transition-all border ${
+              isDashboardOpen
+                ? 'bg-[#1b2230] text-[#f0b90b] border-[#f0b90b]/50 shadow-sm'
+                : 'bg-[#1a202c] hover:bg-[#252d3d] text-slate-300 hover:text-white border-[#2d3748]'
+            }`}
+          >
+            <Activity className="w-4 h-4" />
+          </button>
+        )}
 
         {/* Refresh / Re-analyze Button */}
         <button

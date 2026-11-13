@@ -137,3 +137,89 @@ export async function executeTradeOrder(req: TradeOrderRequest): Promise<TradeOr
   })
   return await resp.json()
 }
+
+export async function fetchOpenPositions(
+  market: 'spot' | 'futures',
+  mode: 'demo' | 'live',
+  apiKey?: string,
+  apiSecret?: string,
+  symbol?: string
+): Promise<{ success: boolean; total_unrealized_pnl: number; positions: any[]; message?: string }> {
+  const resp = await fetch(`${API_BASE}/trade/positions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      market,
+      mode,
+      api_key: apiKey || '',
+      api_secret: apiSecret || '',
+      symbol: symbol || undefined
+    })
+  })
+  return await resp.json()
+}
+
+export async function fetchOpenOrders(
+  market: 'spot' | 'futures',
+  mode: 'demo' | 'live',
+  apiKey?: string,
+  apiSecret?: string,
+  symbol?: string
+): Promise<{ success: boolean; orders: any[]; message?: string }> {
+  const resp = await fetch(`${API_BASE}/trade/open-orders`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      market,
+      mode,
+      api_key: apiKey || '',
+      api_secret: apiSecret || '',
+      symbol: symbol || undefined
+    })
+  })
+  return await resp.json()
+}
+
+export async function closeTradePosition(
+  symbol: string,
+  market: 'spot' | 'futures',
+  mode: 'demo' | 'live',
+  apiKey?: string,
+  apiSecret?: string
+): Promise<{ success: boolean; message: string }> {
+  const resp = await fetch(`${API_BASE}/trade/close-position`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      symbol,
+      market,
+      mode,
+      api_key: apiKey || '',
+      api_secret: apiSecret || ''
+    })
+  })
+  return await resp.json()
+}
+
+export async function cancelTradeOrder(
+  symbol: string,
+  orderId: number,
+  market: 'spot' | 'futures',
+  mode: 'demo' | 'live',
+  apiKey?: string,
+  apiSecret?: string
+): Promise<{ success: boolean; message: string }> {
+  const resp = await fetch(`${API_BASE}/trade/cancel-order`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      symbol,
+      order_id: orderId,
+      market,
+      mode,
+      api_key: apiKey || '',
+      api_secret: apiSecret || ''
+    })
+  })
+  return await resp.json()
+}
