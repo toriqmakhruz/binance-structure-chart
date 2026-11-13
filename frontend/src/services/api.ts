@@ -1,4 +1,11 @@
-import { FullAnalysisResponse, AppSettings, ValidSetupsResponse } from '../types/analysis'
+import {
+  FullAnalysisResponse,
+  AppSettings,
+  ValidSetupsResponse,
+  TradeBalanceResponse,
+  TradeOrderRequest,
+  TradeOrderResponse
+} from '../types/analysis'
 
 const API_BASE = '/api'
 
@@ -70,5 +77,63 @@ export async function fetchValidSetups(
     throw new Error(typeof err.detail === 'string' ? err.detail : (err.detail?.message || 'Setup scan failed'))
   }
 
+  return await resp.json()
+}
+
+export async function testTradeConnection(
+  market: 'spot' | 'futures',
+  mode: 'demo' | 'live',
+  apiKey?: string,
+  apiSecret?: string
+): Promise<{ success: boolean; message: string; canTrade?: boolean }> {
+  const resp = await fetch(`${API_BASE}/trade/test-connection`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      market,
+      mode,
+      api_key: apiKey || '',
+      api_secret: apiSecret || ''
+    })
+  })
+  return await resp.json()
+}
+
+export async function fetchTradeBalance(
+  market: 'spot' | 'futures',
+  mode: 'demo' | 'live',
+  apiKey?: string,
+  apiSecret?: string
+): Promise<TradeBalanceResponse> {
+  const resp = await fetch(`${API_BASE}/trade/balance`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      market,
+      mode,
+      api_key: apiKey || '',
+      api_secret: apiSecret || ''
+    })
+  })
+  return await resp.json()
+}
+
+export async function fetchTradeRules(
+  symbol: string,
+  market: 'spot' | 'futures' = 'futures',
+  mode: 'demo' | 'live' = 'demo'
+) {
+  const params = new URLSearchParams({ symbol, market, mode })
+  const resp = await fetch(`${API_BASE}/trade/rules?${params.toString()}`)
+  if (!resp.ok) return null
+  return await resp.json()
+}
+
+export async function executeTradeOrder(req: TradeOrderRequest): Promise<TradeOrderResponse> {
+  const resp = await fetch(`${API_BASE}/trade/order`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req)
+  })
   return await resp.json()
 }

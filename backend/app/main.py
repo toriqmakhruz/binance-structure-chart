@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .api.routes import router as api_router
 from .api.websocket import ws_router
+from .api.trade_routes import trade_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -52,6 +53,7 @@ app.add_middleware(
 
 app.include_router(api_router)
 app.include_router(ws_router)
+app.include_router(trade_router)
 
 @app.get("/health")
 def health_check():

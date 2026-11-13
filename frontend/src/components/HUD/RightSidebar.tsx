@@ -34,6 +34,7 @@ interface RightSidebarProps {
   patterns?: ChartPattern[]
   currentPrice?: number
   onSelectSymbol: (symbol: string) => void
+  onOpenTrade?: (setup: any) => void
 }
 
 export const RightSidebar: React.FC<RightSidebarProps> = ({
@@ -47,7 +48,8 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   forecast,
   patterns = [],
   currentPrice,
-  onSelectSymbol
+  onSelectSymbol,
+  onOpenTrade
 }) => {
   const [isOpen, setIsOpen] = useState<boolean>(() => {
     try {
@@ -279,6 +281,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           forecast={forecast}
           currentPrice={currentPrice}
           onSelectSymbol={onSelectSymbol}
+          onOpenTrade={onOpenTrade}
         />
       )}
 
@@ -289,6 +292,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           candles={candles}
           forecast={forecast}
           currentPrice={currentPrice}
+          onOpenTrade={onOpenTrade}
         />
       )}
 

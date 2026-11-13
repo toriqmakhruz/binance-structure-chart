@@ -16,7 +16,8 @@ import {
   TrendingUp,
   TrendingDown,
   ShieldCheck,
-  Coins
+  Coins,
+  Zap
 } from 'lucide-react'
 
 interface PositionCalculatorProps {
@@ -25,6 +26,7 @@ interface PositionCalculatorProps {
   candles: Candle[]
   forecast?: ForecastResult
   currentPrice?: number
+  onOpenTrade?: (target: any) => void
 }
 
 type RiskMode = 'USDT' | 'PERCENT'
@@ -76,7 +78,8 @@ export const PositionCalculator: React.FC<PositionCalculatorProps> = ({
   market,
   candles,
   forecast,
-  currentPrice
+  currentPrice,
+  onOpenTrade
 }) => {
   // User Primary Inputs (persisted in localStorage)
   const [accountSize, setAccountSize] = useState<number>(() => readStoredNumber(STORAGE_KEYS.accountSize, 476))
@@ -768,6 +771,33 @@ export const PositionCalculator: React.FC<PositionCalculatorProps> = ({
             <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
             <span>Risk & margin aman sesuai batas saldo akun Anda.</span>
           </div>
+        )}
+
+        {/* Quick Open Position Button */}
+        {onOpenTrade && (
+          <button
+            type="button"
+            onClick={() => {
+              onOpenTrade({
+                symbol,
+                market,
+                direction,
+                entry_price: entryPrice,
+                invalidation_price: stopLoss,
+                target_price: targetPrice,
+                risk_reward_ratio: calc.rr > 0 ? Number(calc.rr.toFixed(2)) : undefined
+              })
+            }}
+            disabled={!calc.isSlValidSide || calc.qty <= 0}
+            className={`w-full mt-2 py-2 px-3 rounded-lg font-bold text-xs shadow-md transition-all flex items-center justify-center space-x-2 disabled:opacity-40 disabled:cursor-not-allowed ${
+              direction === 'LONG'
+                ? 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-emerald-950/40'
+                : 'bg-rose-500 hover:bg-rose-400 text-white shadow-rose-950/40'
+            }`}
+          >
+            <Zap className="w-3.5 h-3.5" />
+            <span>Buka Posisi {direction} di Binance</span>
+          </button>
         )}
       </div>
     </div>

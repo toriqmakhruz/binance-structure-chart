@@ -9,7 +9,8 @@ import {
   Square,
   Search,
   Wifi,
-  WifiOff
+  WifiOff,
+  Zap
 } from 'lucide-react'
 import { formatPrice } from '../../utils/formatters'
 
@@ -24,12 +25,14 @@ interface TopNavbarProps {
   streamStatus?: StreamStatusType
   isLoading: boolean
   lastPrice?: number
+  activeSetup?: any
   onSymbolClick: () => void
   onTimeframeChange: (tf: string) => void
   onMarketChange: (m: 'spot' | 'futures') => void
   onLayoutChange: (l: 'single' | 'split-vertical' | 'split-horizontal' | 'grid-4') => void
   onRefresh: () => void
   onOpenSettings: () => void
+  onOpenTrade?: (setup: any) => void
 }
 
 const TIMEFRAMES = ['1m', '3m', '5m', '15m', '30m', '1h', '4h', '1d']
@@ -43,12 +46,14 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
   streamStatus = 'OFFLINE',
   isLoading,
   lastPrice,
+  activeSetup,
   onSymbolClick,
   onTimeframeChange,
   onMarketChange,
   onLayoutChange,
   onRefresh,
-  onOpenSettings
+  onOpenSettings,
+  onOpenTrade
 }) => {
   const getBadgeConfig = () => {
     switch (streamStatus) {
@@ -143,6 +148,23 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
             </span>
           )}
         </button>
+
+        {/* Quick Open Position Button when active valid setup exists */}
+        {activeSetup && onOpenTrade && (
+          <button
+            type="button"
+            onClick={() => onOpenTrade(activeSetup)}
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg font-bold text-xs shadow-md transition-all ${
+              activeSetup.direction === 'LONG'
+                ? 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-emerald-950/40'
+                : 'bg-rose-500 hover:bg-rose-400 text-white shadow-rose-950/40'
+            }`}
+            title={`Buka Posisi ${activeSetup.direction} untuk setup aktif ini`}
+          >
+            <Zap className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Open Posisi</span>
+          </button>
+        )}
       </div>
 
       {/* Middle: Timeframe Selector */}

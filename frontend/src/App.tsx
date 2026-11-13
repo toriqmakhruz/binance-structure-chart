@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { TopNavbar, StreamStatusType } from './components/Navigation/TopNavbar'
 import { SymbolSelector } from './components/Navigation/SymbolSelector'
 import { DrawingToolbar } from './components/Chart/DrawingToolbar'
@@ -6,6 +6,7 @@ import { LayerToggles } from './components/Chart/LayerToggles'
 import { ChartContainer } from './components/Chart/ChartContainer'
 import { RightSidebar } from './components/HUD/RightSidebar'
 import { SettingsDrawer } from './components/Settings/SettingsDrawer'
+import { OpenPositionModal, SetupTradeTarget } from './components/Trade/OpenPositionModal'
 import { fetchAnalysis } from './services/api'
 import { BinanceWsClient } from './services/binanceWs'
 import {
@@ -118,6 +119,8 @@ export function App() {
   // Modals / Drawers
   const [isSymbolModalOpen, setIsSymbolModalOpen] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [isTradeModalOpen, setIsTradeModalOpen] = useState(false)
+  const [selectedTradeTarget, setSelectedTradeTarget] = useState<SetupTradeTarget | null>(null)
 
   const wsClientRef = useRef<BinanceWsClient | null>(null)
   const activeSymbolRef = useRef(symbol)
@@ -268,6 +271,44 @@ export function App() {
 
   const lastCandle = candles.length > 0 ? candles[candles.length - 1] : undefined
 
+  // Active chart setup if valid
+  const activeValidScenario = useMemo(() => {
+    return analysis?.forecast?.scenarios?.find(
+      (s) => s.is_valid === true && (s.risk_reward_ratio || 0) >= 1.5 && s.status === 'VALID_ENTRY'
+    )
+  }, [analysis?.forecast])
+
+  const activeSetupTarget: SetupTradeTarget | undefined = useMemo(() => {
+    if (!activeValidScenario) return undefined
+    return {
+      symbol,
+      market,
+      direction: (activeValidScenario.direction as 'LONG' | 'SHORT') || 'LONG',
+      name: activeValidScenario.name,
+      entry_price: activeValidScenario.entry_price || lastCandle?.close || 0,
+      invalidation_price: activeValidScenario.invalidation_price,
+      target_price: activeValidScenario.target_price,
+      risk_reward_ratio: activeValidScenario.risk_reward_ratio,
+      confluence_score: analysis?.forecast?.confluence_score
+    }
+  }, [activeValidScenario, symbol, market, lastCandle?.close, analysis?.forecast?.confluence_score])
+
+  const handleOpenTrade = useCallback((setup: any) => {
+    if (!setup) return
+    setSelectedTradeTarget({
+      symbol: setup.symbol || symbol,
+      market: setup.market || market,
+      direction: setup.direction || 'LONG',
+      name: setup.name,
+      entry_price: setup.entry_price || lastCandle?.close || 0,
+      invalidation_price: setup.invalidation_price || 0,
+      target_price: setup.target_price || 0,
+      risk_reward_ratio: setup.risk_reward_ratio,
+      confluence_score: setup.confluence_score || setup.confluence_weight
+    })
+    setIsTradeModalOpen(true)
+  }, [symbol, market, lastCandle?.close])
+
   return (
     <div className="flex flex-col h-screen w-screen bg-[#0b0e14] text-slate-100 overflow-hidden">
       {/* 1. Top Navbar */}
@@ -280,12 +321,14 @@ export function App() {
         streamStatus={streamStatus}
         isLoading={isLoading}
         lastPrice={lastCandle?.close}
+        activeSetup={activeSetupTarget}
         onSymbolClick={() => setIsSymbolModalOpen(true)}
         onTimeframeChange={handleTimeframeChange}
         onMarketChange={handleMarketChange}
         onLayoutChange={(l) => setLayout(l)}
         onRefresh={() => loadAnalysis(symbol, timeframe, market, settings)}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenTrade={handleOpenTrade}
       />
 
       {/* 2. Layer Toggles Bar */}
@@ -339,6 +382,7 @@ export function App() {
           patterns={analysis?.patterns?.patterns}
           currentPrice={lastCandle?.close}
           onSelectSymbol={handleSelectSymbol}
+          onOpenTrade={handleOpenTrade}
         />
       </div>
 
@@ -357,6 +401,14 @@ export function App() {
         settings={settings}
         onClose={() => setIsSettingsOpen(false)}
         onSave={(newSettings) => setSettings(newSettings)}
+      />
+
+      {/* Open Position (Binance API Execution) Modal */}
+      <OpenPositionModal
+        isOpen={isTradeModalOpen}
+        target={selectedTradeTarget}
+        currentPrice={lastCandle?.close}
+        onClose={() => setIsTradeModalOpen(false)}
       />
     </div>
   )

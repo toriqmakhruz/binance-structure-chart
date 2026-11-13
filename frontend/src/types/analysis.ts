@@ -243,3 +243,60 @@ export interface ValidSetupsResponse {
   updated_at: number
   setups: ValidSetupItem[]
 }
+
+export type TradeAccountMode = 'demo' | 'live'
+
+export interface TradeCredentials {
+  demoApiKey: string
+  demoApiSecret: string
+  liveApiKey: string
+  liveApiSecret: string
+  useSimulatedDemo: boolean
+}
+
+export interface TradeBalanceResponse {
+  success: boolean
+  mode: TradeAccountMode
+  market: 'spot' | 'futures'
+  is_simulated?: boolean
+  asset: string
+  availableBalance: number
+  walletBalance: number
+  unrealizedPnl?: number
+  message?: string
+}
+
+export interface TradeOrderRequest {
+  symbol: string
+  market: 'spot' | 'futures'
+  mode: TradeAccountMode
+  api_key?: string
+  api_secret?: string
+  side: 'BUY' | 'SELL'
+  order_type: 'MARKET' | 'LIMIT'
+  quantity: number
+  price?: number
+  leverage: number
+  stop_loss?: number
+  take_profit?: number
+  reduce_only?: boolean
+}
+
+export interface TradeOrderResponse {
+  success: boolean
+  mode?: TradeAccountMode
+  market?: 'spot' | 'futures'
+  is_simulated?: boolean
+  order_id?: number | string
+  symbol?: string
+  side?: 'BUY' | 'SELL'
+  type?: 'MARKET' | 'LIMIT'
+  executed_qty?: number
+  avg_price?: number
+  status?: string
+  leverage?: number
+  bracket_orders?: any
+  code?: number
+  message: string
+}
+

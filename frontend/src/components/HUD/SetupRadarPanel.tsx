@@ -14,7 +14,8 @@ import {
   TrendingDown,
   Clock,
   ShieldAlert,
-  ArrowUpRight
+  ArrowUpRight,
+  Zap
 } from 'lucide-react'
 
 interface SetupRadarPanelProps {
@@ -25,6 +26,7 @@ interface SetupRadarPanelProps {
   forecast?: ForecastResult
   currentPrice?: number
   onSelectSymbol: (symbol: string) => void
+  onOpenTrade?: (setup: ValidSetupItem) => void
 }
 
 type DirectionFilter = 'ALL' | 'LONG' | 'SHORT'
@@ -60,7 +62,8 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
   settings,
   forecast,
   currentPrice,
-  onSelectSymbol
+  onSelectSymbol,
+  onOpenTrade
 }) => {
   const [setups, setSetups] = useState<ValidSetupItem[]>([])
   const [scannedCount, setScannedCount] = useState<number>(24)
@@ -389,15 +392,34 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
                   </div>
                 </div>
 
-                {/* Footer meta: Setup Age & Weight */}
-                <div className="flex items-center justify-between text-[9px] text-slate-500">
-                  <span className="inline-flex items-center space-x-1">
-                    <Clock className="w-2.5 h-2.5" />
-                    <span>{formatTimeAgo(item.entry_time)}</span>
-                  </span>
-                  <span className="font-mono">
-                    Skor {item.confluence_weight.toFixed(0)}%
-                  </span>
+                {/* Footer meta & Open Posisi Action */}
+                <div className="flex items-center justify-between pt-1 border-t border-[#18202d] text-[9px] text-slate-500">
+                  <div className="flex items-center space-x-2">
+                    <span className="inline-flex items-center space-x-1">
+                      <Clock className="w-2.5 h-2.5" />
+                      <span>{formatTimeAgo(item.entry_time)}</span>
+                    </span>
+                    <span className="font-mono">
+                      {item.confluence_weight.toFixed(0)}%
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onSelectSymbol(item.symbol)
+                      onOpenTrade?.(item)
+                    }}
+                    className={`px-2 py-1 rounded text-[10px] font-bold flex items-center space-x-1 transition-all shadow-sm ${
+                      isLong
+                        ? 'bg-emerald-500/90 hover:bg-emerald-400 text-black shadow-emerald-950/40'
+                        : 'bg-rose-500/90 hover:bg-rose-400 text-white shadow-rose-950/40'
+                    }`}
+                  >
+                    <Zap className="w-3 h-3" />
+                    <span>Open Posisi</span>
+                  </button>
                 </div>
               </div>
             )
