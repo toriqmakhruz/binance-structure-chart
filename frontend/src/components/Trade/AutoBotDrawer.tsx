@@ -118,19 +118,19 @@ export const AutoBotDrawer: React.FC<AutoBotDrawerProps> = ({
 
   // Toggle Bot Start / Stop
   const handleToggleBot = async () => {
-    if (!data) return
     setIsLoading(true)
-    if (data.config.enabled) {
+    const isCurrentlyEnabled = data?.config.enabled ?? false
+    if (isCurrentlyEnabled) {
       const res = await stopAutoBot()
-      showNotification(true, res.message)
+      showNotification(res.success, res.message)
     } else {
       // First save current inputs and credentials
       const creds = getStoredCredentials()
       await updateAutoBotConfig({
-        risk_per_trade_usd: Number(riskPerTrade),
-        max_daily_loss_usd: Number(maxDailyLoss),
-        max_concurrent_positions: Number(maxPositions),
-        leverage: Number(leverage),
+        risk_per_trade_usd: Number(riskPerTrade) || 4.0,
+        max_daily_loss_usd: Number(maxDailyLoss) || 16.0,
+        max_concurrent_positions: Number(maxPositions) || 4,
+        leverage: Number(leverage) || 10,
         mode,
         timeframe,
         api_key: mode === 'live' ? creds.liveApiKey : creds.demoApiKey,
@@ -140,7 +140,7 @@ export const AutoBotDrawer: React.FC<AutoBotDrawerProps> = ({
       showNotification(res.success, res.message)
     }
     setIsLoading(false)
-    loadStatus()
+    await loadStatus()
   }
 
   // Reset Circuit Breaker

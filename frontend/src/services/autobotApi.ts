@@ -40,7 +40,7 @@ export interface AutoBotStatusResponse {
 
 export async function fetchAutoBotStatus(): Promise<AutoBotStatusResponse | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/bot/status`)
+    const res = await fetch(`${API_BASE}/bot/status`)
     if (!res.ok) return null
     return await res.json()
   } catch {
@@ -50,7 +50,7 @@ export async function fetchAutoBotStatus(): Promise<AutoBotStatusResponse | null
 
 export async function updateAutoBotConfig(config: Partial<AutoBotConfig>): Promise<boolean> {
   try {
-    const res = await fetch(`${API_BASE}/api/bot/config`, {
+    const res = await fetch(`${API_BASE}/bot/config`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(config)
@@ -63,7 +63,7 @@ export async function updateAutoBotConfig(config: Partial<AutoBotConfig>): Promi
 
 export async function startAutoBot(): Promise<{ success: boolean; message: string }> {
   try {
-    const res = await fetch(`${API_BASE}/api/bot/start`, {
+    const res = await fetch(`${API_BASE}/bot/start`, {
       method: 'POST'
     })
     const data = await res.json()
@@ -78,7 +78,7 @@ export async function startAutoBot(): Promise<{ success: boolean; message: strin
 
 export async function stopAutoBot(): Promise<{ success: boolean; message: string }> {
   try {
-    const res = await fetch(`${API_BASE}/api/bot/stop`, {
+    const res = await fetch(`${API_BASE}/bot/stop`, {
       method: 'POST'
     })
     const data = await res.json()
@@ -90,7 +90,7 @@ export async function stopAutoBot(): Promise<{ success: boolean; message: string
 
 export async function resetAutoBotCircuitBreaker(): Promise<boolean> {
   try {
-    const res = await fetch(`${API_BASE}/api/bot/reset-circuit-breaker`, {
+    const res = await fetch(`${API_BASE}/bot/reset-circuit-breaker`, {
       method: 'POST'
     })
     return res.ok
@@ -101,7 +101,7 @@ export async function resetAutoBotCircuitBreaker(): Promise<boolean> {
 
 export async function panicCloseAllAutoBot(): Promise<{ success: boolean; message: string }> {
   try {
-    const res = await fetch(`${API_BASE}/api/bot/panic-close-all`, {
+    const res = await fetch(`${API_BASE}/bot/panic-close-all`, {
       method: 'POST'
     })
     const data = await res.json()

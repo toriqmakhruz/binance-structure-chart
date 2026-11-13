@@ -97,6 +97,8 @@ app.include_router(api_router)
 app.include_router(ws_router)
 app.include_router(trade_router)
 app.include_router(autobot_router)
+# Backward-compatibility alias in case of proxy prefix duplication
+app.include_router(autobot_router, prefix="/api")
 
 @app.get("/health")
 def health_check():
