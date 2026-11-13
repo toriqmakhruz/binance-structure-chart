@@ -215,8 +215,12 @@ export const PositionsSidebarPanel: React.FC<PositionsSidebarPanelProps> = ({
           ) : (
             positions.map((pos) => {
               const isLong = pos.side === 'LONG'
-              const isProfit = pos.unrealizedProfit >= 0
-              const isSelected = pos.symbol.toUpperCase() === currentSymbol.toUpperCase()
+              const pnlVal = Number(pos.unrealizedProfit || 0)
+              const roeVal = Number(pos.roePct || 0)
+              const marginVal = Number(pos.margin || 0)
+              const posAmtVal = Number(pos.positionAmt || 0)
+              const isProfit = pnlVal >= 0
+              const isSelected = (pos.symbol || '').toUpperCase() === currentSymbol.toUpperCase()
               const isActioning = actionLoading === pos.symbol
 
               return (
@@ -237,7 +241,7 @@ export const PositionsSidebarPanel: React.FC<PositionsSidebarPanelProps> = ({
                             : 'bg-rose-950 text-[#f6465d] border border-rose-800'
                         }`}
                       >
-                        {pos.side} {pos.leverage}x
+                        {pos.side} {pos.leverage || 1}x
                       </span>
                       <button
                         type="button"
@@ -250,9 +254,9 @@ export const PositionsSidebarPanel: React.FC<PositionsSidebarPanelProps> = ({
                     </div>
 
                     <div className={`font-mono font-bold text-xs ${isProfit ? 'text-[#00c087]' : 'text-[#f6465d]'}`}>
-                      {isProfit ? `+$${pos.unrealizedProfit.toFixed(2)}` : `-$${Math.abs(pos.unrealizedProfit).toFixed(2)}`}
+                      {isProfit ? `+$${pnlVal.toFixed(2)}` : `-$${Math.abs(pnlVal).toFixed(2)}`}
                       <span className="text-[10px] ml-1 opacity-80 font-normal">
-                        ({pos.roePct > 0 ? `+${pos.roePct.toFixed(1)}` : pos.roePct.toFixed(1)}%)
+                        ({roeVal > 0 ? `+${roeVal.toFixed(1)}` : roeVal.toFixed(1)}%)
                       </span>
                     </div>
                   </div>
@@ -268,13 +272,13 @@ export const PositionsSidebarPanel: React.FC<PositionsSidebarPanelProps> = ({
                     </div>
                     <div className="text-right">
                       <span className="text-[9px] text-slate-500 block">Margin</span>
-                      <span className="text-slate-300">${pos.margin.toFixed(2)}</span>
+                      <span className="text-slate-300">${marginVal.toFixed(2)}</span>
                     </div>
                   </div>
 
                   <div className="pt-1 flex items-center justify-between">
                     <span className="text-[9px] font-mono text-slate-500">
-                      Size: {Math.abs(pos.positionAmt)}
+                      Size: {Math.abs(posAmtVal)}
                     </span>
 
                     <button

@@ -926,11 +926,17 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         const isLocked = Boolean(sc.id?.startsWith('locked_') || sc.name?.includes('[POSISI AKTIF]'))
         const isLong = sc.direction === 'LONG' || sc.name.toLowerCase().includes('bullish')
         const currentCandle = candles.length > 0 ? candles[candles.length - 1] : null
-        const entryPrice = sc.entry_price || (currentCandle ? currentCandle.close : 0)
-        if (entryPrice <= 0) return
+        const entryPrice = Number(sc.entry_price || (currentCandle ? currentCandle.close : 0))
+        if (!Number.isFinite(entryPrice) || entryPrice <= 0) return
 
-        const targetPrice = sc.target_price
-        const invalidationPrice = sc.invalidation_price
+        let targetPrice = Number(sc.target_price || 0)
+        let invalidationPrice = Number(sc.invalidation_price || 0)
+        if (!Number.isFinite(targetPrice) || targetPrice <= 0) {
+          targetPrice = isLong ? entryPrice * 1.03 : entryPrice * 0.97
+        }
+        if (!Number.isFinite(invalidationPrice) || invalidationPrice <= 0) {
+          invalidationPrice = isLong ? entryPrice * 0.985 : entryPrice * 1.015
+        }
         const startTime = sc.entry_time || (currentCandle ? currentCandle.time : 0)
 
         // Live Invalidation Check for uncommitted setup forecasts:
@@ -1170,7 +1176,11 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
   // Always update the ref with the latest redraw function
   useEffect(() => {
     redrawCanvasRef.current = redrawCanvas
-    redrawCanvas()
+    try {
+      redrawCanvas()
+    } catch (err) {
+      console.warn('Canvas redraw caught error:', err)
+    }
   }, [redrawCanvas])
 
   // Mouse Handlers for Drawing Toolbar

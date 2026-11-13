@@ -9,6 +9,7 @@ import { SettingsDrawer } from './components/Settings/SettingsDrawer'
 import { OpenPositionModal, SetupTradeTarget } from './components/Trade/OpenPositionModal'
 import { TradingDashboardDrawer } from './components/Trade/TradingDashboardDrawer'
 import { ToastNotification, ToastData } from './components/UI/ToastNotification'
+import { ErrorBoundary } from './components/UI/ErrorBoundary'
 import { fetchAnalysis } from './services/api'
 import { BinanceWsClient } from './services/binanceWs'
 import {
@@ -530,42 +531,46 @@ export function App() {
           </div>
 
           {/* Bottom Dock: Trading Dashboard Drawer (Monitor Posisi Terbuka & Order Limit) */}
-          <TradingDashboardDrawer
-            isOpen={isDashboardDrawerOpen}
-            onToggle={() => setIsDashboardDrawerOpen((prev) => !prev)}
+          <ErrorBoundary fallbackTitle="Dashboard Monitor Terkendala">
+            <TradingDashboardDrawer
+              isOpen={isDashboardDrawerOpen}
+              onToggle={() => setIsDashboardDrawerOpen((prev) => !prev)}
+              market={market}
+              currentSymbol={symbol}
+              onSelectSymbol={handleSelectSymbol}
+              refreshTrigger={tradeRefreshSeq}
+              onPositionClosed={(closedSym) => {
+                unlockSetup(closedSym, 'Posisi ditutup. Box setup chart kembali ke analisa dinamis.')
+                setTradeRefreshSeq((prev) => prev + 1)
+                loadAnalysis(symbol, timeframe, market, settings)
+              }}
+            />
+          </ErrorBoundary>
+        </main>
+
+        {/* Right: Collapsible Navigation Sidebar (Indeks, Setup Valid, Kalkulator, Watchlist) */}
+        <ErrorBoundary fallbackTitle="Sidebar Terkendala">
+          <RightSidebar
+            symbol={symbol}
+            timeframe={timeframe}
             market={market}
-            currentSymbol={symbol}
+            settings={settings}
+            candles={candles}
+            movement={analysis?.movement}
+            smc={analysis?.smc}
+            forecast={effectiveForecast}
+            patterns={analysis?.patterns?.patterns}
+            currentPrice={lastCandle?.close}
+            lockedSetups={lockedSetups}
             onSelectSymbol={handleSelectSymbol}
-            refreshTrigger={tradeRefreshSeq}
+            onOpenTrade={handleOpenTrade}
             onPositionClosed={(closedSym) => {
               unlockSetup(closedSym, 'Posisi ditutup. Box setup chart kembali ke analisa dinamis.')
               setTradeRefreshSeq((prev) => prev + 1)
               loadAnalysis(symbol, timeframe, market, settings)
             }}
           />
-        </main>
-
-        {/* Right: Collapsible Navigation Sidebar (Indeks, Setup Valid, Kalkulator, Watchlist) */}
-        <RightSidebar
-          symbol={symbol}
-          timeframe={timeframe}
-          market={market}
-          settings={settings}
-          candles={candles}
-          movement={analysis?.movement}
-          smc={analysis?.smc}
-          forecast={effectiveForecast}
-          patterns={analysis?.patterns?.patterns}
-          currentPrice={lastCandle?.close}
-          lockedSetups={lockedSetups}
-          onSelectSymbol={handleSelectSymbol}
-          onOpenTrade={handleOpenTrade}
-          onPositionClosed={(closedSym) => {
-            unlockSetup(closedSym, 'Posisi ditutup. Box setup chart kembali ke analisa dinamis.')
-            setTradeRefreshSeq((prev) => prev + 1)
-            loadAnalysis(symbol, timeframe, market, settings)
-          }}
-        />
+        </ErrorBoundary>
       </div>
 
       {/* Symbol Search Modal */}
@@ -595,18 +600,30 @@ export function App() {
           setTradeRefreshSeq((prev) => prev + 1)
           setIsDashboardDrawerOpen(true)
 
-          const sym = (orderRes.symbol || selectedTradeTarget?.symbol || symbol).toUpperCase()
+          const sym = String(orderRes.symbol || selectedTradeTarget?.symbol || symbol || 'BTCUSDT').toUpperCase()
           const dir = (orderRes.side === 'BUY' || selectedTradeTarget?.direction === 'LONG') ? 'LONG' : 'SHORT'
-          const entryP = orderRes.avg_price || selectedTradeTarget?.entry_price || lastCandle?.close || 0
-          const slP = orderRes.stop_loss
-            || (typeof orderRes.bracket_orders?.stop_loss === 'object' ? parseFloat(orderRes.bracket_orders?.stop_loss?.stopPrice) : parseFloat(orderRes.bracket_orders?.stop_loss))
-            || selectedTradeTarget?.invalidation_price
-            || 0
-          const tpP = orderRes.take_profit
-            || (typeof orderRes.bracket_orders?.take_profit === 'object' ? parseFloat(orderRes.bracket_orders?.take_profit?.stopPrice) : parseFloat(orderRes.bracket_orders?.take_profit))
-            || selectedTradeTarget?.target_price
-            || 0
-          const rr = selectedTradeTarget?.risk_reward_ratio || 2.0
+          const entryP = Number(orderRes.avg_price || selectedTradeTarget?.entry_price || lastCandle?.close || 0)
+
+          const parsePriceSafe = (val: any) => {
+            if (typeof val === 'number' && Number.isFinite(val) && val > 0) return val
+            if (typeof val === 'string') {
+              const p = parseFloat(val)
+              if (Number.isFinite(p) && p > 0) return p
+            }
+            if (typeof val === 'object' && val !== null) {
+              const p = parseFloat(val.stopPrice || val.price || val.triggerPrice)
+              if (Number.isFinite(p) && p > 0) return p
+            }
+            return 0
+          }
+
+          const rawSl = parsePriceSafe(orderRes.stop_loss) || parsePriceSafe(orderRes.bracket_orders?.stop_loss) || parsePriceSafe(selectedTradeTarget?.invalidation_price)
+          const slP = rawSl > 0 ? rawSl : (dir === 'LONG' ? entryP * 0.985 : entryP * 1.015)
+
+          const rawTp = parsePriceSafe(orderRes.take_profit) || parsePriceSafe(orderRes.bracket_orders?.take_profit) || parsePriceSafe(selectedTradeTarget?.target_price)
+          const tpP = rawTp > 0 ? rawTp : (dir === 'LONG' ? entryP * 1.03 : entryP * 0.97)
+
+          const rr = Number(selectedTradeTarget?.risk_reward_ratio || 2.0)
 
           // Lock Box Setup on chart immediately!
           lockSetup({

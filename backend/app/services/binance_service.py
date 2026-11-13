@@ -107,7 +107,7 @@ class BinanceService:
                             last_error = f"Unexpected response format from {url}: {type(json_resp)}"
                     elif resp.status_code in (418, 429):
                         ra = resp.headers.get("retry-after")
-                        sec = float(ra) if ra and ra.isdigit() else 300.0
+                        sec = min(float(ra) if ra and ra.isdigit() else 30.0, 30.0)
                         self._ban_until = time.time() + sec
                         logger.warning(f"Binance rate limit ban triggered (HTTP {resp.status_code}). Backing off for {sec}s.")
                         last_error = f"HTTP {resp.status_code}: Rate limit ban. Retry after {sec}s"
@@ -243,23 +243,29 @@ class BinanceService:
         if cached and now < cached[0] and len(cached[1]) >= min(limit, 1000):
             return cached[1], cached[2]
 
-        if limit <= 1000:
-            raw_items, source_name = await self._fetch_raw_batch(symbol, interval, limit, market)
-        else:
-            # Batch 1 (latest 1000)
-            b1, source_name = await self._fetch_raw_batch(symbol, interval, 1000, market)
-            if b1:
-                first_open_time = b1[0][0]
-                # Batch 2 (older candles before first_open_time)
-                remaining = min(limit - 1000, 1000)
-                try:
-                    b2, _ = await self._fetch_raw_batch(symbol, interval, remaining, market, end_time=first_open_time - 1)
-                    raw_items = b2 + b1
-                except Exception as b2_err:
-                    logger.warning(f"Batch 2 pagination failed ({b2_err}), using Batch 1 only.")
-                    raw_items = b1
+        try:
+            if limit <= 1000:
+                raw_items, source_name = await self._fetch_raw_batch(symbol, interval, limit, market)
             else:
-                raw_items = []
+                # Batch 1 (latest 1000)
+                b1, source_name = await self._fetch_raw_batch(symbol, interval, 1000, market)
+                if b1:
+                    first_open_time = b1[0][0]
+                    # Batch 2 (older candles before first_open_time)
+                    remaining = min(limit - 1000, 1000)
+                    try:
+                        b2, _ = await self._fetch_raw_batch(symbol, interval, remaining, market, end_time=first_open_time - 1)
+                        raw_items = b2 + b1
+                    except Exception as b2_err:
+                        logger.warning(f"Batch 2 pagination failed ({b2_err}), using Batch 1 only.")
+                        raw_items = b1
+                else:
+                    raw_items = []
+        except DataUnavailableException as due:
+            if cached and cached[1]:
+                logger.info(f"Serving cached klines for {symbol} due to temporary upstream limit: {due}")
+                return cached[1], cached[2]
+            raise
 
         if not raw_items:
             raise DataUnavailableException(f"DATA_UNAVAILABLE: No klines returned for {symbol} ({market}).")

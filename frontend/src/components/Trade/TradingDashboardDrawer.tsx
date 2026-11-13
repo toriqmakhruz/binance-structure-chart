@@ -422,8 +422,13 @@ export const TradingDashboardDrawer: React.FC<TradingDashboardDrawerProps> = ({
                 <tbody className="divide-y divide-[#17202e] text-[11px]">
                   {displayedPositions.map((pos) => {
                     const isLong = pos.side === 'LONG'
-                    const isProfit = pos.unrealizedProfit >= 0
-                    const isSelected = pos.symbol.toUpperCase() === currentSymbol.toUpperCase()
+                    const pnlVal = Number(pos.unrealizedProfit || 0)
+                    const roeVal = Number(pos.roePct || 0)
+                    const marginVal = Number(pos.margin || 0)
+                    const notionalVal = Number(pos.notional || 0)
+                    const posAmtVal = Number(pos.positionAmt || 0)
+                    const isProfit = pnlVal >= 0
+                    const isSelected = (pos.symbol || '').toUpperCase() === currentSymbol.toUpperCase()
                     const isActioning = actionLoading === pos.symbol
 
                     return (
@@ -461,11 +466,11 @@ export const TradingDashboardDrawer: React.FC<TradingDashboardDrawerProps> = ({
                         {/* Size */}
                         <td className="py-2 px-2 text-right">
                           <div className="font-semibold text-slate-200">
-                            {Math.abs(pos.positionAmt).toLocaleString('en-US', { maximumFractionDigits: 4 })}
+                            {Math.abs(posAmtVal).toLocaleString('en-US', { maximumFractionDigits: 4 })}
                           </div>
-                          {pos.notional && (
+                          {notionalVal > 0 && (
                             <div className="text-[10px] text-slate-500 font-sans">
-                              ≈ ${pos.notional.toFixed(2)}
+                              ≈ ${notionalVal.toFixed(2)}
                             </div>
                           )}
                         </td>
@@ -516,16 +521,16 @@ export const TradingDashboardDrawer: React.FC<TradingDashboardDrawerProps> = ({
 
                         {/* Margin */}
                         <td className="py-2 px-2 text-right text-slate-300">
-                          ${pos.margin.toFixed(2)}
+                          ${marginVal.toFixed(2)}
                         </td>
 
                         {/* Unrealized PnL & ROE */}
                         <td className={`py-2 px-3 text-right font-bold ${isProfit ? 'text-[#00c087]' : 'text-[#f6465d]'}`}>
                           <div>
-                            {isProfit ? `+$${pos.unrealizedProfit.toFixed(2)}` : `-$${Math.abs(pos.unrealizedProfit).toFixed(2)}`}
+                            {isProfit ? `+$${pnlVal.toFixed(2)}` : `-$${Math.abs(pnlVal).toFixed(2)}`}
                           </div>
                           <div className="text-[10px] font-sans">
-                            {isProfit ? `+${pos.roePct.toFixed(2)}%` : `${pos.roePct.toFixed(2)}%`}
+                            {isProfit ? `+${roeVal.toFixed(2)}%` : `${roeVal.toFixed(2)}%`}
                           </div>
                         </td>
 
@@ -587,7 +592,11 @@ export const TradingDashboardDrawer: React.FC<TradingDashboardDrawerProps> = ({
                   {displayedOrders.map((ord) => {
                     const isBuy = ord.side === 'BUY'
                     const isActioning = actionLoading === String(ord.orderId)
-                    const timeStr = ord.time ? new Date(ord.time * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'
+                    const rawTime = Number(ord.time || 0)
+                    const timeMs = rawTime > 1e11 ? rawTime : (rawTime > 0 ? rawTime * 1000 : 0)
+                    const timeStr = timeMs > 0 ? new Date(timeMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'
+                    const ordPrice = Number(ord.price || 0)
+                    const ordStopPrice = Number(ord.stopPrice || 0)
 
                     return (
                       <tr key={String(ord.orderId)} className="hover:bg-[#121a28] transition-colors">
@@ -604,10 +613,10 @@ export const TradingDashboardDrawer: React.FC<TradingDashboardDrawerProps> = ({
                           </span>
                         </td>
                         <td className="py-2 px-2 text-right text-slate-200">
-                          {ord.price > 0 ? `$${formatPrice(ord.price)}` : 'Market'}
+                          {ordPrice > 0 ? `$${formatPrice(ordPrice)}` : 'Market'}
                         </td>
                         <td className="py-2 px-2 text-right text-[#f0b90b]">
-                          {ord.stopPrice && ord.stopPrice > 0 ? `$${formatPrice(ord.stopPrice)}` : '—'}
+                          {ordStopPrice > 0 ? `$${formatPrice(ordStopPrice)}` : '—'}
                         </td>
                         <td className="py-2 px-2 text-right text-slate-300">
                           {ord.origQty}
