@@ -11,6 +11,8 @@ services:
       - "8050:8000"
     environment:
       - PYTHONUNBUFFERED=1
+    volumes:
+      - ./data:/app/data
 
   frontend:
     build:

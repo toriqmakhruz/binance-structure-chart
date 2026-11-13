@@ -35,7 +35,7 @@ export const DrawingToolbar: React.FC<DrawingToolbarProps> = ({
   ]
 
   return (
-    <div className="w-12 bg-[#111620] border-r border-[#21262d] flex flex-col items-center py-2 space-y-1 select-none z-20">
+    <div className="hidden md:flex w-12 bg-[#111620] border-r border-[#21262d] flex-col items-center py-2 space-y-1 select-none z-20">
       {tools.map((t) => {
         const isActive = activeTool === t.type
         return (

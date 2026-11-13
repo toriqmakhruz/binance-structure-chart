@@ -114,38 +114,26 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [dirFilter, setDirFilter] = useState<DirectionFilter>('ALL')
 
-  // Real-time synchronization of open positions (both local locked & live Binance)
+  // Real-time synchronization of open positions (Server & Binance is the ONLY source of truth)
   const loadActivePositions = useCallback(async () => {
     const creds = getStoredCredentials()
     const mode = getStoredTradeMode()
     const apiKey = mode === 'demo' ? creds.demoApiKey : creds.liveApiKey
     const apiSecret = mode === 'demo' ? creds.demoApiSecret : creds.liveApiSecret
 
-    const posMap = new Map<string, ActivePositionBadgeInfo>()
-
-    // 1. Local locked trade setups cache (immediate 0ms responsiveness)
-    const localLocked = { ...getStoredLockedSetups(), ...(lockedSetups || {}) }
-    for (const [sym, item] of Object.entries(localLocked)) {
-      if (item && item.status === 'ACTIVE') {
-        const symUpper = sym.toUpperCase()
-        posMap.set(symUpper, {
-          symbol: symUpper,
-          side: item.direction || 'LONG',
-          entryPrice: item.entry_price
-        })
-      }
-    }
-
-    // 2. Query live positions from Binance API
     try {
       const res = await fetchOpenPositions(market, mode, apiKey, apiSecret)
-      if (res.success && Array.isArray(res.positions)) {
+      if (res && res.success && Array.isArray(res.positions)) {
+        const freshPosMap = new Map<string, ActivePositionBadgeInfo>()
+        const activeSymbolsSet = new Set<string>()
+
         for (const p of res.positions) {
           const pSym = (p.symbol || '').toUpperCase()
           const pAmt = Number(p.positionAmt || 0)
           if (pSym && pAmt !== 0) {
             const isLong = pAmt > 0 || p.side === 'LONG'
-            posMap.set(pSym, {
+            activeSymbolsSet.add(pSym)
+            freshPosMap.set(pSym, {
               symbol: pSym,
               side: isLong ? 'LONG' : 'SHORT',
               size: Math.abs(pAmt),
@@ -156,15 +144,40 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
             })
           }
         }
+
+        // Clean up stale locked setups from localStorage if the position is no longer active
+        try {
+          const rawLocked = localStorage.getItem('cp_locked_trade_setups')
+          if (rawLocked) {
+            const parsed = JSON.parse(rawLocked)
+            let changed = false
+            for (const symKey of Object.keys(parsed)) {
+              if (!activeSymbolsSet.has(symKey.toUpperCase())) {
+                delete parsed[symKey]
+                changed = true
+              }
+            }
+            if (changed) {
+              localStorage.setItem('cp_locked_trade_setups', JSON.stringify(parsed))
+              window.dispatchEvent(new CustomEvent('cp_locked_setups_reconciled', { detail: parsed }))
+            }
+          }
+        } catch {}
+
+        setActivePositions(freshPosMap)
+      } else if (res && res.success && Array.isArray(res.positions) && res.positions.length === 0) {
+        setActivePositions(new Map())
+        try {
+          localStorage.removeItem('cp_locked_trade_setups')
+          window.dispatchEvent(new CustomEvent('cp_locked_setups_reconciled', { detail: {} }))
+        } catch {}
       }
     } catch {
       // ignore network errors gracefully
     }
+  }, [market])
 
-    setActivePositions(posMap)
-  }, [market, lockedSetups])
-
-  // Periodic polling for positions
+  // Periodic polling for positions (every 3.5s for immediate closed-position sync)
   useEffect(() => {
     loadActivePositions()
     const timer = setInterval(() => {
@@ -173,9 +186,17 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
     }, 15000)
     const handleStorage = () => loadActivePositions()
     window.addEventListener('storage', handleStorage)
+    window.addEventListener('cp_trade_mode_change', handleStorage)
+    window.addEventListener('cp_credentials_updated', handleStorage)
+    window.addEventListener('cp_position_closed', handleStorage)
+    window.addEventListener('cp_locked_setups_reconciled', handleStorage)
     return () => {
       clearInterval(timer)
       window.removeEventListener('storage', handleStorage)
+      window.removeEventListener('cp_trade_mode_change', handleStorage)
+      window.removeEventListener('cp_credentials_updated', handleStorage)
+      window.removeEventListener('cp_position_closed', handleStorage)
+      window.removeEventListener('cp_locked_setups_reconciled', handleStorage)
     }
   }, [loadActivePositions])
 
@@ -316,31 +337,69 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
     })
   }, [symbol, market, timeframe, forecast, currentPrice])
 
+  // Inject any live Binance active positions into setups list so they NEVER disappear
+  const combinedSetups = useMemo(() => {
+    const existingSymbols = new Set(setups.map((s) => s.symbol.toUpperCase()))
+    const syntheticActiveSetups: ValidSetupItem[] = []
+
+    for (const [symUpper, posInfo] of activePositions.entries()) {
+      if (!existingSymbols.has(symUpper)) {
+        syntheticActiveSetups.push({
+          symbol: symUpper,
+          baseAsset: symUpper.replace(/USDT$|BUSD$|USDC$/i, ''),
+          market,
+          timeframe,
+          direction: posInfo.side || 'LONG',
+          name: `Posisi Aktif Binance (${posInfo.side || 'LONG'})`,
+          entry_price: posInfo.entryPrice || 0,
+          entry_time: Math.floor(Date.now() / 1000),
+          entry_zone_high: posInfo.entryPrice || 0,
+          entry_zone_low: posInfo.entryPrice || 0,
+          invalidation_price: 0,
+          target_price: 0,
+          risk_reward_ratio: 0,
+          confluence_weight: 999999, // Sorts right to the top!
+          confluence_score: 100,
+          current_price: posInfo.markPrice || posInfo.entryPrice || 0,
+          price_change_pct: 0,
+          quote_volume: 0
+        })
+      }
+    }
+
+    return [...syntheticActiveSetups, ...setups]
+  }, [setups, activePositions, market, timeframe])
+
   const freshSetups = useMemo(() => {
-    return setups.filter((s) => !activePositions.has(s.symbol.toUpperCase()))
-  }, [setups, activePositions])
+    return combinedSetups.filter((s) => !activePositions.has(s.symbol.toUpperCase()))
+  }, [combinedSetups, activePositions])
 
   const inPositionSetups = useMemo(() => {
-    return setups.filter((s) => activePositions.has(s.symbol.toUpperCase()))
-  }, [setups, activePositions])
+    return combinedSetups.filter((s) => activePositions.has(s.symbol.toUpperCase()))
+  }, [combinedSetups, activePositions])
 
   const freshLongCount = useMemo(() => freshSetups.filter((s) => s.direction === 'LONG').length, [freshSetups])
   const freshShortCount = useMemo(() => freshSetups.filter((s) => s.direction === 'SHORT').length, [freshSetups])
-  const inPositionCount = inPositionSetups.length
+  const inPositionCount = activePositions.size
 
   const displayedSetups = useMemo(() => {
     if (dirFilter === 'LONG') {
-      return freshSetups.filter((item) => item.direction === 'LONG')
+      return combinedSetups.filter((item) => item.direction === 'LONG')
     }
     if (dirFilter === 'SHORT') {
-      return freshSetups.filter((item) => item.direction === 'SHORT')
+      return combinedSetups.filter((item) => item.direction === 'SHORT')
     }
     if (dirFilter === 'IN_POSITION') {
       return inPositionSetups
     }
-    // 'ALL' default: strictly show ONLY fresh setups without active positions (best available other pairs)
-    return freshSetups
-  }, [dirFilter, freshSetups, inPositionSetups])
+    // 'ALL' default: show all valid setups, sorting active positions to the very top!
+    return [...combinedSetups].sort((a, b) => {
+      const aPos = activePositions.has(a.symbol.toUpperCase()) ? 1 : 0
+      const bPos = activePositions.has(b.symbol.toUpperCase()) ? 1 : 0
+      if (bPos !== aPos) return bPos - aPos
+      return (b.entry_time - a.entry_time) || (b.confluence_weight - a.confluence_weight)
+    })
+  }, [dirFilter, combinedSetups, inPositionSetups, activePositions])
 
   return (
     <div className="w-full flex-1 flex flex-col overflow-hidden select-none text-xs">
@@ -378,7 +437,7 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
         </div>
 
         <p className="text-[10px] text-slate-400 leading-relaxed">
-          Menampilkan setup A+ terbaik yang belum memiliki posisi ({market.toUpperCase()}). Pair yang sudah ada posisi disembunyikan otomatis.
+          Setup A+ valid & posisi aktif Binance ({market.toUpperCase()}). Posisi aktif disematkan di urutan teratas.
         </p>
 
         {/* Direction & In-Position Filter Pills */}
@@ -538,27 +597,50 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
                   </span>
                 </div>
 
-                {/* Entry Zone / SL / TP grid */}
-                <div className="grid grid-cols-3 gap-1.5 pt-1.5 border-t border-[#1e2430] text-[10px]">
-                  <div>
-                    <div className="text-[9px] text-slate-500">Entry</div>
-                    <div className="font-mono font-semibold text-slate-200 truncate">
-                      ${formatPrice(item.entry_price)}
+                {/* Entry Zone / SL / TP grid or Live Position PnL */}
+                {hasPosition && posInfo ? (
+                  <div className="grid grid-cols-3 gap-1.5 pt-1.5 border-t border-[#1e2430] text-[10px]">
+                    <div>
+                      <div className="text-[9px] text-slate-400">Harga Entry</div>
+                      <div className="font-mono font-semibold text-slate-200 truncate">
+                        ${formatPrice(posInfo.entryPrice || item.entry_price)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[9px] text-slate-400">Harga Pasar</div>
+                      <div className="font-mono font-semibold text-white truncate">
+                        ${formatPrice(posInfo.markPrice || item.current_price)}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-[9px] text-slate-400">PnL (ROE)</div>
+                      <div className={`font-mono font-bold truncate ${(posInfo.unrealizedProfit || 0) >= 0 ? 'text-[#00c087]' : 'text-[#f6465d]'}`}>
+                        {(posInfo.unrealizedProfit || 0) >= 0 ? '+' : ''}${Number(posInfo.unrealizedProfit || 0).toFixed(2)} ({Number(posInfo.roePct || 0).toFixed(1)}%)
+                      </div>
                     </div>
                   </div>
-                  <div>
-                    <div className="text-[9px] text-slate-500">SL Invalidasi</div>
-                    <div className="font-mono font-semibold text-[#f6465d] truncate">
-                      ${formatPrice(item.invalidation_price)}
+                ) : (
+                  <div className="grid grid-cols-3 gap-1.5 pt-1.5 border-t border-[#1e2430] text-[10px]">
+                    <div>
+                      <div className="text-[9px] text-slate-500">Entry</div>
+                      <div className="font-mono font-semibold text-slate-200 truncate">
+                        ${formatPrice(item.entry_price)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[9px] text-slate-500">SL Invalidasi</div>
+                      <div className="font-mono font-semibold text-[#f6465d] truncate">
+                        ${formatPrice(item.invalidation_price)}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-[9px] text-slate-500">Target TP</div>
+                      <div className="font-mono font-semibold text-[#00c087] truncate">
+                        ${formatPrice(item.target_price)}
+                      </div>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <div className="text-[9px] text-slate-500">Target TP</div>
-                    <div className="font-mono font-semibold text-[#00c087] truncate">
-                      ${formatPrice(item.target_price)}
-                    </div>
-                  </div>
-                </div>
+                )}
 
                 {/* Footer meta & Open Posisi Action */}
                 <div className="flex items-center justify-between pt-1 border-t border-[#18202d] text-[9px] text-slate-500">

@@ -69,7 +69,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   const [activeTab, setActiveTab] = useState<RightTab>(() => {
     try {
       const saved = localStorage.getItem('cp_right_sidebar_tab')
-      if (saved === 'calculator' || saved === 'watchlist' || saved === 'setup' || saved === 'index') {
+      if (saved === 'calculator' || saved === 'watchlist' || saved === 'setup' || saved === 'index' || saved === 'positions') {
         return saved
       }
       return 'index'
@@ -106,10 +106,26 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     return Boolean(lockedSetups && Object.keys(lockedSetups).length > 0)
   }, [lockedSetups])
 
-  // Collapsed State (Slim Right Dock Rail)
+  // Collapsed State
   if (!isOpen) {
     return (
-      <aside className="w-11 bg-[#111620] border-l border-[#21262d] flex flex-col items-center py-2.5 space-y-2 shrink-0 select-none">
+      <>
+        {/* Mobile Floating Button */}
+        <button
+          type="button"
+          onClick={() => setIsOpen(true)}
+          className="md:hidden fixed bottom-14 right-3 z-30 flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-[#161c28]/95 hover:bg-[#1f2738] text-[#00c087] border border-emerald-700/60 shadow-2xl text-xs font-bold backdrop-blur-sm transition-all"
+          title="Buka Setup & Posisi"
+        >
+          <Target className="w-4 h-4 text-[#00c087]" />
+          <span>Setup & Posisi</span>
+          {(hasActiveBox || hasLockedPositions) && (
+            <span className="w-2 h-2 rounded-full bg-[#00c087] animate-pulse" />
+          )}
+        </button>
+
+        {/* Slim Right Dock Rail (Desktop Only) */}
+        <aside className="hidden md:flex w-11 bg-[#111620] border-l border-[#21262d] flex-col items-center py-2.5 space-y-2 shrink-0 select-none">
         <button
           type="button"
           onClick={() => setIsOpen(true)}
@@ -207,12 +223,20 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           <Coins className="w-4 h-4" />
         </button>
       </aside>
+      </>
     )
   }
 
-  // Expanded State
+  // Expanded State (Off-canvas drawer on mobile, side rail on desktop)
   return (
-    <aside className="w-80 bg-[#111620] border-l border-[#21262d] flex flex-col h-full shrink-0 overflow-hidden">
+    <>
+      {/* Mobile Backdrop */}
+      <div
+        className="fixed inset-0 bg-black/60 backdrop-blur-[2px] z-40 md:hidden"
+        onClick={() => setIsOpen(false)}
+      />
+
+      <aside className="fixed inset-y-0 right-0 z-50 w-full sm:w-85 max-w-[85vw] md:relative md:inset-auto md:z-20 md:w-80 md:max-w-none bg-[#111620] border-l border-[#21262d] flex flex-col h-full shrink-0 overflow-hidden shadow-2xl md:shadow-none animate-in slide-in-from-right duration-200 md:animate-none">
       {/* Sidebar Navigation Bar + Collapse Toggle */}
       <div className="flex items-center justify-between px-1 py-1.5 bg-[#0d1117] border-b border-[#21262d] shrink-0">
         <div className="grid grid-cols-5 gap-0.5 flex-1 mr-1">
@@ -352,5 +376,6 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
         />
       )}
     </aside>
+    </>
   )
 }

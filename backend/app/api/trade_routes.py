@@ -198,3 +198,55 @@ async def set_brackets(req: SetBracketsRequest):
         stop_loss=req.stop_loss,
         take_profit=req.take_profit
     )
+
+class CredentialsSyncPayload(BaseModel):
+    demoApiKey: Optional[str] = ""
+    demoApiSecret: Optional[str] = ""
+    liveApiKey: Optional[str] = ""
+    liveApiSecret: Optional[str] = ""
+    mode: Optional[str] = "demo"
+    useSimulatedDemo: Optional[bool] = True
+
+@trade_router.get("/credentials")
+async def get_credentials():
+    """
+    Get server-stored trade credentials and mode for cross-device synchronization (Desktop & Tablet).
+    """
+    return trade_service.get_stored_credentials()
+
+@trade_router.post("/credentials")
+async def set_credentials(payload: CredentialsSyncPayload):
+    """
+    Persist trade credentials and mode on the server so all devices (Desktop & Tablet) stay 100% in sync.
+    """
+    return trade_service.save_stored_credentials(payload.model_dump())
+
+
+class TradeHistoryRequest(BaseModel):
+    market: str = Field("futures", pattern="^(spot|futures)$")
+    mode: str = Field("demo", pattern="^(demo|live)$")
+    api_key: Optional[str] = ""
+    api_secret: Optional[str] = ""
+    symbol: Optional[str] = None
+    limit: int = Field(50, ge=1, le=500)
+
+@trade_router.post("/history")
+async def get_trade_history(req: TradeHistoryRequest):
+    """
+    Fetch closed trade history and realized PnL.
+    """
+    return await trade_service.get_trade_history(
+        market=req.market,
+        mode=req.mode,
+        api_key=req.api_key or "",
+        api_secret=req.api_secret or "",
+        symbol=req.symbol,
+        limit=req.limit
+    )
+
+@trade_router.post("/history/clear")
+async def clear_trade_history():
+    """
+    Clear paper trading trade history.
+    """
+    return trade_service.clear_paper_history()

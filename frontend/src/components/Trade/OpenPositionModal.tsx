@@ -295,6 +295,26 @@ export const OpenPositionModal: React.FC<OpenPositionModalProps> = ({
     }
   }, [isOpen, mode, loadBalance])
 
+  // Auto-persist credentials whenever modified
+  useEffect(() => {
+    if (credentials.liveApiKey || credentials.demoApiKey) {
+      try {
+        localStorage.setItem(STORAGE_KEYS.credentials, JSON.stringify(credentials))
+        window.dispatchEvent(new CustomEvent('cp_credentials_updated', { detail: { mode, credentials } }))
+      } catch {}
+    }
+  }, [credentials, mode])
+
+  // Auto-persist credentials whenever modified
+  useEffect(() => {
+    if (credentials.liveApiKey || credentials.demoApiKey) {
+      try {
+        localStorage.setItem(STORAGE_KEYS.credentials, JSON.stringify(credentials))
+        window.dispatchEvent(new CustomEvent('cp_credentials_updated', { detail: { mode, credentials } }))
+      } catch {}
+    }
+  }, [credentials, mode])
+
   // Save Credentials
   const handleSaveCredentials = () => {
     try {
@@ -418,6 +438,13 @@ export const OpenPositionModal: React.FC<OpenPositionModalProps> = ({
       : (isLong ? entryPrice * 1.030 : entryPrice * 0.970)
 
     try {
+      try {
+        localStorage.setItem(STORAGE_KEYS.credentials, JSON.stringify(credentials))
+        localStorage.setItem(STORAGE_KEYS.accountMode, mode)
+        window.dispatchEvent(new CustomEvent('cp_trade_mode_change', { detail: mode }))
+        window.dispatchEvent(new CustomEvent('cp_credentials_updated', { detail: { mode, credentials } }))
+      } catch {}
+
       const res = await executeTradeOrder({
         symbol: target.symbol,
         market: target.market,

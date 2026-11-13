@@ -38,7 +38,32 @@ class TradeService:
             "USDT": 10000.0
         }
         self._paper_positions: List[Dict[str, Any]] = []
+        self._paper_history: List[Dict[str, Any]] = []
         self._load_paper_data()
+
+        # Persistent server-side credentials and mode for cross-device sync (Desktop & Tablet)
+        self._creds_path = self._storage_dir / "trade_credentials.json"
+        self._server_credentials: Dict[str, Any] = {
+            "demoApiKey": "",
+            "demoApiSecret": "",
+            "liveApiKey": "",
+            "liveApiSecret": "",
+            "mode": "demo",
+            "useSimulatedDemo": True
+        }
+        self._load_credentials()
+
+        # Rate-limiting protection caches & circuit breaker
+        self._positions_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+        self._positions_ttl = 6.0  # 6s cache
+        self._orders_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+        self._orders_ttl = 10.0  # 10s cache
+        self._conn_test_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+        self._conn_test_ttl = 15.0  # 15s cache
+        self._history_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+        self._history_ttl = 15.0  # 15s cache
+        self._rate_limit_ban_until: float = 0.0
+        self._last_known_positions: Dict[str, List[Dict[str, Any]]] = {}
 
     def _load_paper_data(self) -> None:
         try:
@@ -49,6 +74,8 @@ class TradeService:
                         self._paper_wallet = data["wallet"]
                     if isinstance(data.get("positions"), list):
                         self._paper_positions = data["positions"]
+                    if isinstance(data.get("history"), list):
+                        self._paper_history = data["history"]
         except Exception as exc:
             logger.warning(f"Failed loading paper trading data: {exc}")
 
@@ -58,10 +85,68 @@ class TradeService:
             with open(self._storage_path, "w", encoding="utf-8") as f:
                 json.dump({
                     "wallet": self._paper_wallet,
-                    "positions": self._paper_positions
+                    "positions": self._paper_positions,
+                    "history": self._paper_history
                 }, f, indent=2)
         except Exception as exc:
             logger.warning(f"Failed saving paper trading data: {exc}")
+
+    def _load_credentials(self) -> None:
+        try:
+            if self._creds_path.exists():
+                with open(self._creds_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if isinstance(data, dict):
+                        self._server_credentials.update(data)
+                        logger.info("Loaded server-side trade credentials successfully.")
+        except Exception as exc:
+            logger.warning(f"Failed loading trade credentials: {exc}")
+
+    def _save_credentials(self) -> None:
+        try:
+            self._storage_dir.mkdir(parents=True, exist_ok=True)
+            with open(self._creds_path, "w", encoding="utf-8") as f:
+                json.dump(self._server_credentials, f, indent=2)
+                logger.info("Saved server-side trade credentials successfully.")
+        except Exception as exc:
+            logger.warning(f"Failed saving trade credentials: {exc}")
+
+    def get_stored_credentials(self) -> Dict[str, Any]:
+        return dict(self._server_credentials)
+
+    def save_stored_credentials(self, creds: Dict[str, Any]) -> Dict[str, Any]:
+        for k in ["demoApiKey", "demoApiSecret", "liveApiKey", "liveApiSecret", "mode", "useSimulatedDemo"]:
+            if k in creds and creds[k] is not None:
+                self._server_credentials[k] = creds[k]
+        self._save_credentials()
+        return {"success": True, "credentials": self.get_stored_credentials()}
+
+    def _resolve_credentials(self, mode: str, api_key: Optional[str], api_secret: Optional[str]) -> Tuple[str, str, str]:
+        mode_clean = (mode or "").lower().strip()
+        server_mode = self._server_credentials.get("mode", "demo")
+        if not mode_clean:
+            mode_clean = server_mode
+
+        key_clean = (api_key or "").strip()
+        secret_clean = (api_secret or "").strip()
+
+        # If keys not provided in request, fallback to server credentials
+        if not key_clean or not secret_clean:
+            if mode_clean == "live":
+                key_clean = self._server_credentials.get("liveApiKey", "").strip()
+                secret_clean = self._server_credentials.get("liveApiSecret", "").strip()
+            elif not self._server_credentials.get("useSimulatedDemo", True):
+                key_clean = self._server_credentials.get("demoApiKey", "").strip()
+                secret_clean = self._server_credentials.get("demoApiSecret", "").strip()
+
+        return mode_clean, key_clean, secret_clean
+
+    def _is_simulated_demo(self, mode: str, api_key: str, api_secret: str) -> bool:
+        mode_clean = (mode or "").lower().strip()
+        if mode_clean != "demo":
+            return False
+        use_sim = self._server_credentials.get("useSimulatedDemo", True)
+        return bool(use_sim or not api_key or not api_secret)
 
     def _get_base_url(self, market: str, mode: str) -> str:
         market_clean = market.lower().strip()
@@ -102,8 +187,18 @@ class TradeService:
         """
         Test if the provided API key & secret are valid and can reach Binance account endpoint.
         """
+        mode, api_key, api_secret = self._resolve_credentials(mode, api_key, api_secret)
         api_key = (api_key or "").strip()
         api_secret = (api_secret or "").strip()
+
+        if self._is_simulated_demo(mode, api_key, api_secret):
+            return {
+                "success": True,
+                "mode": "demo",
+                "market": market,
+                "is_simulated": True,
+                "message": "Mode Paper Trading (Virtual) siap digunakan tanpa API Key!"
+            }
 
         if not api_key or not api_secret:
             if mode == "demo":
@@ -121,6 +216,22 @@ class TradeService:
                 "message": "API Key dan Secret Key tidak boleh kosong untuk Live Account."
             }
 
+        now = time.time()
+        conn_key = f"{market.lower()}_{mode.lower()}_{api_key[-8:] if api_key else 'anon'}"
+        if conn_key in self._conn_test_cache:
+            exp, val = self._conn_test_cache[conn_key]
+            if now < exp:
+                return val
+
+        if now < self._rate_limit_ban_until:
+            wait_sec = int(self._rate_limit_ban_until - now)
+            return {
+                "success": False,
+                "mode": mode,
+                "market": market,
+                "message": f"Binance rate limit cooldown aktif. Menunggu pendinginan {wait_sec} detik sebelum tes ulang."
+            }
+
         base_url = self._get_base_url(market, mode)
         path = "/fapi/v2/account" if market.lower() == "futures" else "/api/v3/account"
         signed_query = self._sign_payload({}, api_secret)
@@ -134,7 +245,7 @@ class TradeService:
                 if resp.status_code == 200:
                     data = resp.json()
                     can_trade = data.get("canTrade", True)
-                    return {
+                    ret = {
                         "success": True,
                         "mode": mode,
                         "market": market,
@@ -142,6 +253,8 @@ class TradeService:
                         "canTrade": can_trade,
                         "message": "Koneksi Binance API berhasil terverifikasi!"
                     }
+                    self._conn_test_cache[conn_key] = (time.time() + self._conn_test_ttl, ret)
+                    return ret
                 else:
                     err_json = {}
                     try:
@@ -175,11 +288,12 @@ class TradeService:
         Fetch available USDT balance, wallet balance, and unrealized PnL from Binance.
         Falls back to in-memory virtual paper wallet if demo mode without keys.
         """
+        mode, api_key, api_secret = self._resolve_credentials(mode, api_key, api_secret)
         api_key = (api_key or "").strip()
         api_secret = (api_secret or "").strip()
 
         # Simulated Paper Trading fallback for Demo
-        if mode == "demo" and (not api_key or not api_secret):
+        if self._is_simulated_demo(mode, api_key, api_secret):
             return {
                 "success": True,
                 "mode": "demo",
@@ -652,6 +766,7 @@ class TradeService:
         Execute an order on Binance (Demo Testnet or Live Production),
         including optional leverage adjustment and bracket SL/TP orders.
         """
+        mode, api_key, api_secret = self._resolve_credentials(mode, api_key, api_secret)
         sym_clean = symbol.upper().strip()
         market_clean = market.lower().strip()
         mode_clean = mode.lower().strip()
@@ -679,7 +794,7 @@ class TradeService:
         final_price = self.format_price(price, tick_size, price_prec) if (price and price > 0) else None
 
         # 2. Simulated Execution (Paper Trading fallback when demo has no keys)
-        if mode_clean == "demo" and (not api_key or not api_secret):
+        if self._is_simulated_demo(mode_clean, api_key, api_secret):
             order_id = int(time.time() * 1000)
             exec_price = final_price if (order_type_clean == "LIMIT" and final_price) else (price or 1.0)
             notional = final_qty * exec_price
@@ -889,6 +1004,7 @@ class TradeService:
         - Simulated paper trading: returns in-memory positions with live mark price & unrealized PnL.
         - Binance Testnet / Live: queries /fapi/v2/positionRisk.
         """
+        mode, api_key, api_secret = self._resolve_credentials(mode, api_key, api_secret)
         sym_clean = symbol.upper().strip() if symbol else None
         market_clean = market.lower().strip()
         mode_clean = mode.lower().strip()
@@ -897,7 +1013,7 @@ class TradeService:
         api_secret = (api_secret or "").strip()
 
         # Simulated Paper Trading
-        if mode_clean == "demo" and (not api_key or not api_secret):
+        if self._is_simulated_demo(mode_clean, api_key, api_secret):
             open_pos = [p for p in self._paper_positions if p.get("status") == "FILLED"]
             if sym_clean:
                 open_pos = [p for p in open_pos if p.get("symbol") == sym_clean]
@@ -959,6 +1075,26 @@ class TradeService:
             return {
                 "success": False,
                 "message": "API Key dan Secret Key diperlukan untuk melihat posisi Live."
+            }
+
+        now = time.time()
+        cache_key = f"{market_clean}_{mode_clean}_{api_key[-8:] if api_key else 'anon'}_{sym_clean or 'all'}"
+        if cache_key in self._positions_cache:
+            exp, val = self._positions_cache[cache_key]
+            if now < exp:
+                return val
+
+        if now < self._rate_limit_ban_until:
+            wait_sec = int(self._rate_limit_ban_until - now)
+            cached_pos = self._last_known_positions.get(cache_key, [])
+            return {
+                "success": True,
+                "mode": mode_clean,
+                "market": market_clean,
+                "is_simulated": False,
+                "total_unrealized_pnl": 0.0,
+                "positions": cached_pos,
+                "warning": f"Cooldown rate limit Binance aktif ({wait_sec}s tersisa)"
             }
 
         base_url = self._get_base_url(market_clean, mode_clean)
@@ -1054,7 +1190,7 @@ class TradeService:
                                 "is_simulated": False
                             })
 
-                        return {
+                        ret = {
                             "success": True,
                             "mode": mode_clean,
                             "market": market_clean,
@@ -1062,11 +1198,18 @@ class TradeService:
                             "total_unrealized_pnl": round(total_unpnl, 2),
                             "positions": formatted_positions
                         }
+                        self._positions_cache[cache_key] = (time.time() + self._positions_ttl, ret)
+                        self._last_known_positions[cache_key] = formatted_positions
+                        return ret
                     else:
                         err_payload = resp.json() if resp.text else {}
+                        msg = err_payload.get("msg") or f"HTTP {resp.status_code}"
+                        if resp.status_code in (418, 429):
+                            self._rate_limit_ban_until = time.time() + 45.0
+                            logger.warning(f"Binance rate limit triggered in get_positions: {msg}")
                         return {
                             "success": False,
-                            "message": err_payload.get("msg") or f"HTTP {resp.status_code}"
+                            "message": msg
                         }
                 else:
                     return {
@@ -1091,6 +1234,7 @@ class TradeService:
         """
         Fetch active open orders (Limits, Stop Loss, Take Profit bracket orders).
         """
+        mode, api_key, api_secret = self._resolve_credentials(mode, api_key, api_secret)
         sym_clean = symbol.upper().strip() if symbol else None
         market_clean = market.lower().strip()
         mode_clean = mode.lower().strip()
@@ -1099,7 +1243,7 @@ class TradeService:
         api_secret = (api_secret or "").strip()
 
         # Simulated Paper Orders
-        if mode_clean == "demo" and (not api_key or not api_secret):
+        if self._is_simulated_demo(mode_clean, api_key, api_secret):
             paper_orders = []
             for p in self._paper_positions:
                 if p.get("status") == "FILLED":
@@ -1232,6 +1376,7 @@ class TradeService:
         """
         Instantly close an open position at MARKET and cancel its remaining SL/TP bracket orders.
         """
+        mode, api_key, api_secret = self._resolve_credentials(mode, api_key, api_secret)
         sym_clean = symbol.upper().strip()
         market_clean = market.lower().strip()
         mode_clean = mode.lower().strip()
@@ -1240,21 +1385,60 @@ class TradeService:
         api_secret = (api_secret or "").strip()
 
         # Paper Trading Close
-        if mode_clean == "demo" and (not api_key or not api_secret):
+        if self._is_simulated_demo(mode_clean, api_key, api_secret):
             matched = [p for p in self._paper_positions if p.get("symbol") == sym_clean and p.get("status") == "FILLED"]
             if not matched:
                 return {"success": False, "message": f"Tidak ada posisi paper aktif untuk {sym_clean}."}
 
+            # Fetch live ticker price for accurate closing mark price
+            from .binance_service import BinanceService
+            bs = BinanceService()
+            price_map = {}
+            try:
+                tickers = await bs.get_live_ticker_batch(market=market_clean)
+                price_map = {t["s"]: t["c"] for t in tickers}
+            except Exception:
+                pass
+
+            total_closed_pnl = 0.0
             for p in matched:
                 p["status"] = "CLOSED"
                 margin = float(p.get("margin", 0))
-                self._paper_wallet["USDT"] = self._paper_wallet.get("USDT", 10000.0) + margin
+                entry_p = float(p.get("price", 0))
+                mark_p = float(price_map.get(sym_clean, entry_p))
+                qty = float(p.get("quantity", 0))
+                is_long = p.get("side") == "BUY"
+                diff = (mark_p - entry_p) if is_long else (entry_p - mark_p)
+                realized_pnl = round(diff * qty, 2)
+                roe = round((realized_pnl / margin) * 100, 2) if margin > 0 else 0.0
+                total_closed_pnl += realized_pnl
+
+                history_item = {
+                    "id": p.get("id") or f"paper_{int(time.time()*1000)}",
+                    "symbol": sym_clean,
+                    "side": "LONG" if is_long else "SHORT",
+                    "entryPrice": entry_p,
+                    "closePrice": mark_p,
+                    "quantity": qty,
+                    "margin": margin,
+                    "leverage": p.get("leverage", 1),
+                    "realizedPnl": realized_pnl,
+                    "roePct": roe,
+                    "time": int(time.time() * 1000),
+                    "reason": "Market Close",
+                    "is_simulated": True
+                }
+                self._paper_history.insert(0, history_item)
+                self._paper_wallet["USDT"] = round(self._paper_wallet.get("USDT", 10000.0) + margin + realized_pnl, 2)
 
             self._save_paper_data()
+            self._positions_cache.clear()
+            self._history_cache.clear()
 
+            pnl_sign = "+" if total_closed_pnl >= 0 else ""
             return {
                 "success": True,
-                "message": f"Posisi {sym_clean} berhasil ditutup (Market Close Paper Trading)."
+                "message": f"Posisi {sym_clean} berhasil ditutup! PnL: {pnl_sign}${total_closed_pnl:.2f} USDT."
             }
 
         if not api_key or not api_secret:
@@ -1329,6 +1513,7 @@ class TradeService:
         """
         Cancel a pending order.
         """
+        mode, api_key, api_secret = self._resolve_credentials(mode, api_key, api_secret)
         sym_clean = symbol.upper().strip()
         market_clean = market.lower().strip()
         mode_clean = mode.lower().strip()
@@ -1336,7 +1521,7 @@ class TradeService:
         api_key = (api_key or "").strip()
         api_secret = (api_secret or "").strip()
 
-        if mode_clean == "demo" and (not api_key or not api_secret):
+        if self._is_simulated_demo(mode_clean, api_key, api_secret):
             return {
                 "success": True,
                 "message": f"Order #{order_id} berhasil dibatalkan (Simulasi)."
@@ -1387,6 +1572,7 @@ class TradeService:
         Add or update Stop Loss and/or Take Profit orders on an active open position.
         Automatically cancels old STOP_MARKET / TAKE_PROFIT_MARKET orders for this symbol.
         """
+        mode, api_key, api_secret = self._resolve_credentials(mode, api_key, api_secret)
         sym_clean = symbol.upper().strip()
         market_clean = market.lower().strip()
         mode_clean = mode.lower().strip()
@@ -1395,7 +1581,7 @@ class TradeService:
         api_secret = (api_secret or "").strip()
 
         # Simulated Paper Trading
-        if mode_clean == "demo" and (not api_key or not api_secret):
+        if self._is_simulated_demo(mode_clean, api_key, api_secret):
             matched = [p for p in self._paper_positions if p.get("symbol") == sym_clean and p.get("status") == "FILLED"]
             if not matched:
                 return {"success": False, "message": f"Tidak ditemukan posisi paper terbuka untuk {sym_clean}."}
@@ -1488,5 +1674,171 @@ class TradeService:
 
             except Exception as exc:
                 return {"success": False, "message": f"Gagal update SL/TP: {str(exc)}"}
+
+    async def get_trade_history(
+        self,
+        market: str = "futures",
+        mode: str = "demo",
+        api_key: str = "",
+        api_secret: str = "",
+        symbol: Optional[str] = None,
+        limit: int = 50
+    ) -> Dict[str, Any]:
+        """
+        Fetch trade history and realized PnL.
+        - Demo (Paper Trading): returns simulated closed trades from local persistence.
+        - Live (Binance Futures): queries /fapi/v1/income?incomeType=REALIZED_PNL.
+        """
+        mode, api_key, api_secret = self._resolve_credentials(mode, api_key, api_secret)
+        sym_clean = symbol.upper().strip() if symbol else None
+        market_clean = market.lower().strip()
+        mode_clean = mode.lower().strip()
+        api_key = (api_key or "").strip()
+        api_secret = (api_secret or "").strip()
+
+        # Paper Trading History
+        if self._is_simulated_demo(mode_clean, api_key, api_secret):
+            trades = list(self._paper_history)
+            if sym_clean:
+                trades = [t for t in trades if t.get("symbol") == sym_clean]
+            
+            selected = trades[:limit]
+            total_realized_pnl = round(sum(float(t.get("realizedPnl", 0)) for t in selected), 2)
+            winning = len([t for t in selected if float(t.get("realizedPnl", 0)) > 0])
+            losing = len([t for t in selected if float(t.get("realizedPnl", 0)) < 0])
+            win_rate = round((winning / len(selected) * 100), 1) if selected else 0.0
+
+            return {
+                "success": True,
+                "mode": "demo",
+                "market": market_clean,
+                "is_simulated": True,
+                "total_realized_pnl": total_realized_pnl,
+                "win_rate_pct": win_rate,
+                "total_trades": len(selected),
+                "winning_trades": winning,
+                "losing_trades": losing,
+                "trades": selected
+            }
+
+        if not api_key or not api_secret:
+            return {
+                "success": False,
+                "message": "API Key dan Secret Key diperlukan untuk melihat riwayat Live."
+            }
+
+        now = time.time()
+        cache_key = f"{market_clean}_{mode_clean}_{api_key[-8:]}_{sym_clean or 'all'}_{limit}"
+        if cache_key in self._history_cache:
+            exp, val = self._history_cache[cache_key]
+            if now < exp:
+                return val
+
+        if now < self._rate_limit_ban_until:
+            wait_sec = int(self._rate_limit_ban_until - now)
+            return {
+                "success": True,
+                "mode": mode_clean,
+                "market": market_clean,
+                "is_simulated": False,
+                "total_realized_pnl": 0.0,
+                "win_rate_pct": 0.0,
+                "total_trades": 0,
+                "winning_trades": 0,
+                "losing_trades": 0,
+                "trades": [],
+                "warning": f"Cooldown rate limit Binance aktif ({wait_sec}s tersisa)"
+            }
+
+        base_url = self._get_base_url(market_clean, mode_clean)
+        headers = {**HEADERS_BASE, "X-MBX-APIKEY": api_key}
+        timeout = httpx.Timeout(12.0, connect=5.0)
+
+        async with httpx.AsyncClient(headers=headers, timeout=timeout) as client:
+            try:
+                if market_clean == "futures":
+                    query_params: Dict[str, Any] = {
+                        "incomeType": "REALIZED_PNL",
+                        "limit": min(limit, 100)
+                    }
+                    if sym_clean:
+                        query_params["symbol"] = sym_clean
+
+                    signed_query = self._sign_payload(query_params, api_secret)
+                    url = f"{base_url}/fapi/v1/income?{signed_query}"
+
+                    resp = await client.get(url)
+                    if resp.status_code == 200:
+                        raw_income = resp.json()
+                        formatted_trades = []
+                        total_realized_pnl = 0.0
+                        winning = 0
+                        losing = 0
+
+                        for item in raw_income:
+                            income_val = round(float(item.get("income", 0)), 4)
+                            total_realized_pnl += income_val
+                            if income_val > 0:
+                                winning += 1
+                            elif income_val < 0:
+                                losing += 1
+
+                            formatted_trades.append({
+                                "id": str(item.get("tranId") or item.get("tradeId") or int(time.time()*1000)),
+                                "symbol": item.get("symbol", ""),
+                                "side": "PROFIT" if income_val >= 0 else "LOSS",
+                                "entryPrice": None,
+                                "closePrice": None,
+                                "quantity": 0,
+                                "realizedPnl": income_val,
+                                "roePct": None,
+                                "commission": 0.0,
+                                "time": int(item.get("time", 0)),
+                                "reason": "Realized PnL",
+                                "is_simulated": False
+                            })
+
+                        win_rate = round((winning / len(formatted_trades) * 100), 1) if formatted_trades else 0.0
+                        result = {
+                            "success": True,
+                            "mode": mode_clean,
+                            "market": market_clean,
+                            "is_simulated": False,
+                            "total_realized_pnl": round(total_realized_pnl, 2),
+                            "win_rate_pct": win_rate,
+                            "total_trades": len(formatted_trades),
+                            "winning_trades": winning,
+                            "losing_trades": losing,
+                            "trades": formatted_trades
+                        }
+                        self._history_cache[cache_key] = (now + self._history_ttl, result)
+                        return result
+                    else:
+                        err_payload = resp.json() if resp.text else {}
+                        msg = err_payload.get("msg") or f"HTTP {resp.status_code}"
+                        if resp.status_code in (418, 429):
+                            self._rate_limit_ban_until = time.time() + 45.0
+                        return {"success": False, "message": msg}
+                else:
+                    return {
+                        "success": True,
+                        "mode": mode_clean,
+                        "market": "spot",
+                        "total_realized_pnl": 0.0,
+                        "win_rate_pct": 0.0,
+                        "total_trades": 0,
+                        "winning_trades": 0,
+                        "losing_trades": 0,
+                        "trades": []
+                    }
+            except Exception as exc:
+                return {"success": False, "message": f"Gagal mengambil riwayat trade: {str(exc)}"}
+
+    def clear_paper_history(self) -> Dict[str, Any]:
+        """Clear all stored paper trading history."""
+        self._paper_history = []
+        self._save_paper_data()
+        self._history_cache.clear()
+        return {"success": True, "message": "Riwayat paper trading berhasil dibersihkan."}
 
 trade_service = TradeService()

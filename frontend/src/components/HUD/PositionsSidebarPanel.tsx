@@ -10,8 +10,11 @@ import {
   Trash2,
   ExternalLink,
   ShieldCheck,
-  FileText
+  FileText,
+  Key,
+  AlertTriangle
 } from 'lucide-react'
+import { ApiCredentialsModal } from '../Settings/ApiCredentialsModal'
 
 interface PositionsSidebarPanelProps {
   currentSymbol: string
@@ -50,6 +53,15 @@ export const PositionsSidebarPanel: React.FC<PositionsSidebarPanelProps> = ({
   const [totalUnPnl, setTotalUnPnl] = useState<number>(0)
   const [isLoading, setIsLoading] = useState<boolean>(false)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [isApiModalOpen, setIsApiModalOpen] = useState(false)
+
+  const handleSetMode = (m: TradeAccountMode) => {
+    setMode(m)
+    try {
+      localStorage.setItem('cp_trade_active_mode', m)
+      window.dispatchEvent(new CustomEvent('cp_trade_mode_change', { detail: m }))
+    } catch {}
+  }
 
   const loadData = useCallback(async (silent = false) => {
     if (!silent) setIsLoading(true)
@@ -88,8 +100,30 @@ export const PositionsSidebarPanel: React.FC<PositionsSidebarPanelProps> = ({
     const timer = setInterval(() => {
       if (typeof document !== 'undefined' && document.hidden) return
       loadData(true)
-    }, 15000)
-    return () => clearInterval(timer)
+    }, 12000)
+
+    const handleSync = () => {
+      try {
+        const saved = localStorage.getItem('cp_trade_active_mode')
+        if (saved === 'live' || saved === 'demo') {
+          setMode(saved)
+        }
+      } catch {}
+      loadData(true)
+    }
+
+    window.addEventListener('cp_trade_mode_change', handleSync)
+    window.addEventListener('cp_position_closed', handleSync)
+    window.addEventListener('cp_credentials_updated', handleSync)
+    window.addEventListener('storage', handleSync)
+
+    return () => {
+      clearInterval(timer)
+      window.removeEventListener('cp_trade_mode_change', handleSync)
+      window.removeEventListener('cp_position_closed', handleSync)
+      window.removeEventListener('cp_credentials_updated', handleSync)
+      window.removeEventListener('storage', handleSync)
+    }
   }, [loadData])
 
   const handleClosePosition = async (sym: string) => {
@@ -148,7 +182,7 @@ export const PositionsSidebarPanel: React.FC<PositionsSidebarPanelProps> = ({
             <div className="flex items-center p-0.5 bg-[#0b0e14] border border-[#21262d] rounded">
               <button
                 type="button"
-                onClick={() => setMode('demo')}
+                onClick={() => handleSetMode('demo')}
                 className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
                   mode === 'demo' ? 'bg-amber-950 text-[#f0b90b]' : 'text-slate-400'
                 }`}
@@ -157,7 +191,7 @@ export const PositionsSidebarPanel: React.FC<PositionsSidebarPanelProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => setMode('live')}
+                onClick={() => handleSetMode('live')}
                 className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
                   mode === 'live' ? 'bg-emerald-950 text-[#00c087]' : 'text-slate-400'
                 }`}
@@ -168,10 +202,19 @@ export const PositionsSidebarPanel: React.FC<PositionsSidebarPanelProps> = ({
 
             <button
               type="button"
+              onClick={() => setIsApiModalOpen(true)}
+              title="Atur Kredensial API Binance"
+              className="p-1 rounded text-slate-400 hover:text-[#f0b90b] hover:bg-[#1c2434] transition-colors"
+            >
+              <Key className="w-3.5 h-3.5" />
+            </button>
+
+            <button
+              type="button"
               onClick={() => loadData(false)}
               disabled={isLoading}
-              title="Refresh"
-              className="p-1 rounded text-slate-400 hover:text-white"
+              title="Refresh Posisi"
+              className="p-1 rounded text-slate-400 hover:text-white hover:bg-[#1c2434] transition-colors"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-[#f0b90b]' : ''}`} />
             </button>
@@ -199,6 +242,36 @@ export const PositionsSidebarPanel: React.FC<PositionsSidebarPanelProps> = ({
           </div>
         </div>
       </div>
+
+
+
+      {/* Missing Live API Key Warning Banner */}
+      {(() => {
+        const creds = getStoredCredentials()
+        const hasLiveKey = Boolean(creds.liveApiKey && creds.liveApiSecret)
+        if (mode === 'live' && !hasLiveKey) {
+          return (
+            <div className="m-2.5 p-3 rounded-lg bg-amber-950/40 border border-amber-600/60 text-amber-200 text-xs space-y-2">
+              <div className="flex items-center space-x-1.5 font-bold text-amber-300 text-[11px]">
+                <AlertTriangle className="w-4 h-4 text-[#f0b90b] shrink-0" />
+                <span>API Key Live Belum Tersimpan</span>
+              </div>
+              <p className="text-[10px] text-slate-300 leading-relaxed font-sans">
+                Simpan API Key & Secret Binance Anda di browser ini agar posisi riil Anda dapat tersinkron otomatis.
+              </p>
+              <button
+                type="button"
+                onClick={() => setIsApiModalOpen(true)}
+                className="w-full py-1.5 rounded bg-[#f0b90b] hover:bg-[#d9a508] text-black font-bold text-xs shadow transition-colors flex items-center justify-center space-x-1"
+              >
+                <Key className="w-3.5 h-3.5" />
+                <span>Masukkan API Key Binance</span>
+              </button>
+            </div>
+          )
+        }
+        return null
+      })()}
 
       {/* 2. Scrollable Body: Position & Order Cards */}
       <div className="flex-1 overflow-y-auto p-2.5 space-y-3">
@@ -347,6 +420,14 @@ export const PositionsSidebarPanel: React.FC<PositionsSidebarPanelProps> = ({
           )}
         </div>
       </div>
+
+      <ApiCredentialsModal
+        isOpen={isApiModalOpen}
+        onClose={() => setIsApiModalOpen(false)}
+        initialMode={mode}
+        market={market}
+        onSaved={() => loadData(false)}
+      />
     </div>
   )
 }

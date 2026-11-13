@@ -10,7 +10,7 @@ import { OpenPositionModal, SetupTradeTarget } from './components/Trade/OpenPosi
 import { TradingDashboardDrawer } from './components/Trade/TradingDashboardDrawer'
 import { ToastNotification, ToastData } from './components/UI/ToastNotification'
 import { ErrorBoundary } from './components/UI/ErrorBoundary'
-import { fetchAnalysis } from './services/api'
+import { fetchAnalysis, fetchOpenPositions, fetchServerCredentials, saveServerCredentials } from './services/api'
 import { BinanceWsClient } from './services/binanceWs'
 import {
   Candle,
@@ -364,6 +364,109 @@ export function App() {
       scenarios: [lockedScenario]
     }
   }, [analysis?.forecast, currentLockedSetup])
+
+  // Reconcile and synchronize locked setups with active positions
+  useEffect(() => {
+    const handleReconcile = (e: any) => {
+      if (e.detail) {
+        setLockedSetups(e.detail)
+      }
+    }
+    window.addEventListener('cp_locked_setups_reconciled', handleReconcile)
+
+    // Periodic check: Auto-sync active positions onto chart AND cleanly release closed setups
+    const syncPositionsWithChart = async () => {
+      try {
+        const credsRaw = localStorage.getItem('cp_trade_credentials')
+        const creds = credsRaw ? JSON.parse(credsRaw) : {}
+        const mode = (localStorage.getItem('cp_trade_active_mode') === 'live') ? 'live' : 'demo'
+        const key = mode === 'live' ? creds.liveApiKey : creds.demoApiKey
+        const secret = mode === 'live' ? creds.liveApiSecret : creds.demoApiSecret
+
+        const res = await fetchOpenPositions(market, mode, key, secret)
+        if (res && res.success && Array.isArray(res.positions)) {
+          const activeSyms = new Set(
+            res.positions
+              .filter((p: any) => Number(p.positionAmt || 0) !== 0)
+              .map((p: any) => (p.symbol || '').toUpperCase())
+          )
+
+          setLockedSetups((prev) => {
+            let changed = false
+            const next = { ...prev }
+
+            // A. Auto-sync active position into locked setup if not yet present
+            for (const pos of res.positions) {
+              const symUpper = (pos.symbol || '').toUpperCase()
+              const amt = Number(pos.positionAmt || 0)
+              if (symUpper && amt !== 0 && !next[symUpper]) {
+                const isLong = amt > 0 || pos.side === 'LONG'
+                const entryP = Number(pos.entryPrice || 0)
+                const rawSl = Number(pos.stopLoss || 0)
+                const rawTp = Number(pos.takeProfit || 0)
+                const slP = rawSl > 0 ? rawSl : (isLong ? entryP * 0.985 : entryP * 1.015)
+                const tpP = rawTp > 0 ? rawTp : (isLong ? entryP * 1.03 : entryP * 0.97)
+
+                next[symUpper] = {
+                  symbol: symUpper,
+                  market: market,
+                  mode: mode,
+                  direction: isLong ? 'LONG' : 'SHORT',
+                  name: 'Setup Posisi Aktif',
+                  entry_price: entryP,
+                  invalidation_price: slP,
+                  target_price: tpP,
+                  risk_reward_ratio: 2.0,
+                  order_id: pos.id,
+                  leverage: pos.leverage || 10,
+                  entry_time: pos.time || Math.floor(Date.now() / 1000),
+                  status: 'ACTIVE',
+                  created_at: Date.now()
+                }
+                changed = true
+              }
+            }
+
+            // B. Only remove setups matching THIS specific market & mode that are confirmed closed (with 10s grace period)
+            const now = Date.now()
+            for (const symKey of Object.keys(next)) {
+              const setup = next[symKey]
+              const setupMarket = setup.market || 'futures'
+              const setupMode = setup.mode || 'demo'
+              const ageMs = now - (setup.created_at || 0)
+
+              if (setupMarket === market && setupMode === mode && ageMs > 10000 && !activeSyms.has(symKey.toUpperCase())) {
+                delete next[symKey]
+                changed = true
+              }
+            }
+
+            if (changed) {
+              writeStorage('cp_locked_trade_setups', next)
+              return next
+            }
+            return prev
+          })
+        }
+      } catch {}
+    }
+
+    syncPositionsWithChart()
+    const timer = setInterval(syncPositionsWithChart, 20000)
+
+    const handleSyncTrigger = () => syncPositionsWithChart()
+    window.addEventListener('cp_trade_mode_change', handleSyncTrigger)
+    window.addEventListener('cp_position_closed', handleSyncTrigger)
+    window.addEventListener('cp_credentials_updated', handleSyncTrigger)
+
+    return () => {
+      window.removeEventListener('cp_locked_setups_reconciled', handleReconcile)
+      window.removeEventListener('cp_trade_mode_change', handleSyncTrigger)
+      window.removeEventListener('cp_position_closed', handleSyncTrigger)
+      window.removeEventListener('cp_credentials_updated', handleSyncTrigger)
+      clearInterval(timer)
+    }
+  }, [market])
 
   // Active chart setup if valid (observes locked setup first)
   const activeValidScenario = useMemo(() => {

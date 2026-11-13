@@ -248,3 +248,123 @@ export async function setPositionBrackets(
   })
   return await resp.json()
 }
+
+export interface ServerCredentialsData {
+  demoApiKey?: string
+  demoApiSecret?: string
+  liveApiKey?: string
+  liveApiSecret?: string
+  mode?: 'demo' | 'live'
+  useSimulatedDemo?: boolean
+}
+
+export async function fetchServerCredentials(): Promise<ServerCredentialsData> {
+  try {
+    const resp = await fetch(`${API_BASE}/trade/credentials`)
+    if (resp.ok) {
+      return await resp.json()
+    }
+  } catch (err) {
+    console.warn('Failed to fetch server credentials:', err)
+  }
+  return {}
+}
+
+export async function saveServerCredentials(data: ServerCredentialsData): Promise<{ success: boolean; credentials?: ServerCredentialsData }> {
+  try {
+    const resp = await fetch(`${API_BASE}/trade/credentials`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    })
+    if (resp.ok) {
+      return await resp.json()
+    }
+  } catch (err) {
+    console.warn('Failed to save server credentials:', err)
+  }
+  return { success: false }
+}
+
+
+export interface TradeHistoryItem {
+  id: string
+  symbol: string
+  side: 'LONG' | 'SHORT' | 'BUY' | 'SELL' | 'PROFIT' | 'LOSS'
+  entryPrice?: number | null
+  closePrice?: number | null
+  price?: number | null
+  quantity?: number
+  margin?: number
+  leverage?: number
+  realizedPnl: number
+  roePct?: number | null
+  commission?: number
+  time: number
+  reason?: string
+  is_simulated?: boolean
+}
+
+export interface TradeHistoryResponse {
+  success: boolean
+  mode: string
+  market: string
+  is_simulated?: boolean
+  total_realized_pnl: number
+  win_rate_pct: number
+  total_trades: number
+  winning_trades: number
+  losing_trades: number
+  trades: TradeHistoryItem[]
+  warning?: string
+  message?: string
+}
+
+export async function fetchTradeHistory(
+  market: 'spot' | 'futures',
+  mode: 'demo' | 'live',
+  apiKey?: string,
+  apiSecret?: string,
+  symbol?: string,
+  limit: number = 50
+): Promise<TradeHistoryResponse> {
+  try {
+    const resp = await fetch(`${API_BASE}/trade/history`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        market,
+        mode,
+        api_key: apiKey || '',
+        api_secret: apiSecret || '',
+        symbol: symbol || undefined,
+        limit
+      })
+    })
+    return await resp.json()
+  } catch (err: any) {
+    return {
+      success: false,
+      mode,
+      market,
+      total_realized_pnl: 0,
+      win_rate_pct: 0,
+      total_trades: 0,
+      winning_trades: 0,
+      losing_trades: 0,
+      trades: [],
+      message: err?.message || 'Gagal mengambil riwayat trade'
+    }
+  }
+}
+
+export async function clearTradeHistory(): Promise<{ success: boolean; message?: string }> {
+  try {
+    const resp = await fetch(`${API_BASE}/trade/history/clear`, {
+      method: 'POST'
+    })
+    return await resp.json()
+  } catch (err: any) {
+    return { success: false, message: err?.message || 'Gagal membersihkan riwayat trade' }
+  }
+}
