@@ -309,23 +309,32 @@ class AutoBotService:
 
             available_slots = self.config.max_concurrent_positions - occupied_slots
 
-            # 7. Scan Existing Radar for Fresh Valid A+ Setups
+            # 7. Ambil Setup Valid Teratas dari Tab Setup
             # Import dynamically to prevent circular dependencies
             from ..api.routes import get_valid_setups
             scan_res = await get_valid_setups(
                 market=self.config.market,
                 timeframe=self.config.timeframe,
+                swing_length=5,
+                fvg_min_pct=0.05,
+                forecast_horizon=20,
                 scan_limit=30,
                 force_refresh=False
             )
             valid_setups = scan_res.get("setups", [])
             self.last_scan_time = int(time.time())
 
-            # Filter setups: Only pairs that are NOT currently in active positions or pending orders
-            existing_symbols = {p["symbol"] for p in self.active_positions} | {o["symbol"] for o in self.pending_orders}
+            # Urutkan persis seperti tampilan Tab Setup (Terbaru & Bobot Konfluensi Tertinggi)
+            valid_setups.sort(
+                key=lambda x: (x.get("entry_time", 0), x.get("confluence_weight", 0)),
+                reverse=True
+            )
+
+            # Filter setups: Hanya pair yang belum memiliki posisi aktif atau order pending
+            existing_symbols = {p["symbol"].upper() for p in self.active_positions} | {o["symbol"].upper() for o in self.pending_orders}
             fresh_candidates = [
                 s for s in valid_setups
-                if s["symbol"] not in existing_symbols
+                if s["symbol"].upper() not in existing_symbols
             ]
 
             if not fresh_candidates:
@@ -340,10 +349,10 @@ class AutoBotService:
             )
             available_balance = float(balance_res.get("availableBalance", 0.0))
 
-            # 8. Process Top Valid Setups to Fill Available Slots
+            # 8. Eksekusi Setup Teratas Tab Pengganti Klik Manusia
             for setup in fresh_candidates[:available_slots]:
-                sym = setup["symbol"]
-                direction = setup["direction"]
+                sym = setup["symbol"].upper()
+                direction = setup["direction"].upper()
                 entry_p = float(setup["entry_price"])
                 sl_p = float(setup["invalidation_price"])
                 tp_p = float(setup["target_price"])
@@ -377,65 +386,27 @@ class AutoBotService:
                     self._add_log("WARN", f"Saldo margin tidak cukup untuk {sym}: Perlu ${required_margin:.2f}, Tersedia ${available_balance:.2f}.")
                     continue
 
-                # 9. Smart Dynamic Order Routing
-                # Check distance from current price to entry price
-                price_tolerance = entry_p * 0.0015  # 0.15% tolerance
-                zone_high = float(setup.get("entry_zone_high", entry_p))
-                zone_low = float(setup.get("entry_zone_low", entry_p))
-
-                # Condition A: Exactly in-zone or within tolerance -> MARKET ORDER
-                is_in_zone = (live_p >= zone_low and live_p <= zone_high) or (abs(live_p - entry_p) <= price_tolerance)
-
-                if is_in_zone:
-                    self._add_log("INFO", f"🎯 Setup {sym} ({direction}) tepat di titik entry (${live_p}). Menembak MARKET ORDER...")
-                    exec_res = await trade_service.execute_order(
-                        symbol=sym,
-                        market=self.config.market,
-                        mode=self.config.mode,
-                        api_key=api_key,
-                        api_secret=api_secret,
-                        side="BUY" if direction == "LONG" else "SELL",
-                        order_type="MARKET",
-                        quantity=formatted_qty,
-                        leverage=self.config.leverage,
-                        take_profit=tp_p,
-                        stop_loss=sl_p,
-                        reduce_only=False
-                    )
-                    if exec_res.get("success"):
-                        available_balance -= required_margin
-                        self._add_log("SUCCESS", f"🚀 POSISI AKTIF: {sym} {direction} di harga ${live_p} (SL: ${sl_p}, TP: ${tp_p}, Risk: ${self.config.risk_per_trade_usd})")
-                    else:
-                        self._add_log("ERROR", f"Gagal eksekusi {sym}: {exec_res.get('message')}")
-
-                # Condition B: Waiting for pullback to entry price -> LIMIT ORDER
-                elif (direction == "LONG" and live_p > entry_p and live_p < tp_p) or \
-                     (direction == "SHORT" and live_p < entry_p and live_p > tp_p):
-                    self._add_log("INFO", f"⏳ Setup {sym} ({direction}) butuh retest. Memasang antrean LIMIT ORDER di ${entry_p}...")
-                    exec_res = await trade_service.execute_order(
-                        symbol=sym,
-                        market=self.config.market,
-                        mode=self.config.mode,
-                        api_key=api_key,
-                        api_secret=api_secret,
-                        side="BUY" if direction == "LONG" else "SELL",
-                        order_type="LIMIT",
-                        price=entry_p,
-                        quantity=formatted_qty,
-                        leverage=self.config.leverage,
-                        take_profit=tp_p,
-                        stop_loss=sl_p,
-                        reduce_only=False
-                    )
-                    if exec_res.get("success"):
-                        available_balance -= required_margin
-                        self._add_log("SUCCESS", f"⏳ LIMIT ORDER TERPASANG: {sym} {direction} di level ${entry_p} (SL: ${sl_p}, TP: ${tp_p})")
-                    else:
-                        self._add_log("ERROR", f"Gagal pasang limit {sym}: {exec_res.get('message')}")
-
-                # Condition C: Price already breached SL or reached TP -> Skip
+                # Eksekusi Langsung Market Order (Sesuai Tombol 'Buka Posisi' di Modal Setup)
+                self._add_log("INFO", f"⚡ Eksekusi setup teratas Tab Setup: {sym} ({direction}) di harga ${live_p}...")
+                exec_res = await trade_service.execute_order(
+                    symbol=sym,
+                    market=self.config.market,
+                    mode=self.config.mode,
+                    api_key=api_key,
+                    api_secret=api_secret,
+                    side="BUY" if direction == "LONG" else "SELL",
+                    order_type="MARKET",
+                    quantity=formatted_qty,
+                    leverage=self.config.leverage,
+                    take_profit=tp_p,
+                    stop_loss=sl_p,
+                    reduce_only=False
+                )
+                if exec_res.get("success"):
+                    available_balance -= required_margin
+                    self._add_log("SUCCESS", f"🚀 POSISI AKTIF: {sym} {direction} di harga ${live_p} (SL: ${sl_p}, TP: ${tp_p}, Risk: ${self.config.risk_per_trade_usd})")
                 else:
-                    self._add_log("INFO", f"⏩ {sym} dilewati (Anti-FOMO): Harga pasar (${live_p}) sudah berada di luar rentang entri yang aman.")
+                    self._add_log("ERROR", f"Gagal eksekusi {sym}: {exec_res.get('message')}")
 
         except Exception as exc:
             logger.error(f"Error in autobot cycle: {exc}", exc_info=True)

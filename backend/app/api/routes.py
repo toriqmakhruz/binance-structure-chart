@@ -323,7 +323,22 @@ async def get_valid_setups(
     Scan top traded Binance crypto pairs and return ONLY currently VALID A+ setups,
     sorted newest first by entry_time. Invalidated/triggered-SL/TP setups are discarded.
     """
-    tf_clean = timeframe.lower().strip()
+    if hasattr(market, "default"):
+        market = market.default
+    if hasattr(timeframe, "default"):
+        timeframe = timeframe.default
+    if hasattr(swing_length, "default"):
+        swing_length = swing_length.default
+    if hasattr(fvg_min_pct, "default"):
+        fvg_min_pct = fvg_min_pct.default
+    if hasattr(forecast_horizon, "default"):
+        forecast_horizon = forecast_horizon.default
+    if hasattr(scan_limit, "default"):
+        scan_limit = scan_limit.default
+    if hasattr(force_refresh, "default"):
+        force_refresh = force_refresh.default
+
+    tf_clean = str(timeframe).lower().strip()
     if tf_clean not in settings.TIMEFRAMES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
