@@ -406,7 +406,8 @@ class TradeService:
         qty_prec: int,
         step_size: float,
         is_market_order: bool = True,
-        is_hedge: Optional[bool] = None
+        is_hedge: Optional[bool] = None,
+        is_filled: bool = True  # False for LIMIT orders not yet filled
     ) -> Dict[str, Any]:
         """
         Rock-solid, guaranteed bracket order placement for Binance Futures:
@@ -449,7 +450,7 @@ class TradeService:
 
         # 3. Wait slightly if MARKET order so fill registers in exchange position ledger
         if is_market_order:
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(1.2)  # 1.2s — give Binance matching engine time to register position
 
         formatted_qty = self.format_quantity(quantity, step_size, qty_prec)
 
@@ -491,24 +492,28 @@ class TradeService:
             await cancel_prior_brackets(order_type)
 
             # Strategy 1: closePosition="true" with MARK_PRICE
-            params1: Dict[str, Any] = {
-                "symbol": symbol,
-                "side": close_side,
-                "type": order_type,
-                "stopPrice": formatted_price,
-                "closePosition": "true",
-                "workingType": "MARK_PRICE"
-            }
-            if is_hedge:
-                params1["positionSide"] = hedge_pos_side
+            # NOTE: Skip for LIMIT/unfilled orders — Binance rejects closePosition=true for open entry orders
+            if is_filled:
+                params1: Dict[str, Any] = {
+                    "symbol": symbol,
+                    "side": close_side,
+                    "type": order_type,
+                    "stopPrice": formatted_price,
+                    "closePosition": "true",
+                    "workingType": "MARK_PRICE"
+                }
+                if is_hedge:
+                    params1["positionSide"] = hedge_pos_side
 
-            signed1 = self._sign_payload(params1, api_secret)
-            resp1 = await client.post(f"{base_url}/fapi/v1/order?{signed1}")
-            if resp1.status_code == 200:
-                logger.info(f"{order_type} (closePosition=true) SUCCESS: {resp1.text}")
-                return True, resp1.json()
+                signed1 = self._sign_payload(params1, api_secret)
+                resp1 = await client.post(f"{base_url}/fapi/v1/order?{signed1}")
+                if resp1.status_code == 200:
+                    logger.info(f"{order_type} (closePosition=true) SUCCESS: {resp1.text}")
+                    return True, resp1.json()
 
-            logger.warning(f"{order_type} Strategy 1 ({resp1.status_code}: {resp1.text}), trying Strategy 2...")
+                logger.warning(f"{order_type} Strategy 1 ({resp1.status_code}: {resp1.text}), trying Strategy 2...")
+            else:
+                logger.info(f"{order_type} skipping closePosition=true for unfilled LIMIT order, using quantity fallback directly")
 
             # Strategy 2: quantity fallback (in Hedge mode, omit reduceOnly; in One-Way mode, set reduceOnly="true")
             params2: Dict[str, Any] = {
@@ -532,14 +537,15 @@ class TradeService:
 
             logger.warning(f"{order_type} Strategy 2 ({resp2.status_code}: {resp2.text}), trying Strategy 3...")
 
-            # Strategy 3: CONTRACT_PRICE fallback with closePosition
-            params3 = dict(params1)
-            params3["workingType"] = "CONTRACT_PRICE"
-            signed3 = self._sign_payload(params3, api_secret)
-            resp3 = await client.post(f"{base_url}/fapi/v1/order?{signed3}")
-            if resp3.status_code == 200:
-                logger.info(f"{order_type} (CONTRACT_PRICE) SUCCESS: {resp3.text}")
-                return True, resp3.json()
+            # Strategy 3: CONTRACT_PRICE fallback with closePosition (only if position is filled)
+            if is_filled:
+                params3 = dict(params1)
+                params3["workingType"] = "CONTRACT_PRICE"
+                signed3 = self._sign_payload(params3, api_secret)
+                resp3 = await client.post(f"{base_url}/fapi/v1/order?{signed3}")
+                if resp3.status_code == 200:
+                    logger.info(f"{order_type} (CONTRACT_PRICE) SUCCESS: {resp3.text}")
+                    return True, resp3.json()
 
             # Strategy 4: Quantity + CONTRACT_PRICE
             params4 = dict(params2)
@@ -550,7 +556,7 @@ class TradeService:
                 logger.info(f"{order_type} (Quantity + CONTRACT_PRICE) SUCCESS: {resp4.text}")
                 return True, resp4.json()
 
-            err_text = resp2.text or resp1.text
+            err_text = resp2.text
             logger.error(f"{order_type} ALL STRATEGIES FAILED: {err_text}")
             return False, err_text
 
@@ -746,19 +752,27 @@ class TradeService:
                 order_res = resp.json()
                 main_order_id = order_res.get("orderId")
                 avg_price = float(order_res.get("avgPrice") or order_res.get("price") or (final_price or 0))
-                exec_qty = float(order_res.get("executedQty") or final_qty)
+
+                # Fix exec_qty bug: "0" string is truthy in Python, must check numeric value
+                raw_exec_qty_str = order_res.get("executedQty", "0")
+                raw_exec_qty = float(raw_exec_qty_str) if raw_exec_qty_str else 0.0
+                exec_qty = raw_exec_qty if raw_exec_qty > 0 else final_qty
+
                 status_res = order_res.get("status", "NEW")
 
                 # C. Guaranteed Automatic Attached Bracket Orders (Stop Loss & Take Profit) for Futures
                 bracket_results = {}
                 if market_clean == "futures" and (stop_loss or take_profit):
+                    # Determine if position is actually filled (FILLED) or still pending (NEW/LIMIT)
+                    order_is_filled = status_res in ("FILLED", "PARTIALLY_FILLED")
+                    logger.info(f"Bracket placement: status={status_res}, is_filled={order_is_filled}, exec_qty={exec_qty}, final_qty={final_qty}")
                     bracket_results = await self._place_futures_brackets(
                         client=client,
                         base_url=base_url,
                         api_secret=api_secret,
                         symbol=sym_clean,
                         side=side_clean,
-                        quantity=exec_qty or final_qty,
+                        quantity=exec_qty if exec_qty > 0 else final_qty,
                         stop_loss=stop_loss,
                         take_profit=take_profit,
                         tick_size=tick_size,
@@ -766,7 +780,8 @@ class TradeService:
                         qty_prec=qty_prec,
                         step_size=step_size,
                         is_market_order=(order_type_clean == "MARKET"),
-                        is_hedge=is_hedge
+                        is_hedge=is_hedge,
+                        is_filled=order_is_filled
                     )
 
                 status_msg = f"Order {side_clean} {exec_qty} {sym_clean} ({status_res}) berhasil dibuka di Binance {mode_clean.upper()}!"
