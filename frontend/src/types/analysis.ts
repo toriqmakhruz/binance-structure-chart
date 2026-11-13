@@ -296,6 +296,8 @@ export interface TradeOrderResponse {
   avg_price?: number
   status?: string
   leverage?: number
+  stop_loss?: number
+  take_profit?: number
   bracket_orders?: any
   code?: number
   message: string

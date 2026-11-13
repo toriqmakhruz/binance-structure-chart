@@ -187,9 +187,38 @@ export const OpenPositionModal: React.FC<OpenPositionModalProps> = ({
   useEffect(() => {
     if (!isOpen || !target) return
 
-    setEntryInput(target.entry_price > 0 ? String(target.entry_price) : (currentPrice ? String(currentPrice) : ''))
-    setSlInput(target.invalidation_price > 0 ? String(target.invalidation_price) : '')
-    setTpInput(target.target_price > 0 ? String(target.target_price) : '')
+    const baseEntry = target.entry_price > 0 ? target.entry_price : (currentPrice && currentPrice > 0 ? currentPrice : 0)
+    const isLong = target.direction === 'LONG'
+
+    // Compute automatic robust SL if missing or <= 0
+    let autoSl = target.invalidation_price
+    if (!autoSl || autoSl <= 0) {
+      if (baseEntry > 0) {
+        // Fallback: 1.5% stop loss distance
+        autoSl = isLong ? baseEntry * 0.985 : baseEntry * 1.015
+      }
+    }
+
+    // Compute automatic robust TP if missing or <= 0
+    let autoTp = target.target_price
+    if (!autoTp || autoTp <= 0) {
+      if (baseEntry > 0) {
+        // Fallback: 1:2 R:R (3.0% take profit distance)
+        autoTp = isLong ? baseEntry * 1.030 : baseEntry * 0.970
+      }
+    }
+
+    const formatPriceInput = (val: number) => {
+      if (!val || val <= 0) return ''
+      if (val >= 1000) return val.toFixed(2)
+      if (val >= 1) return val.toFixed(4)
+      return val.toFixed(6)
+    }
+
+    setEntryInput(baseEntry > 0 ? String(baseEntry) : '')
+    setSlInput(autoSl > 0 ? formatPriceInput(autoSl) : '')
+    setTpInput(autoTp > 0 ? formatPriceInput(autoTp) : '')
+    setAttachBracket(true)
     setExecutionResult(null)
     setConfirmLiveOpen(false)
 
@@ -362,6 +391,16 @@ export const OpenPositionModal: React.FC<OpenPositionModalProps> = ({
     setIsSubmitting(true)
     setExecutionResult(null)
 
+    const isLong = target.direction === 'LONG'
+    // Fallback guarantees valid SL and TP
+    const finalSl = stopLoss > 0
+      ? stopLoss
+      : (isLong ? entryPrice * 0.985 : entryPrice * 1.015)
+
+    const finalTp = targetPrice > 0
+      ? targetPrice
+      : (isLong ? entryPrice * 1.030 : entryPrice * 0.970)
+
     try {
       const res = await executeTradeOrder({
         symbol: target.symbol,
@@ -369,18 +408,22 @@ export const OpenPositionModal: React.FC<OpenPositionModalProps> = ({
         mode,
         api_key: activeKey,
         api_secret: activeSecret,
-        side: target.direction === 'LONG' ? 'BUY' : 'SELL',
+        side: isLong ? 'BUY' : 'SELL',
         order_type: orderType,
         quantity: calc.qty,
         price: orderType === 'LIMIT' ? entryPrice : undefined,
         leverage: effectiveLeverage,
-        stop_loss: attachBracket ? stopLoss : undefined,
-        take_profit: attachBracket ? targetPrice : undefined
+        stop_loss: attachBracket ? finalSl : undefined,
+        take_profit: attachBracket ? finalTp : undefined
       })
 
       if (res.success) {
         loadBalance(mode)
-        onSuccess?.(res)
+        onSuccess?.({
+          ...res,
+          stop_loss: res.stop_loss || finalSl,
+          take_profit: res.take_profit || finalTp
+        })
         onClose()
       } else {
         setExecutionResult(res)
@@ -722,17 +765,28 @@ export const OpenPositionModal: React.FC<OpenPositionModalProps> = ({
             </div>
           </div>
 
-          {/* Bracket Order SL/TP toggle */}
+          {/* Guaranteed Automatic Bracket SL & TP badge */}
           {target.market === 'futures' && (
-            <label className="flex items-center space-x-2 cursor-pointer text-[10px] text-slate-300">
-              <input
-                type="checkbox"
-                checked={attachBracket}
-                onChange={(e) => setAttachBracket(e.target.checked)}
-                className="rounded border-[#2c3647] bg-[#161c28] text-[#00c087] focus:ring-0"
-              />
-              <span>Pasang bracket order otomatis TP & SL di Binance saat posisi terbuka</span>
-            </label>
+            <div className="p-2.5 rounded-lg bg-emerald-950/40 border border-emerald-800/60 flex items-center justify-between text-[11px]">
+              <div className="flex items-center space-x-2 text-emerald-300">
+                <ShieldCheck className="w-4 h-4 text-[#00c087] shrink-0" />
+                <div>
+                  <span className="font-bold">Otomatis Terpasang SL &amp; TP di Binance Futures</span>
+                  <div className="text-[10px] text-emerald-400/80 font-mono">
+                    SL: ${stopLoss > 0 ? formatPrice(stopLoss) : 'Auto'} | TP: ${targetPrice > 0 ? formatPrice(targetPrice) : 'Auto'} (Hedge &amp; One-Way)
+                  </div>
+                </div>
+              </div>
+              <label className="flex items-center space-x-1.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={attachBracket}
+                  onChange={(e) => setAttachBracket(e.target.checked)}
+                  className="rounded border-[#2c3647] bg-[#161c28] text-[#00c087] focus:ring-0"
+                />
+                <span className="text-[10px] text-emerald-300 font-semibold">Aktif</span>
+              </label>
+            </div>
           )}
 
           {/* F. Risk Sizing Input */}

@@ -597,8 +597,14 @@ export function App() {
           const sym = (orderRes.symbol || selectedTradeTarget?.symbol || symbol).toUpperCase()
           const dir = (orderRes.side === 'BUY' || selectedTradeTarget?.direction === 'LONG') ? 'LONG' : 'SHORT'
           const entryP = orderRes.avg_price || selectedTradeTarget?.entry_price || lastCandle?.close || 0
-          const slP = selectedTradeTarget?.invalidation_price || 0
-          const tpP = selectedTradeTarget?.target_price || 0
+          const slP = orderRes.stop_loss
+            || (typeof orderRes.bracket_orders?.stop_loss === 'object' ? parseFloat(orderRes.bracket_orders?.stop_loss?.stopPrice) : parseFloat(orderRes.bracket_orders?.stop_loss))
+            || selectedTradeTarget?.invalidation_price
+            || 0
+          const tpP = orderRes.take_profit
+            || (typeof orderRes.bracket_orders?.take_profit === 'object' ? parseFloat(orderRes.bracket_orders?.take_profit?.stopPrice) : parseFloat(orderRes.bracket_orders?.take_profit))
+            || selectedTradeTarget?.target_price
+            || 0
           const rr = selectedTradeTarget?.risk_reward_ratio || 2.0
 
           // Lock Box Setup on chart immediately!
