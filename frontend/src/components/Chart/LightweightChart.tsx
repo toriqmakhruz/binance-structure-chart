@@ -467,9 +467,9 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
       })
     }
 
-    // D. Render Chart Patterns (Fixed: Non-criss-cross geometry for Triangles, H&S, and Double Tops)
+    // D. Render Chart Patterns (Clean Vertical Line at Formation Point - No Cluttering Horizontal Lines)
     if (patterns && visibility.patterns && patterns.patterns) {
-      patterns.patterns.forEach((pat) => {
+      patterns.patterns.forEach((pat, patIdx) => {
         const patName = (pat.name || '').toLowerCase()
 
         // 1. Triangles & Wedges: Separate upper & lower trendlines + shaded polygon
@@ -499,7 +499,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
               // Upper Trendline (Resistance)
               ctx.beginPath()
               ctx.strokeStyle = '#f6465d'
-              ctx.lineWidth = 2
+              ctx.lineWidth = 1.5
               ctx.moveTo(pH1.x, pH1.y)
               ctx.lineTo(pH2.x, pH2.y)
               ctx.stroke()
@@ -507,7 +507,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
               // Lower Trendline (Support)
               ctx.beginPath()
               ctx.strokeStyle = '#00c087'
-              ctx.lineWidth = 2
+              ctx.lineWidth = 1.5
               ctx.moveTo(pL1.x, pL1.y)
               ctx.lineTo(pL2.x, pL2.y)
               ctx.stroke()
@@ -516,14 +516,9 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
               ;[pH1, pH2, pL1, pL2].forEach(p => {
                 ctx.fillStyle = '#f0b90b'
                 ctx.beginPath()
-                ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2)
+                ctx.arc(p.x, p.y, 3, 0, Math.PI * 2)
                 ctx.fill()
               })
-
-              // Pattern Label
-              ctx.fillStyle = '#f0b90b'
-              ctx.font = 'bold 9px monospace'
-              ctx.fillText(pat.name, Math.min(pH2.x, pL2.x) + 8, (pH2.y + pL2.y) / 2)
             }
           }
         } 
@@ -532,7 +527,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
           const sortedKps = [...pat.key_points].sort((a, b) => a.time - b.time)
           ctx.beginPath()
           ctx.strokeStyle = pat.type === 'BEARISH' ? '#f6465d' : '#00c087'
-          ctx.lineWidth = 2
+          ctx.lineWidth = 1.5
 
           let started = false
           sortedKps.forEach((kp) => {
@@ -549,39 +544,17 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
             if (c) {
               ctx.fillStyle = '#f0b90b'
               ctx.beginPath()
-              ctx.arc(c.x, c.y, 3.5, 0, Math.PI * 2)
+              ctx.arc(c.x, c.y, 3, 0, Math.PI * 2)
               ctx.fill()
             }
           })
-
-          // Neckline
-          if (pat.neckline) {
-            const y = series.priceToCoordinate(pat.neckline)
-            if (y !== null && sortedKps.length >= 2) {
-              const startC = resolveCoord(sortedKps[0].time, pat.neckline)
-              const endC = resolveCoord(sortedKps[sortedKps.length - 1].time, pat.neckline)
-              if (startC && endC) {
-                ctx.setLineDash([4, 3])
-                ctx.strokeStyle = '#cbd5e1'
-                ctx.lineWidth = 1.5
-                ctx.beginPath()
-                ctx.moveTo(startC.x - 15, y)
-                ctx.lineTo(endC.x + 40, y)
-                ctx.stroke()
-                ctx.setLineDash([])
-                ctx.fillStyle = '#cbd5e1'
-                ctx.font = '9px monospace'
-                ctx.fillText(`Neckline: $${formatPrice(pat.neckline)}`, endC.x + 10, y - 4)
-              }
-            }
-          }
         }
-        // 3. Double Top & Double Bottom: Peak-to-Peak with Horizontal Neckline
+        // 3. Double Top & Double Bottom: Peak-to-Peak
         else if (patName.includes('double top') || patName.includes('double bottom')) {
           const sortedKps = [...pat.key_points].sort((a, b) => a.time - b.time)
           ctx.beginPath()
           ctx.strokeStyle = pat.type === 'BEARISH' ? '#f6465d' : '#00c087'
-          ctx.lineWidth = 2
+          ctx.lineWidth = 1.5
 
           let started = false
           sortedKps.forEach((kp) => {
@@ -598,39 +571,17 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
             if (c) {
               ctx.fillStyle = '#f0b90b'
               ctx.beginPath()
-              ctx.arc(c.x, c.y, 3.5, 0, Math.PI * 2)
+              ctx.arc(c.x, c.y, 3, 0, Math.PI * 2)
               ctx.fill()
             }
           })
-
-          // Neckline
-          if (pat.neckline) {
-            const y = series.priceToCoordinate(pat.neckline)
-            if (y !== null && sortedKps.length >= 2) {
-              const startC = resolveCoord(sortedKps[0].time, pat.neckline)
-              const endC = resolveCoord(sortedKps[sortedKps.length - 1].time, pat.neckline)
-              if (startC && endC) {
-                ctx.setLineDash([4, 3])
-                ctx.strokeStyle = '#cbd5e1'
-                ctx.lineWidth = 1.5
-                ctx.beginPath()
-                ctx.moveTo(startC.x - 20, y)
-                ctx.lineTo(endC.x + 50, y)
-                ctx.stroke()
-                ctx.setLineDash([])
-                ctx.fillStyle = '#cbd5e1'
-                ctx.font = '9px monospace'
-                ctx.fillText(`Neckline: $${formatPrice(pat.neckline)}`, endC.x + 10, y - 4)
-              }
-            }
-          }
         }
         // 4. Generic Pattern: Sorted strictly ascending by time to prevent backwards lines
         else {
           const sortedKps = [...pat.key_points].sort((a, b) => a.time - b.time)
           ctx.beginPath()
           ctx.strokeStyle = pat.type === 'BULLISH' ? '#00c087' : (pat.type === 'BEARISH' ? '#f6465d' : '#f0b90b')
-          ctx.lineWidth = 2
+          ctx.lineWidth = 1.5
 
           let started = false
           sortedKps.forEach((kp) => {
@@ -647,52 +598,99 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
             if (c) {
               ctx.fillStyle = '#f0b90b'
               ctx.beginPath()
-              ctx.arc(c.x, c.y, 3.5, 0, Math.PI * 2)
+              ctx.arc(c.x, c.y, 3, 0, Math.PI * 2)
               ctx.fill()
             }
           })
         }
 
-        // Draw Target Line if present
-        if (pat.target_price) {
-          const lastKp = pat.key_points[pat.key_points.length - 1]
-          const coordStart = resolveCoord(lastKp.time, pat.target_price)
-          const targetY = series.priceToCoordinate(pat.target_price)
-          if (targetY !== null && coordStart) {
-            ctx.strokeStyle = '#00c087'
-            ctx.lineWidth = 1.5
-            ctx.setLineDash([4, 2])
-            ctx.beginPath()
-            ctx.moveTo(coordStart.x, targetY)
-            ctx.lineTo(width - 65, targetY)
-            ctx.stroke()
-            ctx.setLineDash([])
+        // 5. Draw Clean Vertical Formation Line at the exact point/candle where pattern formed
+        const sortedKps = pat.key_points && pat.key_points.length > 0
+          ? [...pat.key_points].sort((a, b) => a.time - b.time)
+          : []
+        const formationKp = sortedKps.length > 0 ? sortedKps[sortedKps.length - 1] : null
+        const formationTime = pat.breakout_time || pat.end_time || formationKp?.time || pat.start_time
+        const formationPrice = pat.breakout_price || formationKp?.price || (candles.length > 0 ? candles[candles.length - 1].close : 0)
 
-            ctx.fillStyle = '#00c087'
-            ctx.font = 'bold 9px monospace'
-            ctx.fillText(`TP (${pat.name}): $${formatPrice(pat.target_price)}`, coordStart.x + 8, targetY - 4)
+        let posX: number | null = null
+        let posY: number | null = null
+        const c = resolveCoord(formationTime, formationPrice)
+        if (c) {
+          posX = c.x
+          posY = c.y
+        } else {
+          const rawX = chart.timeScale().timeToCoordinate(formationTime as any)
+          if (rawX !== null) {
+            posX = rawX
+            const rawY = series.priceToCoordinate(formationPrice)
+            posY = rawY !== null ? rawY : height / 2
           }
         }
 
-        // Draw Stop Loss Line if present
-        if (pat.stop_loss) {
-          const lastKp = pat.key_points[pat.key_points.length - 1]
-          const coordStart = resolveCoord(lastKp.time, pat.stop_loss)
-          const slY = series.priceToCoordinate(pat.stop_loss)
-          if (slY !== null && coordStart) {
-            ctx.strokeStyle = '#f6465d'
-            ctx.lineWidth = 1.5
-            ctx.setLineDash([4, 2])
-            ctx.beginPath()
-            ctx.moveTo(coordStart.x, slY)
-            ctx.lineTo(width - 65, slY)
-            ctx.stroke()
-            ctx.setLineDash([])
+        if (posX !== null && posX >= 0 && posX <= width - 65) {
+          const isBull = pat.type === 'BULLISH'
+          const isBear = pat.type === 'BEARISH'
+          const patColor = isBull ? '#00c087' : (isBear ? '#f6465d' : '#f0b90b')
+          const bottomY = height - 26
 
-            ctx.fillStyle = '#f6465d'
-            ctx.font = 'bold 9px monospace'
-            ctx.fillText(`SL: $${formatPrice(pat.stop_loss)}`, coordStart.x + 8, slY - 4)
+          ctx.save()
+
+          // Sleek vertical dashed line from top of chart to time axis
+          ctx.beginPath()
+          ctx.setLineDash([4, 4])
+          ctx.strokeStyle = patColor
+          ctx.lineWidth = 1.5
+          ctx.moveTo(posX, 0)
+          ctx.lineTo(posX, bottomY)
+          ctx.stroke()
+          ctx.setLineDash([])
+
+          // Anchor marker circle at the formation price point
+          if (posY !== null && posY >= 0 && posY <= bottomY) {
+            ctx.beginPath()
+            ctx.arc(posX, posY, 6, 0, Math.PI * 2)
+            ctx.fillStyle = isBull ? 'rgba(0, 192, 135, 0.25)' : (isBear ? 'rgba(246, 70, 93, 0.25)' : 'rgba(240, 185, 11, 0.25)')
+            ctx.fill()
+
+            ctx.beginPath()
+            ctx.arc(posX, posY, 3.5, 0, Math.PI * 2)
+            ctx.fillStyle = patColor
+            ctx.fill()
+            ctx.strokeStyle = '#0b0e14'
+            ctx.lineWidth = 1.5
+            ctx.stroke()
           }
+
+          // Compact badge at top of the vertical line
+          const icon = isBull ? '▲' : (isBear ? '▼' : '◆')
+          const badgeText = `${icon} ${pat.name}`
+          ctx.font = 'bold 10px Inter, monospace'
+          const textMetrics = ctx.measureText(badgeText)
+          const badgeW = textMetrics.width + 16
+          const badgeH = 20
+
+          // Stagger Y position to avoid overlapping badges if multiple patterns form close together
+          const badgeY = 16 + (patIdx % 4) * 24
+          const badgeX = Math.max(8, Math.min(width - 70 - badgeW, posX - badgeW / 2))
+
+          // Draw badge pill
+          ctx.fillStyle = 'rgba(11, 14, 20, 0.92)'
+          ctx.strokeStyle = patColor
+          ctx.lineWidth = 1
+          ctx.beginPath()
+          if (typeof (ctx as any).roundRect === 'function') {
+            (ctx as any).roundRect(badgeX, badgeY, badgeW, badgeH, 4)
+          } else {
+            ctx.rect(badgeX, badgeY, badgeW, badgeH)
+          }
+          ctx.fill()
+          ctx.stroke()
+
+          // Draw badge text
+          ctx.fillStyle = patColor
+          ctx.fillText(badgeText, badgeX + 8, badgeY + 14)
+
+          ctx.restore()
         }
       })
     }
