@@ -8,6 +8,7 @@ import { RightSidebar } from './components/HUD/RightSidebar'
 import { SettingsDrawer } from './components/Settings/SettingsDrawer'
 import { OpenPositionModal, SetupTradeTarget } from './components/Trade/OpenPositionModal'
 import { TradingDashboardDrawer } from './components/Trade/TradingDashboardDrawer'
+import { ToastNotification, ToastData } from './components/UI/ToastNotification'
 import { fetchAnalysis } from './services/api'
 import { BinanceWsClient } from './services/binanceWs'
 import {
@@ -124,6 +125,16 @@ export function App() {
   const [selectedTradeTarget, setSelectedTradeTarget] = useState<SetupTradeTarget | null>(null)
   const [isDashboardDrawerOpen, setIsDashboardDrawerOpen] = useState(false)
   const [tradeRefreshSeq, setTradeRefreshSeq] = useState(0)
+
+  // Notification Toast Stack
+  const [toasts, setToasts] = useState<ToastData[]>([])
+  const addToast = useCallback((toast: Omit<ToastData, 'id'>) => {
+    const id = `toast_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`
+    setToasts((prev) => [...prev, { ...toast, id }])
+  }, [])
+  const removeToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id))
+  }, [])
 
   const wsClientRef = useRef<BinanceWsClient | null>(null)
   const activeSymbolRef = useRef(symbol)
@@ -426,11 +437,30 @@ export function App() {
         target={selectedTradeTarget}
         currentPrice={lastCandle?.close}
         onClose={() => setIsTradeModalOpen(false)}
-        onSuccess={() => {
+        onSuccess={(orderRes) => {
           setTradeRefreshSeq((prev) => prev + 1)
           setIsDashboardDrawerOpen(true)
+          addToast({
+            type: 'success',
+            title: 'Posisi Berhasil Dibuka! 🚀',
+            details: {
+              symbol: orderRes.symbol || selectedTradeTarget?.symbol,
+              side: (orderRes.side as any) || (selectedTradeTarget?.direction === 'LONG' ? 'BUY' : 'SELL'),
+              quantity: orderRes.executed_qty,
+              price: orderRes.avg_price || selectedTradeTarget?.entry_price,
+              leverage: orderRes.leverage,
+              mode: orderRes.mode as 'demo' | 'live',
+              orderId: orderRes.order_id,
+              stopLoss: selectedTradeTarget?.invalidation_price,
+              takeProfit: selectedTradeTarget?.target_price
+            },
+            duration: 6000
+          })
         }}
       />
+
+      {/* Floating System Toasts */}
+      <ToastNotification toasts={toasts} onDismiss={removeToast} />
     </div>
   )
 }

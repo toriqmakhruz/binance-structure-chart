@@ -325,10 +325,12 @@ export const OpenPositionModal: React.FC<OpenPositionModalProps> = ({
         take_profit: attachBracket ? targetPrice : undefined
       })
 
-      setExecutionResult(res)
       if (res.success) {
         loadBalance(mode)
         onSuccess?.(res)
+        onClose()
+      } else {
+        setExecutionResult(res)
       }
     } catch (err: any) {
       setExecutionResult({
