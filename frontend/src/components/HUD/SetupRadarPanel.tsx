@@ -15,6 +15,7 @@ import {
   TrendingDown,
   Clock,
   ShieldAlert,
+  Shield,
   ArrowUpRight,
   Zap,
   CheckCircle2,
@@ -188,37 +189,6 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
         )
         .sort((a, b) => (b.entry_time - a.entry_time) || (b.confluence_weight - a.confluence_weight))
 
-      // Inject any active locked setups so they never disappear while in position
-      const localLocked = { ...getStoredLockedSetups(), ...(lockedSetups || {}) }
-      for (const [sym, lItem] of Object.entries(localLocked)) {
-        if (lItem && lItem.status === 'ACTIVE') {
-          const symUpper = sym.toUpperCase()
-          const alreadyInList = filtered.some((x) => x.symbol.toUpperCase() === symUpper)
-          if (!alreadyInList) {
-            filtered.unshift({
-              symbol: symUpper,
-              baseAsset: symUpper.replace(/USDT$|BUSD$|USDC$/i, ''),
-              market,
-              timeframe,
-              direction: lItem.direction,
-              name: lItem.name || 'Setup Posisi Aktif',
-              entry_price: lItem.entry_price,
-              entry_time: lItem.entry_time || Math.floor(Date.now() / 1000),
-              entry_zone_high: lItem.entry_price,
-              entry_zone_low: lItem.entry_price,
-              invalidation_price: lItem.invalidation_price,
-              target_price: lItem.target_price,
-              risk_reward_ratio: lItem.risk_reward_ratio || 2.0,
-              confluence_weight: lItem.confluence_score || 95,
-              confluence_score: lItem.confluence_score || 95,
-              current_price: lItem.entry_price,
-              price_change_pct: 0,
-              quote_volume: 0
-            })
-          }
-        }
-      }
-
       setSetups(filtered)
       setScannedCount(resp.scanned_count || 24)
     } catch (err: any) {
@@ -226,7 +196,7 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
     } finally {
       if (!silent) setIsLoading(false)
     }
-  }, [timeframe, market, settings, lockedSetups])
+  }, [timeframe, market, settings])
 
   // Initial scan on mount / market / timeframe / settings change + periodic 60s rescan
   useEffect(() => {
@@ -343,31 +313,31 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
     })
   }, [symbol, market, timeframe, forecast, currentPrice])
 
-  const inPositionCount = useMemo(() => {
-    return setups.filter((s) => activePositions.has(s.symbol.toUpperCase())).length
+  const freshSetups = useMemo(() => {
+    return setups.filter((s) => !activePositions.has(s.symbol.toUpperCase()))
   }, [setups, activePositions])
 
+  const inPositionSetups = useMemo(() => {
+    return setups.filter((s) => activePositions.has(s.symbol.toUpperCase()))
+  }, [setups, activePositions])
+
+  const freshLongCount = useMemo(() => freshSetups.filter((s) => s.direction === 'LONG').length, [freshSetups])
+  const freshShortCount = useMemo(() => freshSetups.filter((s) => s.direction === 'SHORT').length, [freshSetups])
+  const inPositionCount = inPositionSetups.length
+
   const displayedSetups = useMemo(() => {
-    let list = setups
     if (dirFilter === 'LONG') {
-      list = setups.filter((item) => item.direction === 'LONG')
-    } else if (dirFilter === 'SHORT') {
-      list = setups.filter((item) => item.direction === 'SHORT')
-    } else if (dirFilter === 'IN_POSITION') {
-      list = setups.filter((item) => activePositions.has(item.symbol.toUpperCase()))
+      return freshSetups.filter((item) => item.direction === 'LONG')
     }
-
-    // Sort: Pairs with active position appear FIRST, then by entry_time / confluence
-    return [...list].sort((a, b) => {
-      const aPos = activePositions.has(a.symbol.toUpperCase()) ? 1 : 0
-      const bPos = activePositions.has(b.symbol.toUpperCase()) ? 1 : 0
-      if (aPos !== bPos) return bPos - aPos
-      return (b.entry_time - a.entry_time) || (b.confluence_weight - a.confluence_weight)
-    })
-  }, [setups, dirFilter, activePositions])
-
-  const longCount = useMemo(() => setups.filter((s) => s.direction === 'LONG').length, [setups])
-  const shortCount = useMemo(() => setups.filter((s) => s.direction === 'SHORT').length, [setups])
+    if (dirFilter === 'SHORT') {
+      return freshSetups.filter((item) => item.direction === 'SHORT')
+    }
+    if (dirFilter === 'IN_POSITION') {
+      return inPositionSetups
+    }
+    // 'ALL' default: strictly show ONLY fresh setups without active positions (best available other pairs)
+    return freshSetups
+  }, [dirFilter, freshSetups, inPositionSetups])
 
   return (
     <div className="w-full flex-1 flex flex-col overflow-hidden select-none text-xs">
@@ -386,7 +356,7 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
               }`}
             >
               <span className={`w-1.5 h-1.5 rounded-full ${isWsConnected ? 'bg-[#00c087] animate-pulse' : 'bg-slate-500'}`} />
-              <span>{setups.length}</span>
+              <span>{freshSetups.length}</span>
             </span>
           </div>
 
@@ -405,7 +375,7 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
         </div>
 
         <p className="text-[10px] text-slate-400 leading-relaxed">
-          Setup A+ valid ({market.toUpperCase()}). Pair yang sedang memiliki posisi ditandai dengan badge khusus.
+          Menampilkan setup A+ terbaik yang belum memiliki posisi ({market.toUpperCase()}). Pair yang sudah ada posisi disembunyikan otomatis.
         </p>
 
         {/* Direction & In-Position Filter Pills */}
@@ -419,7 +389,7 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
                 : 'bg-[#0d1117] text-slate-400 border-[#21262d] hover:text-slate-200'
             }`}
           >
-            Semua ({setups.length})
+            Semua ({freshSetups.length})
           </button>
           <button
             type="button"
@@ -430,7 +400,7 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
                 : 'bg-[#0d1117] text-slate-400 border-[#21262d] hover:text-slate-200'
             }`}
           >
-            Long ({longCount})
+            Long ({freshLongCount})
           </button>
           <button
             type="button"
@@ -441,7 +411,7 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
                 : 'bg-[#0d1117] text-slate-400 border-[#21262d] hover:text-slate-200'
             }`}
           >
-            Short ({shortCount})
+            Short ({freshShortCount})
           </button>
           <button
             type="button"
@@ -453,8 +423,9 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
                 ? 'bg-[#0d1117] text-[#00c087] border-emerald-800/50 hover:bg-emerald-950/30'
                 : 'bg-[#0d1117] text-slate-500 border-[#21262d] opacity-50'
             }`}
+            title="Lihat pair yang sedang memiliki posisi aktif"
           >
-            <span className={`w-1.5 h-1.5 rounded-full ${inPositionCount > 0 ? 'bg-[#00c087] animate-pulse' : 'bg-slate-600'}`} />
+            <Shield className="w-2.5 h-2.5" />
             <span>Posisi ({inPositionCount})</span>
           </button>
         </div>
@@ -482,12 +453,14 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
           <div className="p-6 text-center space-y-2 bg-[#0d1117] border border-dashed border-[#21262d] rounded-lg">
             <ShieldAlert className="w-5 h-5 text-slate-500 mx-auto" />
             <p className="text-[11px] text-slate-400 font-semibold">
-              Belum ada setup {dirFilter === 'IN_POSITION' ? 'dengan posisi aktif' : dirFilter === 'ALL' ? timeframe : dirFilter}
+              {dirFilter === 'IN_POSITION'
+                ? 'Belum ada pair setup dengan posisi aktif'
+                : `Belum ada setup ${dirFilter === 'ALL' ? 'baru' : dirFilter} yang tersedia`}
             </p>
             <p className="text-[10px] text-slate-500">
               {dirFilter === 'IN_POSITION'
-                ? 'Buka posisi pada salah satu setup untuk melihatnya ditandai di sini.'
-                : 'Setup hanya ditampilkan bila konfluensi A+ terpenuhi (R:R ≥ 1.5) dan belum terinvalidasi.'}
+                ? 'Pair yang sudah Anda buka posisi akan muncul di sini agar tidak mengganggu rekomendasi setup baru.'
+                : 'Pair yang sudah ada posisi otomatis disembunyikan agar Anda bisa fokus pada peluang terbaik lainnya.'}
             </p>
           </div>
         ) : (
@@ -504,39 +477,12 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
                 onClick={() => onSelectSymbol(item.symbol)}
                 className={`p-2.5 rounded-lg border cursor-pointer transition-all space-y-2 relative ${
                   hasPosition
-                    ? isLong
-                      ? 'bg-gradient-to-r from-emerald-950/40 via-[#0e1724] to-[#0d1117] border-emerald-500/80 ring-1 ring-emerald-500/40 shadow-md shadow-emerald-950/30'
-                      : 'bg-gradient-to-r from-rose-950/40 via-[#18111e] to-[#0d1117] border-rose-500/80 ring-1 ring-rose-500/40 shadow-md shadow-rose-950/30'
+                    ? 'bg-[#101722] border-emerald-800/60 hover:border-emerald-600/70'
                     : isSelected
                     ? 'bg-[#1a2232] border-[#f0b90b]/70 shadow-sm'
                     : 'bg-[#0d1117] border-[#21262d] hover:border-[#374151] hover:bg-[#131823]'
                 }`}
               >
-                {/* Active Position Badge Header */}
-                {hasPosition && (
-                  <div className="flex items-center justify-between pb-1.5 border-b border-[#21262d]/70">
-                    <span className={`inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[9px] font-black tracking-wider uppercase shadow-sm ${
-                      posInfo?.side === 'LONG'
-                        ? 'bg-emerald-500/20 text-[#00c087] border border-emerald-500/60'
-                        : 'bg-rose-500/20 text-[#f6465d] border border-rose-500/60'
-                    }`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${
-                        posInfo?.side === 'LONG' ? 'bg-[#00c087] animate-pulse' : 'bg-[#f6465d] animate-pulse'
-                      }`} />
-                      <Activity className="w-2.5 h-2.5" />
-                      <span>POSISI AKTIF ({posInfo?.side})</span>
-                    </span>
-
-                    {posInfo?.roePct !== undefined && posInfo.roePct !== 0 && (
-                      <span className={`font-mono text-[10px] font-bold ${
-                        posInfo.roePct >= 0 ? 'text-[#00c087]' : 'text-[#f6465d]'
-                      }`}>
-                        ROE {posInfo.roePct >= 0 ? `+${posInfo.roePct.toFixed(2)}%` : `${posInfo.roePct.toFixed(2)}%`}
-                      </span>
-                    )}
-                  </div>
-                )}
-
                 {/* Top row: Symbol, Direction, Time Ago */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-1.5 min-w-0">
@@ -550,11 +496,24 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
                       {isLong ? <TrendingUp className="w-2.5 h-2.5" /> : <TrendingDown className="w-2.5 h-2.5" />}
                       <span>{item.direction}</span>
                     </span>
+
                     <span className={`font-mono font-bold text-xs truncate ${isSelected ? 'text-[#f0b90b]' : 'text-white'}`}>
                       {item.symbol}
                     </span>
+
+                    {/* Lencana Kecil Posisi Aktif */}
                     {hasPosition && (
-                      <span className="w-2 h-2 rounded-full bg-[#00c087] shadow-sm shadow-emerald-400 shrink-0" title="Ada Posisi Terbuka" />
+                      <span
+                        title={`Pair memiliki posisi aktif ${posInfo?.side || ''} (ROE: ${posInfo?.roePct !== undefined ? `${posInfo.roePct.toFixed(1)}%` : '0%'})`}
+                        className={`inline-flex items-center space-x-0.5 px-1.5 py-0.5 rounded text-[8.5px] font-black uppercase tracking-wider shrink-0 ${
+                          posInfo?.side === 'LONG'
+                            ? 'bg-emerald-950/90 text-[#00c087] border border-emerald-700/60 shadow-sm'
+                            : 'bg-rose-950/90 text-[#f6465d] border border-rose-700/60 shadow-sm'
+                        }`}
+                      >
+                        <Shield className="w-2.5 h-2.5 shrink-0" />
+                        <span>POSISI</span>
+                      </span>
                     )}
                   </div>
 
