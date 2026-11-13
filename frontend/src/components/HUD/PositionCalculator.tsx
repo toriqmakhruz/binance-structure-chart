@@ -430,7 +430,7 @@ export const PositionCalculator: React.FC<PositionCalculatorProps> = ({
                 value={riskValue || ''}
                 onChange={(e) => setRiskValue(Math.max(0, parseFloat(e.target.value) || 0))}
                 className="w-full bg-transparent px-2.5 py-1.5 text-white font-mono text-xs focus:outline-none"
-                placeholder="20"
+                placeholder="Bebas ($ atau %)"
               />
               <button
                 type="button"
@@ -442,10 +442,28 @@ export const PositionCalculator: React.FC<PositionCalculatorProps> = ({
               </button>
             </div>
           </div>
-          <div className="flex justify-end text-[10px] font-mono text-slate-400">
-            {riskMode === 'USDT'
-              ? `Setara ${calc.riskPctOfAccount.toFixed(2)}% dari margin akun`
-              : `Setara $${calc.riskUSDT.toFixed(2)} USDT`}
+          <div className="flex items-center justify-between text-[10px] font-mono text-slate-400">
+            <div className="flex items-center space-x-1">
+              {(riskMode === 'USDT' ? [10, 20, 50, 100, 200] : [1, 2, 5, 10, 20]).map((amt) => (
+                <button
+                  key={amt}
+                  type="button"
+                  onClick={() => setRiskValue(amt)}
+                  className={`px-1 rounded text-[9px] font-mono border transition-colors ${
+                    riskValue === amt
+                      ? 'bg-[#f0b90b]/20 text-[#f0b90b] border-[#f0b90b]/50'
+                      : 'bg-[#141b28] text-slate-400 border-[#232d3d] hover:text-white'
+                  }`}
+                >
+                  {riskMode === 'USDT' ? `$${amt}` : `${amt}%`}
+                </button>
+              ))}
+            </div>
+            <span>
+              {riskMode === 'USDT'
+                ? `≈ ${calc.riskPctOfAccount.toFixed(2)}% margin`
+                : `≈ $${calc.riskUSDT.toFixed(2)} USDT`}
+            </span>
           </div>
         </div>
 

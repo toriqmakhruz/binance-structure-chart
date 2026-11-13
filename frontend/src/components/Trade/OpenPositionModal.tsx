@@ -153,9 +153,24 @@ export const OpenPositionModal: React.FC<OpenPositionModalProps> = ({
   const [leverage, setLeverage] = useState<number>(() => readStoredLeverage())
   const [attachBracket, setAttachBracket] = useState<boolean>(true)
 
-  // Sizing inputs (Synchronized with Calculator & Local Storage, default $20)
+  // Sizing inputs (Fully customizable by user, synchronized with Local Storage)
   const [riskMode, setRiskMode] = useState<'USDT' | 'PERCENT'>(() => readStoredRiskMode())
   const [riskValue, setRiskValue] = useState<number>(() => readStoredRiskValue())
+  const [riskInput, setRiskInput] = useState<string>(() => String(readStoredRiskValue()))
+
+  const handleRiskInputChange = (valStr: string) => {
+    setRiskInput(valStr)
+    const n = parseFloat(valStr)
+    if (Number.isFinite(n) && n >= 0) {
+      setRiskValue(n)
+    }
+  }
+
+  const handleSetPresetRisk = (val: number, newMode?: 'USDT' | 'PERCENT') => {
+    if (newMode) setRiskMode(newMode)
+    setRiskValue(val)
+    setRiskInput(String(val))
+  }
 
   // Symbol rules from Binance
   const [rules, setRules] = useState<{ stepSize: number; tickSize: number; minQty: number; minNotional: number }>({
@@ -225,6 +240,7 @@ export const OpenPositionModal: React.FC<OpenPositionModalProps> = ({
     // Sync planned risk & leverage if passed from calculator
     if (target.planned_risk && target.planned_risk > 0) {
       setRiskValue(target.planned_risk)
+      setRiskInput(String(target.planned_risk))
     }
     if (target.planned_risk_mode) {
       setRiskMode(target.planned_risk_mode)
@@ -651,10 +667,7 @@ export const OpenPositionModal: React.FC<OpenPositionModalProps> = ({
                 <button
                   key={pct}
                   type="button"
-                  onClick={() => {
-                    setRiskMode('PERCENT')
-                    setRiskValue(pct)
-                  }}
+                  onClick={() => handleSetPresetRisk(pct, 'PERCENT')}
                   className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-[#1c2434] text-slate-300 hover:text-[#f0b90b] hover:bg-[#253045] border border-[#2b3648]"
                 >
                   {pct}%
@@ -789,16 +802,21 @@ export const OpenPositionModal: React.FC<OpenPositionModalProps> = ({
             </div>
           )}
 
-          {/* F. Risk Sizing Input */}
-          <div className="p-3 bg-[#111724] border border-[#1f2838] rounded-lg space-y-2">
+          {/* F. Risk Sizing Input (100% Bebas Ditentukan) */}
+          <div className="p-3 bg-[#111724] border border-[#1f2838] rounded-lg space-y-2.5">
             <div className="flex items-center justify-between text-[11px]">
-              <span className="text-slate-300 font-semibold">Toleransi Risiko (Risk Sizing)</span>
+              <div>
+                <span className="text-slate-200 font-bold block">Toleransi Risiko (Bebas Ditentukan)</span>
+                <span className="text-[10px] text-slate-400">
+                  Bebas atur nominal risiko Anda. Lot posisi dihitung agar rugi saat kena SL tepat sesuai nilai ini.
+                </span>
+              </div>
               <div className="flex items-center space-x-1 bg-[#0b0e14] p-0.5 rounded border border-[#212a38]">
                 <button
                   type="button"
                   onClick={() => setRiskMode('USDT')}
-                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                    riskMode === 'USDT' ? 'bg-[#1f2738] text-white' : 'text-slate-400'
+                  className={`px-2 py-0.5 rounded text-[10px] font-bold transition-colors ${
+                    riskMode === 'USDT' ? 'bg-[#1f2738] text-[#f0b90b] shadow' : 'text-slate-400 hover:text-white'
                   }`}
                 >
                   USDT ($)
@@ -806,8 +824,8 @@ export const OpenPositionModal: React.FC<OpenPositionModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setRiskMode('PERCENT')}
-                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                    riskMode === 'PERCENT' ? 'bg-[#1f2738] text-white' : 'text-slate-400'
+                  className={`px-2 py-0.5 rounded text-[10px] font-bold transition-colors ${
+                    riskMode === 'PERCENT' ? 'bg-[#1f2738] text-[#00c087] shadow' : 'text-slate-400 hover:text-white'
                   }`}
                 >
                   % Saldo
@@ -815,17 +833,63 @@ export const OpenPositionModal: React.FC<OpenPositionModalProps> = ({
               </div>
             </div>
 
+            {/* Quick Presets Buttons */}
+            <div className="flex items-center space-x-1.5 overflow-x-auto py-0.5">
+              <span className="text-[10px] text-slate-400 font-sans shrink-0">Preset:</span>
+              {riskMode === 'USDT' ? (
+                [5, 10, 20, 50, 100, 250, 500].map((amt) => (
+                  <button
+                    key={amt}
+                    type="button"
+                    onClick={() => handleSetPresetRisk(amt)}
+                    className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border transition-colors ${
+                      riskValue === amt
+                        ? 'bg-[#f0b90b]/20 text-[#f0b90b] border-[#f0b90b]/50'
+                        : 'bg-[#141b28] text-slate-400 border-[#232d3d] hover:text-white hover:border-slate-500'
+                    }`}
+                  >
+                    ${amt}
+                  </button>
+                ))
+              ) : (
+                [1, 2, 5, 10, 25, 50].map((pct) => (
+                  <button
+                    key={pct}
+                    type="button"
+                    onClick={() => handleSetPresetRisk(pct)}
+                    className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border transition-colors ${
+                      riskValue === pct
+                        ? 'bg-[#00c087]/20 text-[#00c087] border-[#00c087]/50'
+                        : 'bg-[#141b28] text-slate-400 border-[#232d3d] hover:text-white hover:border-slate-500'
+                    }`}
+                  >
+                    {pct}%
+                  </button>
+                ))
+              )}
+            </div>
+
+            {/* Custom Input Field */}
             <div className="flex items-center space-x-2">
-              <input
-                type="number"
-                min="1"
-                step="any"
-                value={riskValue}
-                onChange={(e) => setRiskValue(parseFloat(e.target.value) || 0)}
-                className="flex-1 px-2.5 py-1.5 rounded bg-[#161c28] border border-[#283244] text-white font-mono text-xs focus:outline-none focus:border-[#f0b90b]"
-              />
-              <span className="text-slate-400 font-mono text-xs font-bold">
-                {riskMode === 'USDT' ? 'USDT' : `% = $${((balance * riskValue) / 100).toFixed(1)}`}
+              <div className="relative flex-1">
+                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 font-mono text-xs font-bold">
+                  {riskMode === 'USDT' ? '$' : '%'}
+                </span>
+                <input
+                  type="number"
+                  min="0.1"
+                  step="any"
+                  value={riskInput}
+                  onChange={(e) => handleRiskInputChange(e.target.value)}
+                  placeholder="Ketik berapa saja sesuai toleransi risiko Anda..."
+                  className="w-full pl-6 pr-2.5 py-1.5 rounded bg-[#161c28] border border-[#283244] text-white font-mono text-xs focus:outline-none focus:border-[#f0b90b]"
+                />
+              </div>
+              <span className="text-slate-300 font-mono text-xs font-bold whitespace-nowrap">
+                {riskMode === 'USDT'
+                  ? `Maks Loss: -$${riskValue.toFixed(2)} USDT`
+                  : `Maks Loss: -$${((balance * riskValue) / 100).toFixed(2)} USDT (${riskValue}%)`
+                }
               </span>
             </div>
           </div>

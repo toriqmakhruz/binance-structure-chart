@@ -180,13 +180,12 @@ export const TradingDashboardDrawer: React.FC<TradingDashboardDrawerProps> = ({
     setBracketError(null)
   }
 
-  // Quick helper to calculate exact Stop Loss price for $20 risk
-  const handleQuickRisk20 = () => {
-    if (!bracketModalPos) return
+  // Quick helper to calculate exact Stop Loss price for any target dollar risk
+  const handleCalculateSlForRisk = (targetRisk: number) => {
+    if (!bracketModalPos || targetRisk <= 0) return
     const qty = Math.abs(bracketModalPos.positionAmt)
     if (qty <= 0) return
     const entry = bracketModalPos.entryPrice
-    const targetRisk = 20.0
     const priceDelta = targetRisk / qty
     const isLong = bracketModalPos.side === 'LONG'
     const sl = isLong ? (entry - priceDelta) : (entry + priceDelta)
@@ -679,14 +678,20 @@ export const TradingDashboardDrawer: React.FC<TradingDashboardDrawerProps> = ({
                     <span className="w-2 h-2 rounded-full bg-[#f6465d]" />
                     <span>Stop Loss Price ($)</span>
                   </label>
-                  <button
-                    type="button"
-                    onClick={handleQuickRisk20}
-                    className="text-[10px] px-2 py-0.5 rounded bg-amber-950/80 hover:bg-amber-900 border border-amber-700/60 text-[#f0b90b] font-bold transition-colors"
-                    title="Hitung Stop Loss agar risiko kerugian tepat $20"
-                  >
-                    ⚡ Set Risk $20
-                  </button>
+                  <div className="flex items-center space-x-1">
+                    <span className="text-[10px] text-slate-400 font-sans">Hitung SL per Risk:</span>
+                    {[10, 20, 50, 100, 250].map((amt) => (
+                      <button
+                        key={amt}
+                        type="button"
+                        onClick={() => handleCalculateSlForRisk(amt)}
+                        className="text-[10px] px-1.5 py-0.5 rounded bg-[#1c2434] hover:bg-[#253045] border border-[#2d384c] text-[#f0b90b] font-mono font-bold transition-colors"
+                        title={`Hitung SL agar kerugian posisi ini tepat $${amt}`}
+                      >
+                        ${amt}
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 <input
                   type="number"
