@@ -3,6 +3,7 @@ import math
 import time
 import httpx
 import logging
+import re
 from typing import List, Dict, Any, Optional, Tuple
 from ..config import settings
 from ..models.schemas import Candle, AnalysisMetadata
@@ -68,7 +69,7 @@ class BinanceService:
         end_time: Optional[int] = None
     ) -> Tuple[List[Any], str]:
         """
-        Fetch a batch of klines from isolated upstream endpoints.
+        Fetch a batch of klines from isolated upstream endpoints with automatic Spot fallback on rate limit ban.
         Returns: (raw_data, successful_source_name)
         """
         params: Dict[str, Any] = {
@@ -83,7 +84,13 @@ class BinanceService:
         now = time.time()
         if market_clean == "futures" and now < self._ban_until:
             wait_s = int(self._ban_until - now)
-            raise DataUnavailableException(f"Binance Futures rate-limit aktif. Menunggu pendinginan {wait_s}s.")
+            logger.warning(f"Binance Futures rate-limit cooldown ({wait_s}s). Fallback otomatis ke Spot klines untuk {symbol}...")
+            try:
+                spot_data, _ = await self._fetch_raw_batch(symbol, interval, limit, market="spot", end_time=end_time)
+                return spot_data, "BINANCE_SPOT_FALLBACK"
+            except Exception as e:
+                logger.error(f"Spot fallback failed for {symbol}: {e}")
+                raise DataUnavailableException(f"Binance Futures rate-limit aktif ({wait_s}s) & Spot fallback gagal: {e}")
 
         path = "/api/v3/klines" if market_clean == "spot" else "/fapi/v1/klines"
         urls = self._get_candidate_urls(path, market_clean)
@@ -106,11 +113,18 @@ class BinanceService:
                         else:
                             last_error = f"Unexpected response format from {url}: {type(json_resp)}"
                     elif resp.status_code in (418, 429):
-                        ra = resp.headers.get("retry-after")
-                        sec = min(float(ra) if ra and ra.isdigit() else 30.0, 30.0)
-                        self._ban_until = time.time() + sec
-                        logger.warning(f"Binance rate limit ban triggered (HTTP {resp.status_code}). Backing off for {sec}s.")
-                        last_error = f"HTTP {resp.status_code}: Rate limit ban. Retry after {sec}s"
+                        match = re.search(r"banned until (\d+)", resp.text)
+                        if match:
+                            ban_ts_sec = float(match.group(1)) / 1000.0
+                            self._ban_until = max(self._ban_until, ban_ts_sec + 2.0)
+                            wait_s = int(self._ban_until - time.time())
+                            logger.warning(f"Binance rate limit ban triggered until {ban_ts_sec} ({wait_s}s cooldown).")
+                        else:
+                            ra = resp.headers.get("retry-after")
+                            sec = min(float(ra) if ra and ra.isdigit() else 60.0, 180.0)
+                            self._ban_until = time.time() + sec
+                            logger.warning(f"Binance rate limit ban triggered (HTTP {resp.status_code}). Backing off for {sec}s.")
+                        last_error = f"HTTP {resp.status_code}: Rate limit ban ({resp.text[:120]})"
                         break
                     else:
                         last_error = f"HTTP {resp.status_code} from {url}: {resp.text[:200]}"
@@ -119,6 +133,13 @@ class BinanceService:
                     continue
 
         if data is None:
+            if market_clean == "futures":
+                logger.warning(f"Futures candidate endpoints unavailable for {symbol}. Fallback ke Spot klines...")
+                try:
+                    spot_data, _ = await self._fetch_raw_batch(symbol, interval, limit, market="spot", end_time=end_time)
+                    return spot_data, "BINANCE_SPOT_FALLBACK"
+                except Exception as fallback_err:
+                    logger.error(f"Spot fallback failed for {symbol}: {fallback_err}")
             err_msg = f"Failed to fetch klines for {symbol} ({market}) from all endpoints. Last error: {last_error}"
             logger.error(err_msg)
             raise DataUnavailableException(err_msg)
@@ -300,6 +321,10 @@ class BinanceService:
         cached = self._exchange_meta_cache.get(market_clean)
         if cached and now < cached[0]:
             return cached[1]
+        if market_clean == "futures" and now < self._ban_until:
+            if cached and cached[1]:
+                return cached[1]
+            return await self._get_allowed_crypto_usdt_map(client, "spot")
 
         path = "/api/v3/exchangeInfo" if market_clean == "spot" else "/fapi/v1/exchangeInfo"
         urls = self._get_candidate_urls(path, market_clean)
@@ -360,6 +385,10 @@ class BinanceService:
             cached = self._tickers_cache.get(market_clean)
             if cached and now < cached[0]:
                 return cached[1], None
+            if market_clean == "futures" and now < self._ban_until:
+                if cached and cached[1]:
+                    return cached[1], None
+                return await self._fetch_raw_tickers_24hr(client, "spot")
 
             path = "/api/v3/ticker/24hr" if market_clean == "spot" else "/fapi/v1/ticker/24hr"
             urls = self._get_candidate_urls(path, market_clean)
@@ -374,16 +403,36 @@ class BinanceService:
                             self._tickers_cache[market_clean] = (time.time() + self._tickers_cache_ttl, json_resp)
                             return json_resp, None
                         last_error = f"Expected list response from {url}, got {type(json_resp)}"
+                    elif resp.status_code in (418, 429):
+                        match = re.search(r"banned until (\d+)", resp.text)
+                        if match:
+                            ban_ts_sec = float(match.group(1)) / 1000.0
+                            self._ban_until = max(self._ban_until, ban_ts_sec + 2.0)
+                        else:
+                            self._ban_until = time.time() + 120.0
+                        last_error = f"HTTP {resp.status_code} from {url}"
+                        break
                     else:
                         last_error = f"HTTP {resp.status_code} from {url}"
                 except Exception as exc:
                     last_error = str(exc)
 
-            return (cached[1] if cached else None), last_error
+            if cached and cached[1]:
+                return cached[1], None
+            if market_clean == "futures":
+                logger.warning(f"Futures tickers failed ({last_error}). Falling back to Spot tickers...")
+                try:
+                    return await self._fetch_raw_tickers_24hr(client, "spot")
+                except Exception:
+                    pass
+
+            return None, last_error
 
     async def get_live_ticker_batch(self, market: str = "futures") -> List[Dict[str, Any]]:
         """Return compact live ticker updates {s, c, P, q} for active USDT pairs."""
         market_clean = market.lower().strip()
+        if market_clean == "futures" and time.time() < self._ban_until:
+            return await self.get_live_ticker_batch(market="spot")
         timeout = httpx.Timeout(settings.HTTP_TIMEOUT_SECONDS, connect=5.0)
         async with httpx.AsyncClient(headers=HEADERS, timeout=timeout, verify=settings.TLS_VERIFY) as client:
             tickers, allowed_map = await asyncio.gather(
@@ -434,6 +483,14 @@ class BinanceService:
             )
 
         if not tickers:
+            if market_clean == "futures" and not demo_mode:
+                logger.warning(f"Futures symbols unavailable ({last_error}). Falling back to Spot symbols...")
+                try:
+                    spot_symbols = await self.get_symbols(market="spot", demo_mode=False)
+                    if spot_symbols:
+                        return spot_symbols
+                except Exception as fb_err:
+                    logger.error(f"Spot symbols fallback failed: {fb_err}")
             if demo_mode:
                 logger.warning("Upstream tickers unavailable. Demo mode active, returning tagged DEMO data.")
                 return [

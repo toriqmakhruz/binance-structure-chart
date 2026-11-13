@@ -1276,6 +1276,17 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         }`}
       />
 
+      {/* Loading state indicator when candles are empty */}
+      {candles.length === 0 && (
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-[#0b0e14]/80 text-slate-400 font-mono text-xs space-y-3 pointer-events-none">
+          <div className="w-6 h-6 border-2 border-[#f0b90b] border-t-transparent rounded-full animate-spin" />
+          <div className="text-center space-y-1">
+            <p className="text-slate-200 font-semibold">Sinkronisasi Data Candlestick {symbol}...</p>
+            <p className="text-[11px] text-slate-500">Menghubungkan ke upstream Binance...</p>
+          </div>
+        </div>
+      )}
+
       {/* Floating Action: Snap View On Point to the latest price & setup */}
       {candles.length > 0 && (
         <button

@@ -241,6 +241,7 @@ async def _scan_symbol_valid_setup(
     """Scan one symbol and return only if a genuinely VALID_ENTRY setup is active."""
     sym = sym_info["symbol"]
     async with sem:
+        await asyncio.sleep(0.08)
         try:
             candles, _ = await binance_service.get_klines(
                 symbol=sym,
@@ -339,7 +340,8 @@ async def get_valid_setups(
     async with lock:
         now = time.time()
         cached = _SETUPS_SCAN_CACHE.get(cache_key)
-        if not force_refresh and cached and now < cached[0]:
+        is_spammed = cached and force_refresh and (now - (cached[0] - _SETUPS_CACHE_TTL_SECONDS)) < 30.0
+        if (not force_refresh or is_spammed) and cached and now < cached[0]:
             return {
                 "market": market,
                 "timeframe": tf_clean,
@@ -351,8 +353,8 @@ async def get_valid_setups(
 
         try:
             top_symbols = await binance_service.get_symbols(market=market, demo_mode=False)
-            candidates = top_symbols[:scan_limit]
-            sem = asyncio.Semaphore(8)
+            candidates = top_symbols[:min(scan_limit, 16)]
+            sem = asyncio.Semaphore(3)
             results = await asyncio.gather(*[
                 _scan_symbol_valid_setup(
                     sem=sem,
