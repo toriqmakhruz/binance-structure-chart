@@ -8,7 +8,8 @@ import {
   fetchOpenPositions,
   fetchOpenOrders,
   closeTradePosition,
-  cancelTradeOrder
+  cancelTradeOrder,
+  setPositionBrackets
 } from '../../services/api'
 import { formatPrice } from '../../utils/formatters'
 import {
@@ -25,7 +26,9 @@ import {
   Activity,
   CheckCircle2,
   Trash2,
-  ExternalLink
+  ExternalLink,
+  Shield,
+  Target
 } from 'lucide-react'
 
 interface TradingDashboardDrawerProps {
@@ -160,6 +163,97 @@ export const TradingDashboardDrawer: React.FC<TradingDashboardDrawerProps> = ({
       alert(err?.message || 'Error saat membatalkan order')
     } finally {
       setActionLoading(null)
+    }
+  }
+
+  // SL / TP Bracket Modal state
+  const [bracketModalPos, setBracketModalPos] = useState<TradePositionItem | null>(null)
+  const [bracketSlInput, setBracketSlInput] = useState<string>('')
+  const [bracketTpInput, setBracketTpInput] = useState<string>('')
+  const [isSavingBrackets, setIsSavingBrackets] = useState<boolean>(false)
+  const [bracketError, setBracketError] = useState<string | null>(null)
+
+  const openBracketModal = (pos: TradePositionItem) => {
+    setBracketModalPos(pos)
+    setBracketSlInput(pos.stopLoss && pos.stopLoss > 0 ? String(pos.stopLoss) : '')
+    setBracketTpInput(pos.takeProfit && pos.takeProfit > 0 ? String(pos.takeProfit) : '')
+    setBracketError(null)
+  }
+
+  // Quick helper to calculate exact Stop Loss price for $20 risk
+  const handleQuickRisk20 = () => {
+    if (!bracketModalPos) return
+    const qty = Math.abs(bracketModalPos.positionAmt)
+    if (qty <= 0) return
+    const entry = bracketModalPos.entryPrice
+    const targetRisk = 20.0
+    const priceDelta = targetRisk / qty
+    const isLong = bracketModalPos.side === 'LONG'
+    const sl = isLong ? (entry - priceDelta) : (entry + priceDelta)
+    if (sl > 0) {
+      setBracketSlInput(String(Number(sl.toFixed(4))))
+    }
+  }
+
+  // Live estimated loss/gain text for modal
+  const calcSlRiskText = useMemo(() => {
+    if (!bracketModalPos) return null
+    const slNum = parseFloat(bracketSlInput)
+    if (!Number.isFinite(slNum) || slNum <= 0) return null
+    const qty = Math.abs(bracketModalPos.positionAmt)
+    const entry = bracketModalPos.entryPrice
+    const isLong = bracketModalPos.side === 'LONG'
+    const diff = isLong ? (entry - slNum) : (slNum - entry)
+    const lossUsd = diff * qty
+    return `-$${Math.max(0, lossUsd).toFixed(2)}`
+  }, [bracketModalPos, bracketSlInput])
+
+  const calcTpRewardText = useMemo(() => {
+    if (!bracketModalPos) return null
+    const tpNum = parseFloat(bracketTpInput)
+    if (!Number.isFinite(tpNum) || tpNum <= 0) return null
+    const qty = Math.abs(bracketModalPos.positionAmt)
+    const entry = bracketModalPos.entryPrice
+    const isLong = bracketModalPos.side === 'LONG'
+    const diff = isLong ? (tpNum - entry) : (entry - tpNum)
+    const gainUsd = diff * qty
+    return `+$${Math.max(0, gainUsd).toFixed(2)}`
+  }, [bracketModalPos, bracketTpInput])
+
+  const handleSaveBrackets = async () => {
+    if (!bracketModalPos) return
+    setIsSavingBrackets(true)
+    setBracketError(null)
+
+    const sl = bracketSlInput.trim() ? parseFloat(bracketSlInput) : null
+    const tp = bracketTpInput.trim() ? parseFloat(bracketTpInput) : null
+
+    const creds = getStoredCredentials()
+    const apiKey = mode === 'demo' ? creds.demoApiKey : creds.liveApiKey
+    const apiSecret = mode === 'demo' ? creds.demoApiSecret : creds.liveApiSecret
+
+    try {
+      const res = await setPositionBrackets(
+        bracketModalPos.symbol,
+        sl,
+        tp,
+        market,
+        mode,
+        apiKey,
+        apiSecret
+      )
+      if (res.success) {
+        setStatusNotice(res.message || `SL/TP ${bracketModalPos.symbol} berhasil dipasang!`)
+        setBracketModalPos(null)
+        loadData(true)
+        setTimeout(() => setStatusNotice(null), 4000)
+      } else {
+        setBracketError(res.message || 'Gagal memasang order SL/TP')
+      }
+    } catch (err: any) {
+      setBracketError(err?.message || 'Error saat memasang order SL/TP')
+    } finally {
+      setIsSavingBrackets(false)
     }
   }
 
@@ -317,6 +411,7 @@ export const TradingDashboardDrawer: React.FC<TradingDashboardDrawerProps> = ({
                     <th className="py-2 px-2 text-right">Harga Entry</th>
                     <th className="py-2 px-2 text-right">Harga Pasar (Mark)</th>
                     <th className="py-2 px-2 text-right">Estimasi Liq.</th>
+                    <th className="py-2 px-2 text-right">Stop Loss / Take Profit</th>
                     <th className="py-2 px-2 text-right">Margin</th>
                     <th className="py-2 px-3 text-right">Unrealized PnL (ROE)</th>
                     <th className="py-2 px-3 text-center">Aksi</th>
@@ -392,6 +487,31 @@ export const TradingDashboardDrawer: React.FC<TradingDashboardDrawerProps> = ({
                           )}
                         </td>
 
+                        {/* Stop Loss & Take Profit Badges */}
+                        <td className="py-2 px-2 text-right">
+                          <div className="flex flex-col items-end space-y-0.5">
+                            {pos.stopLoss && pos.stopLoss > 0 ? (
+                              <span className="px-1.5 py-0.5 rounded bg-rose-950/80 border border-rose-800/60 text-[#f6465d] text-[10px] font-mono font-bold">
+                                SL: ${formatPrice(pos.stopLoss)}
+                              </span>
+                            ) : (
+                              <span className="px-1.5 py-0.5 rounded bg-amber-950/60 border border-amber-800/50 text-amber-400 text-[9px] font-semibold flex items-center space-x-1">
+                                <AlertCircle className="w-2.5 h-2.5" />
+                                <span>Tanpa SL</span>
+                              </span>
+                            )}
+                            {pos.takeProfit && pos.takeProfit > 0 ? (
+                              <span className="px-1.5 py-0.5 rounded bg-emerald-950/80 border border-emerald-800/60 text-[#00c087] text-[10px] font-mono font-bold">
+                                TP: ${formatPrice(pos.takeProfit)}
+                              </span>
+                            ) : (
+                              <span className="px-1.5 py-0.5 rounded bg-slate-800/50 text-slate-400 text-[9px]">
+                                Tanpa TP
+                              </span>
+                            )}
+                          </div>
+                        </td>
+
                         {/* Margin */}
                         <td className="py-2 px-2 text-right text-slate-300">
                           ${pos.margin.toFixed(2)}
@@ -407,16 +527,27 @@ export const TradingDashboardDrawer: React.FC<TradingDashboardDrawerProps> = ({
                           </div>
                         </td>
 
-                        {/* Action: Close Position */}
+                        {/* Action: Set SL/TP & Close Position */}
                         <td className="py-2 px-3 text-center">
-                          <button
-                            type="button"
-                            onClick={() => handleClosePosition(pos.symbol)}
-                            disabled={isActioning}
-                            className="px-2.5 py-1 rounded bg-rose-600/90 hover:bg-rose-500 text-white font-sans text-[10px] font-bold shadow transition-all disabled:opacity-50"
-                          >
-                            {isActioning ? 'Tutup...' : 'Tutup Posisi'}
-                          </button>
+                          <div className="flex items-center justify-center space-x-1.5">
+                            <button
+                              type="button"
+                              onClick={() => openBracketModal(pos)}
+                              className="px-2 py-1 rounded bg-[#1c2434] hover:bg-[#273248] border border-slate-700/60 text-slate-200 font-sans text-[10px] font-semibold transition-colors flex items-center space-x-1"
+                              title="Pasang atau ubah Stop Loss & Take Profit posisi ini"
+                            >
+                              <Shield className="w-2.5 h-2.5 text-[#f0b90b]" />
+                              <span>SL/TP</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleClosePosition(pos.symbol)}
+                              disabled={isActioning}
+                              className="px-2 py-1 rounded bg-rose-600/90 hover:bg-rose-500 text-white font-sans text-[10px] font-bold shadow transition-all disabled:opacity-50"
+                            >
+                              {isActioning ? 'Tutup...' : 'Tutup'}
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     )
@@ -496,6 +627,132 @@ export const TradingDashboardDrawer: React.FC<TradingDashboardDrawerProps> = ({
               </table>
             )
           )}
+        </div>
+      )}
+
+      {/* 3. Floating Modal to Set or Edit SL / TP for Open Position */}
+      {bracketModalPos && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="w-full max-w-sm bg-[#121824] border border-[#2b384e] rounded-xl shadow-2xl p-5 text-slate-100 font-sans">
+            <div className="flex items-center justify-between border-b border-[#212b3c] pb-3 mb-4">
+              <div className="flex items-center space-x-2">
+                <Shield className="w-5 h-5 text-[#f0b90b]" />
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center space-x-1.5">
+                    <span>Atur SL & TP: {bracketModalPos.symbol}</span>
+                    <span
+                      className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-bold ${
+                        bracketModalPos.side === 'LONG'
+                          ? 'bg-emerald-950 text-[#00c087] border border-emerald-800'
+                          : 'bg-rose-950 text-[#f6465d] border border-rose-800'
+                      }`}
+                    >
+                      {bracketModalPos.side} {bracketModalPos.leverage}x
+                    </span>
+                  </h3>
+                  <p className="text-[10px] text-slate-400 font-mono mt-0.5">
+                    Entry: ${formatPrice(bracketModalPos.entryPrice)} | Mark: ${formatPrice(bracketModalPos.markPrice)}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBracketModalPos(null)}
+                className="text-slate-400 hover:text-white p-1 rounded transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {bracketError && (
+              <div className="mb-3 p-2.5 rounded bg-rose-950/80 border border-rose-800/80 text-[#f6465d] text-xs flex items-start space-x-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                <span className="leading-tight">{bracketError}</span>
+              </div>
+            )}
+
+            <div className="space-y-4 text-xs">
+              {/* Stop Loss Field */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="font-semibold text-slate-300 flex items-center space-x-1 text-[11px]">
+                    <span className="w-2 h-2 rounded-full bg-[#f6465d]" />
+                    <span>Stop Loss Price ($)</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleQuickRisk20}
+                    className="text-[10px] px-2 py-0.5 rounded bg-amber-950/80 hover:bg-amber-900 border border-amber-700/60 text-[#f0b90b] font-bold transition-colors"
+                    title="Hitung Stop Loss agar risiko kerugian tepat $20"
+                  >
+                    ⚡ Set Risk $20
+                  </button>
+                </div>
+                <input
+                  type="number"
+                  step="any"
+                  value={bracketSlInput}
+                  onChange={(e) => setBracketSlInput(e.target.value)}
+                  placeholder="Contoh: 42.50"
+                  className="w-full bg-[#0b0e14] border border-[#2b384e] focus:border-[#f6465d] focus:ring-1 focus:ring-[#f6465d] rounded px-3 py-2 text-white font-mono text-sm outline-none"
+                />
+                {calcSlRiskText && (
+                  <div className="mt-1 text-[10px] text-slate-400 font-mono flex items-center justify-between">
+                    <span>Estimasi Kerugian:</span>
+                    <span className="text-[#f6465d] font-bold">{calcSlRiskText}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Take Profit Field */}
+              <div>
+                <label className="block font-semibold text-slate-300 mb-1.5 text-[11px] flex items-center space-x-1">
+                  <span className="w-2 h-2 rounded-full bg-[#00c087]" />
+                  <span>Take Profit Price ($)</span>
+                </label>
+                <input
+                  type="number"
+                  step="any"
+                  value={bracketTpInput}
+                  onChange={(e) => setBracketTpInput(e.target.value)}
+                  placeholder="Contoh: 48.00"
+                  className="w-full bg-[#0b0e14] border border-[#2b384e] focus:border-[#00c087] focus:ring-1 focus:ring-[#00c087] rounded px-3 py-2 text-white font-mono text-sm outline-none"
+                />
+                {calcTpRewardText && (
+                  <div className="mt-1 text-[10px] text-slate-400 font-mono flex items-center justify-between">
+                    <span>Estimasi Keuntungan:</span>
+                    <span className="text-[#00c087] font-bold">{calcTpRewardText}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Action Buttons */}
+              <div className="pt-2 flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setBracketModalPos(null)}
+                  className="flex-1 py-2 rounded bg-[#1c2434] hover:bg-[#253046] text-slate-300 font-semibold text-xs transition-colors"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveBrackets}
+                  disabled={isSavingBrackets}
+                  className="flex-1 py-2 rounded bg-[#f0b90b] hover:bg-[#dfaa05] text-[#0b0e14] font-bold text-xs shadow-lg transition-all disabled:opacity-50 flex items-center justify-center space-x-1"
+                >
+                  {isSavingBrackets ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Memasang...</span>
+                    </>
+                  ) : (
+                    <span>Pasang SL & TP</span>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

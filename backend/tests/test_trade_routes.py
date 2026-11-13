@@ -84,7 +84,19 @@ def test_trade_get_positions_and_close():
     orders_data = resp_orders.json()
     assert orders_data["success"] is True
 
-    # 3. Close position
+    # 3. Update SL/TP bracket
+    resp_bracket = client.post("/api/trade/set-brackets", json={
+        "symbol": "BTCUSDT",
+        "market": "futures",
+        "mode": "demo",
+        "stop_loss": 94000.0,
+        "take_profit": 99000.0
+    })
+    assert resp_bracket.status_code == 200
+    assert resp_bracket.json()["success"] is True
+    assert resp_bracket.json()["stop_loss"] == 94000.0
+
+    # 4. Close position
     resp_close = client.post("/api/trade/close-position", json={"symbol": "BTCUSDT", "market": "futures", "mode": "demo"})
     assert resp_close.status_code == 200
     assert resp_close.json()["success"] is True

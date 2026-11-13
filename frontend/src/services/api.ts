@@ -223,3 +223,28 @@ export async function cancelTradeOrder(
   })
   return await resp.json()
 }
+
+export async function setPositionBrackets(
+  symbol: string,
+  stopLoss: number | null,
+  takeProfit: number | null,
+  market: 'spot' | 'futures',
+  mode: 'demo' | 'live',
+  apiKey?: string,
+  apiSecret?: string
+): Promise<{ success: boolean; message: string; bracket_orders?: any }> {
+  const resp = await fetch(`${API_BASE}/trade/set-brackets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      symbol,
+      stop_loss: stopLoss,
+      take_profit: takeProfit,
+      market,
+      mode,
+      api_key: apiKey || '',
+      api_secret: apiSecret || ''
+    })
+  })
+  return await resp.json()
+}

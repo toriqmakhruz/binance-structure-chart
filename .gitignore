@@ -44,3 +44,7 @@ Thumbs.db
 # Deploy artifacts
 deploy_to_vps.py
 binance_chart_deploy.tar.gz
+
+# Local data & paper trading storage
+data/
+*.json.bak

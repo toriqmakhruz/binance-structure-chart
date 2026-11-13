@@ -100,6 +100,15 @@ class ClosePositionRequest(BaseModel):
     api_key: Optional[str] = ""
     api_secret: Optional[str] = ""
 
+class SetBracketsRequest(BaseModel):
+    symbol: str
+    market: str = Field("futures", pattern="^(spot|futures)$")
+    mode: str = Field("demo", pattern="^(demo|live)$")
+    api_key: Optional[str] = ""
+    api_secret: Optional[str] = ""
+    stop_loss: Optional[float] = None
+    take_profit: Optional[float] = None
+
 class CancelOrderRequest(BaseModel):
     symbol: str
     order_id: int
@@ -173,4 +182,19 @@ async def cancel_order(req: CancelOrderRequest):
         mode=req.mode,
         api_key=req.api_key or "",
         api_secret=req.api_secret or ""
+    )
+
+@trade_router.post("/set-brackets")
+async def set_brackets(req: SetBracketsRequest):
+    """
+    Add or update Stop Loss & Take Profit orders on an active open position.
+    """
+    return await trade_service.set_position_brackets(
+        symbol=req.symbol,
+        market=req.market,
+        mode=req.mode,
+        api_key=req.api_key or "",
+        api_secret=req.api_secret or "",
+        stop_loss=req.stop_loss,
+        take_profit=req.take_profit
     )

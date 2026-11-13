@@ -1,8 +1,12 @@
+import os
+import json
+import asyncio
 import hmac
 import hashlib
 import time
 import math
 import logging
+from pathlib import Path
 from typing import Dict, Any, Optional, Tuple, List
 from urllib.parse import urlencode
 import httpx
@@ -27,11 +31,37 @@ class TradeService:
         self._symbol_rules_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
         self._rules_ttl = 300.0  # 5 minutes
 
-        # In-memory virtual paper trading balances and positions (fallback demo)
+        # Persistent virtual paper trading balances and positions (fallback demo)
+        self._storage_dir = Path("data")
+        self._storage_path = self._storage_dir / "paper_trading.json"
         self._paper_wallet: Dict[str, float] = {
             "USDT": 10000.0
         }
         self._paper_positions: List[Dict[str, Any]] = []
+        self._load_paper_data()
+
+    def _load_paper_data(self) -> None:
+        try:
+            if self._storage_path.exists():
+                with open(self._storage_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if isinstance(data.get("wallet"), dict):
+                        self._paper_wallet = data["wallet"]
+                    if isinstance(data.get("positions"), list):
+                        self._paper_positions = data["positions"]
+        except Exception as exc:
+            logger.warning(f"Failed loading paper trading data: {exc}")
+
+    def _save_paper_data(self) -> None:
+        try:
+            self._storage_dir.mkdir(parents=True, exist_ok=True)
+            with open(self._storage_path, "w", encoding="utf-8") as f:
+                json.dump({
+                    "wallet": self._paper_wallet,
+                    "positions": self._paper_positions
+                }, f, indent=2)
+        except Exception as exc:
+            logger.warning(f"Failed saving paper trading data: {exc}")
 
     def _get_base_url(self, market: str, mode: str) -> str:
         market_clean = market.lower().strip()
@@ -439,6 +469,7 @@ class TradeService:
                 "status": "FILLED"
             }
             self._paper_positions.append(paper_pos)
+            self._save_paper_data()
 
             return {
                 "success": True,
@@ -746,11 +777,30 @@ class TradeService:
                         formatted_positions = []
                         total_unpnl = 0.0
 
-                        for p in raw_positions:
-                            amt = float(p.get("positionAmt", 0))
-                            if amt == 0:
-                                continue
+                        active_raw = [p for p in raw_positions if float(p.get("positionAmt", 0)) != 0]
 
+                        # Correlate active open trigger orders (STOP_MARKET / TAKE_PROFIT_MARKET)
+                        bracket_map: Dict[str, Dict[str, Optional[float]]] = {}
+                        if active_raw:
+                            try:
+                                ord_query = self._sign_payload({"symbol": sym_clean} if sym_clean else {}, api_secret)
+                                ord_resp = await client.get(f"{base_url}/fapi/v1/openOrders?{ord_query}")
+                                if ord_resp.status_code == 200:
+                                    for o in ord_resp.json():
+                                        osym = o.get("symbol")
+                                        otype = o.get("type")
+                                        trigger_price = float(o.get("stopPrice") or o.get("price") or 0)
+                                        if osym not in bracket_map:
+                                            bracket_map[osym] = {"stopLoss": None, "takeProfit": None}
+                                        if otype in ("STOP_MARKET", "STOP"):
+                                            bracket_map[osym]["stopLoss"] = trigger_price
+                                        elif otype in ("TAKE_PROFIT_MARKET", "TAKE_PROFIT"):
+                                            bracket_map[osym]["takeProfit"] = trigger_price
+                            except Exception as ord_err:
+                                logger.warning(f"Failed correlating open orders for positions: {ord_err}")
+
+                        for p in active_raw:
+                            amt = float(p.get("positionAmt", 0))
                             entry_p = float(p.get("entryPrice", 0))
                             mark_p = float(p.get("markPrice", 0))
                             unpnl = float(p.get("unRealizedProfit", 0))
@@ -761,8 +811,11 @@ class TradeService:
                             roe_pct = round((unpnl / margin) * 100, 2) if margin > 0 else 0.0
                             total_unpnl += unpnl
 
+                            pos_sym = p.get("symbol")
+                            bm = bracket_map.get(pos_sym, {})
+
                             formatted_positions.append({
-                                "symbol": p.get("symbol"),
+                                "symbol": pos_sym,
                                 "side": "LONG" if amt > 0 else "SHORT",
                                 "positionAmt": amt,
                                 "entryPrice": entry_p,
@@ -774,6 +827,8 @@ class TradeService:
                                 "marginType": p.get("marginType", "cross"),
                                 "margin": round(margin, 2),
                                 "notional": round(notional, 2),
+                                "stopLoss": bm.get("stopLoss"),
+                                "takeProfit": bm.get("takeProfit"),
                                 "is_simulated": False
                             })
 
@@ -945,6 +1000,8 @@ class TradeService:
                 margin = float(p.get("margin", 0))
                 self._paper_wallet["USDT"] = self._paper_wallet.get("USDT", 10000.0) + margin
 
+            self._save_paper_data()
+
             return {
                 "success": True,
                 "message": f"Posisi {sym_clean} berhasil ditutup (Market Close Paper Trading)."
@@ -1048,5 +1105,188 @@ class TradeService:
                     return {"success": False, "message": err_json.get("msg") or f"HTTP {resp.status_code}"}
             except Exception as exc:
                 return {"success": False, "message": f"Gagal membatalkan order: {str(exc)}"}
+
+    async def set_position_brackets(
+        self,
+        symbol: str,
+        market: str = "futures",
+        mode: str = "demo",
+        api_key: str = "",
+        api_secret: str = "",
+        stop_loss: Optional[float] = None,
+        take_profit: Optional[float] = None
+    ) -> Dict[str, Any]:
+        """
+        Add or update Stop Loss and/or Take Profit orders on an active open position.
+        Automatically cancels old STOP_MARKET / TAKE_PROFIT_MARKET orders for this symbol.
+        """
+        sym_clean = symbol.upper().strip()
+        market_clean = market.lower().strip()
+        mode_clean = mode.lower().strip()
+
+        api_key = (api_key or "").strip()
+        api_secret = (api_secret or "").strip()
+
+        # Simulated Paper Trading
+        if mode_clean == "demo" and (not api_key or not api_secret):
+            matched = [p for p in self._paper_positions if p.get("symbol") == sym_clean and p.get("status") == "FILLED"]
+            if not matched:
+                return {"success": False, "message": f"Tidak ditemukan posisi paper terbuka untuk {sym_clean}."}
+
+            for p in matched:
+                if stop_loss is not None:
+                    p["stop_loss"] = float(stop_loss) if float(stop_loss) > 0 else None
+                if take_profit is not None:
+                    p["take_profit"] = float(take_profit) if float(take_profit) > 0 else None
+
+            self._save_paper_data()
+            return {
+                "success": True,
+                "mode": "demo",
+                "is_simulated": True,
+                "symbol": sym_clean,
+                "stop_loss": stop_loss,
+                "take_profit": take_profit,
+                "message": f"SL/TP berhasil diperbarui untuk posisi {sym_clean} (Simulasi)."
+            }
+
+        if not api_key or not api_secret:
+            return {"success": False, "message": "API Key dan Secret Key diperlukan."}
+
+        if market_clean != "futures":
+            return {"success": False, "message": "Fitur SL/TP bracket hanya berlaku untuk Futures."}
+
+        base_url = self._get_base_url(market_clean, mode_clean)
+        headers = {**HEADERS_BASE, "X-MBX-APIKEY": api_key}
+        timeout = httpx.Timeout(15.0, connect=5.0)
+
+        async with httpx.AsyncClient(headers=headers, timeout=timeout) as client:
+            try:
+                # 1. Verify active position and get positionAmt
+                signed_pos = self._sign_payload({"symbol": sym_clean}, api_secret)
+                pos_resp = await client.get(f"{base_url}/fapi/v2/positionRisk?{signed_pos}")
+                if pos_resp.status_code != 200:
+                    return {"success": False, "message": "Gagal membaca posisi dari Binance."}
+
+                raw_positions = pos_resp.json()
+                active_p = next((p for p in raw_positions if p.get("symbol") == sym_clean and float(p.get("positionAmt", 0)) != 0), None)
+                if not active_p:
+                    return {"success": False, "message": f"Tidak ditemukan posisi terbuka untuk {sym_clean} di Binance."}
+
+                pos_amt = float(active_p.get("positionAmt", 0))
+                close_side = "SELL" if pos_amt > 0 else "BUY"
+                final_qty = abs(pos_amt)
+
+                # 2. Get symbol rules for precision
+                rules = await self.get_symbol_rules(symbol=sym_clean, market="futures", mode=mode_clean)
+                price_prec = rules.get("pricePrecision", 2)
+                tick_size = rules.get("tickSize", 0.01)
+
+                # 3. Cancel existing STOP_MARKET and TAKE_PROFIT_MARKET orders for this symbol
+                try:
+                    signed_ord = self._sign_payload({"symbol": sym_clean}, api_secret)
+                    open_ord_resp = await client.get(f"{base_url}/fapi/v1/openOrders?{signed_ord}")
+                    if open_ord_resp.status_code == 200:
+                        for o in open_ord_resp.json():
+                            otype = o.get("type")
+                            if otype in ("STOP_MARKET", "STOP", "TAKE_PROFIT_MARKET", "TAKE_PROFIT"):
+                                oid = o.get("orderId")
+                                cancel_signed = self._sign_payload({"symbol": sym_clean, "orderId": oid}, api_secret)
+                                await client.delete(f"{base_url}/fapi/v1/order?{cancel_signed}")
+                except Exception as canc_err:
+                    logger.warning(f"Error canceling old brackets for {sym_clean}: {canc_err}")
+
+                bracket_results = {}
+
+                # 4. Place new Stop Loss
+                if stop_loss and float(stop_loss) > 0:
+                    sl_formatted = self.format_price(float(stop_loss), tick_size, price_prec)
+                    sl_params = {
+                        "symbol": sym_clean,
+                        "side": close_side,
+                        "type": "STOP_MARKET",
+                        "stopPrice": sl_formatted,
+                        "closePosition": "true",
+                        "workingType": "MARK_PRICE"
+                    }
+                    signed_sl = self._sign_payload(sl_params, api_secret)
+                    sl_resp = await client.post(f"{base_url}/fapi/v1/order?{signed_sl}")
+                    if sl_resp.status_code == 200:
+                        bracket_results["stop_loss"] = sl_resp.json()
+                        logger.info(f"Updated SL (closePosition=true) for {sym_clean}: {sl_resp.text}")
+                    else:
+                        # Fallback with explicit quantity
+                        sl_params_qty = {
+                            "symbol": sym_clean,
+                            "side": close_side,
+                            "type": "STOP_MARKET",
+                            "stopPrice": sl_formatted,
+                            "quantity": final_qty,
+                            "workingType": "MARK_PRICE"
+                        }
+                        signed_sl_qty = self._sign_payload(sl_params_qty, api_secret)
+                        sl_resp2 = await client.post(f"{base_url}/fapi/v1/order?{signed_sl_qty}")
+                        if sl_resp2.status_code == 200:
+                            bracket_results["stop_loss"] = sl_resp2.json()
+                            logger.info(f"Updated SL (with quantity) for {sym_clean}: {sl_resp2.text}")
+                        else:
+                            bracket_results["stop_loss_error"] = sl_resp2.text
+                            logger.error(f"Failed updating SL for {sym_clean}: {sl_resp2.text}")
+
+                # 5. Place new Take Profit
+                if take_profit and float(take_profit) > 0:
+                    tp_formatted = self.format_price(float(take_profit), tick_size, price_prec)
+                    tp_params = {
+                        "symbol": sym_clean,
+                        "side": close_side,
+                        "type": "TAKE_PROFIT_MARKET",
+                        "stopPrice": tp_formatted,
+                        "closePosition": "true",
+                        "workingType": "MARK_PRICE"
+                    }
+                    signed_tp = self._sign_payload(tp_params, api_secret)
+                    tp_resp = await client.post(f"{base_url}/fapi/v1/order?{signed_tp}")
+                    if tp_resp.status_code == 200:
+                        bracket_results["take_profit"] = tp_resp.json()
+                        logger.info(f"Updated TP (closePosition=true) for {sym_clean}: {tp_resp.text}")
+                    else:
+                        # Fallback with explicit quantity
+                        tp_params_qty = {
+                            "symbol": sym_clean,
+                            "side": close_side,
+                            "type": "TAKE_PROFIT_MARKET",
+                            "stopPrice": tp_formatted,
+                            "quantity": final_qty,
+                            "workingType": "MARK_PRICE"
+                        }
+                        signed_tp_qty = self._sign_payload(tp_params_qty, api_secret)
+                        tp_resp2 = await client.post(f"{base_url}/fapi/v1/order?{signed_tp_qty}")
+                        if tp_resp2.status_code == 200:
+                            bracket_results["take_profit"] = tp_resp2.json()
+                            logger.info(f"Updated TP (with quantity) for {sym_clean}: {tp_resp2.text}")
+                        else:
+                            bracket_results["take_profit_error"] = tp_resp2.text
+                            logger.error(f"Failed updating TP for {sym_clean}: {tp_resp2.text}")
+
+                has_sl = "stop_loss" in bracket_results
+                has_tp = "take_profit" in bracket_results
+                if has_sl or has_tp:
+                    msg = f"Berhasil memasang {'SL dan TP' if (has_sl and has_tp) else ('SL' if has_sl else 'TP')} untuk {sym_clean} di Binance!"
+                    return {
+                        "success": True,
+                        "symbol": sym_clean,
+                        "bracket_orders": bracket_results,
+                        "message": msg
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "symbol": sym_clean,
+                        "bracket_orders": bracket_results,
+                        "message": f"Gagal memasang SL/TP di Binance: {bracket_results}"
+                    }
+
+            except Exception as exc:
+                return {"success": False, "message": f"Gagal update SL/TP: {str(exc)}"}
 
 trade_service = TradeService()
