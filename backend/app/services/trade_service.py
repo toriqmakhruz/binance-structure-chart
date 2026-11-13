@@ -902,15 +902,16 @@ class TradeService:
             if sym_clean:
                 open_pos = [p for p in open_pos if p.get("symbol") == sym_clean]
 
-            # Try to enrich with live price
+            # Try to enrich with live price ONLY if there are active positions
             price_map = {}
-            try:
-                from .binance_service import BinanceService
-                bs = BinanceService()
-                tickers = await bs.get_live_ticker_batch(market=market_clean)
-                price_map = {t["s"]: t["c"] for t in tickers}
-            except Exception:
-                pass
+            if open_pos:
+                try:
+                    from .binance_service import BinanceService
+                    bs = BinanceService()
+                    tickers = await bs.get_live_ticker_batch(market=market_clean)
+                    price_map = {t["s"]: t["c"] for t in tickers}
+                except Exception:
+                    pass
 
             formatted_positions = []
             total_unpnl = 0.0

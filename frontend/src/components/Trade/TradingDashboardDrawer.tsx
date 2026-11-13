@@ -111,9 +111,12 @@ export const TradingDashboardDrawer: React.FC<TradingDashboardDrawerProps> = ({
 
   // Periodic polling every 3s when drawer is open
   useEffect(() => {
-    loadData(false)
     if (!isOpen) return
-    const timer = setInterval(() => loadData(true), 3000)
+    loadData(false)
+    const timer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return
+      loadData(true)
+    }, 8000)
     return () => clearInterval(timer)
   }, [isOpen, loadData, refreshTrigger])
 

@@ -39,7 +39,10 @@ class BinanceService:
             "spot": asyncio.Lock(),
             "futures": asyncio.Lock()
         }
-        self._tickers_cache_ttl = 2.5
+        self._tickers_cache_ttl = 15.0
+        self._klines_cache: Dict[Tuple[str, str, str], Tuple[float, List[Candle], AnalysisMetadata]] = {}
+        self._klines_cache_ttl = 10.0
+        self._ban_until: float = 0.0
 
     def _get_candidate_urls(self, path: str, market: str) -> List[str]:
         """
@@ -77,6 +80,11 @@ class BinanceService:
             params["endTime"] = end_time
 
         market_clean = market.lower().strip()
+        now = time.time()
+        if market_clean == "futures" and now < self._ban_until:
+            wait_s = int(self._ban_until - now)
+            raise DataUnavailableException(f"Binance Futures rate-limit aktif. Menunggu pendinginan {wait_s}s.")
+
         path = "/api/v3/klines" if market_clean == "spot" else "/fapi/v1/klines"
         urls = self._get_candidate_urls(path, market_clean)
 
@@ -97,6 +105,13 @@ class BinanceService:
                             break
                         else:
                             last_error = f"Unexpected response format from {url}: {type(json_resp)}"
+                    elif resp.status_code in (418, 429):
+                        ra = resp.headers.get("retry-after")
+                        sec = float(ra) if ra and ra.isdigit() else 300.0
+                        self._ban_until = time.time() + sec
+                        logger.warning(f"Binance rate limit ban triggered (HTTP {resp.status_code}). Backing off for {sec}s.")
+                        last_error = f"HTTP {resp.status_code}: Rate limit ban. Retry after {sec}s"
+                        break
                     else:
                         last_error = f"HTTP {resp.status_code} from {url}: {resp.text[:200]}"
                 except Exception as exc:
@@ -222,6 +237,12 @@ class BinanceService:
         raw_items: List[Any] = []
         source_name = f"BINANCE_{market.upper()}"
 
+        cache_key = (symbol, interval, market)
+        now = time.time()
+        cached = self._klines_cache.get(cache_key)
+        if cached and now < cached[0] and len(cached[1]) >= min(limit, 1000):
+            return cached[1], cached[2]
+
         if limit <= 1000:
             raw_items, source_name = await self._fetch_raw_batch(symbol, interval, limit, market)
         else:
@@ -256,6 +277,7 @@ class BinanceService:
             is_stale=False
         )
 
+        self._klines_cache[cache_key] = (time.time() + self._klines_cache_ttl, candles, metadata)
         return candles, metadata
 
     async def _get_allowed_crypto_usdt_map(

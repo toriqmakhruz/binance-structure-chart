@@ -85,7 +85,10 @@ export const PositionsSidebarPanel: React.FC<PositionsSidebarPanelProps> = ({
 
   useEffect(() => {
     loadData(false)
-    const timer = setInterval(() => loadData(true), 3500)
+    const timer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return
+      loadData(true)
+    }, 15000)
     return () => clearInterval(timer)
   }, [loadData])
 

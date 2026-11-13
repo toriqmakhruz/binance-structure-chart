@@ -167,7 +167,10 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
   // Periodic polling for positions
   useEffect(() => {
     loadActivePositions()
-    const timer = setInterval(loadActivePositions, 3500)
+    const timer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return
+      loadActivePositions()
+    }, 15000)
     const handleStorage = () => loadActivePositions()
     window.addEventListener('storage', handleStorage)
     return () => {

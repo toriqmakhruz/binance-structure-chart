@@ -19,10 +19,7 @@ class Settings(BaseModel):
     # Binance USD-M Futures Endpoints (Isolated strictly for Futures market - NEVER cross-fallback to Spot)
     BINANCE_FUTURES_REST: str = "https://fapi.binance.com"
     BINANCE_FUTURES_REST_ENDPOINTS: List[str] = [
-        "https://fapi.binance.com",
-        "https://fapi1.binance.com",
-        "https://fapi2.binance.com",
-        "https://fapi3.binance.com"
+        "https://fapi.binance.com"
     ]
     BINANCE_FUTURES_WS_ENDPOINTS: List[str] = [
         "wss://fstream.binance.com/ws",
