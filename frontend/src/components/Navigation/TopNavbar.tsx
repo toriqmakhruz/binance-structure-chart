@@ -29,6 +29,9 @@ interface TopNavbarProps {
   activeSetup?: any
   isDashboardOpen?: boolean
   onToggleDashboard?: () => void
+  isAutoBotOpen?: boolean
+  onToggleAutoBot?: () => void
+  autoBotStatus?: any
   onSymbolClick: () => void
   onTimeframeChange: (tf: string) => void
   onMarketChange: (m: 'spot' | 'futures') => void
@@ -54,6 +57,9 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
   activeSetup,
   isDashboardOpen,
   onToggleDashboard,
+  isAutoBotOpen,
+  onToggleAutoBot,
+  autoBotStatus,
   onSymbolClick,
   onTimeframeChange,
   onMarketChange,
@@ -267,6 +273,35 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
             }`}
           >
             <Activity className="w-4 h-4" />
+          </button>
+        )}
+
+        {/* Toggle Auto-Bot Drawer */}
+        {onToggleAutoBot && (
+          <button
+            type="button"
+            onClick={onToggleAutoBot}
+            title="Buka Panel Kontrol Auto-Bot Trading"
+            className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold transition-all border ${
+              autoBotStatus?.state?.circuit_breaker_triggered
+                ? 'bg-rose-950/70 text-rose-300 border-rose-600/70 shadow-sm'
+                : autoBotStatus?.config?.enabled
+                ? 'bg-emerald-950/70 text-emerald-300 border-emerald-500/70 shadow-sm'
+                : isAutoBotOpen
+                ? 'bg-[#1b2230] text-[#f0b90b] border-[#f0b90b]/50'
+                : 'bg-[#1a202c] hover:bg-[#252d3d] text-slate-300 hover:text-white border-[#2d3748]'
+            }`}
+          >
+            <Zap className={`w-3.5 h-3.5 ${
+              autoBotStatus?.config?.enabled ? 'text-emerald-400 animate-pulse' : 'text-[#f0b90b]'
+            }`} />
+            <span className="hidden sm:inline">
+              {autoBotStatus?.state?.circuit_breaker_triggered
+                ? 'BOT: MAX LOSS ⚠️'
+                : autoBotStatus?.config?.enabled
+                ? `BOT: ON (${(autoBotStatus?.state?.active_positions_count || 0) + (autoBotStatus?.state?.pending_orders_count || 0)}/4)`
+                : 'BOT: OFF'}
+            </span>
           </button>
         )}
 
