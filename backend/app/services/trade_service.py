@@ -681,16 +681,7 @@ class TradeService:
         # 2. Simulated Execution (Paper Trading fallback when demo has no keys)
         if mode_clean == "demo" and (not api_key or not api_secret):
             order_id = int(time.time() * 1000)
-            if order_type_clean == "LIMIT" and final_price:
-                exec_price = final_price
-            elif price and price > 0:
-                exec_price = price
-            else:
-                try:
-                    ticker = await self.binance_service.get_ticker_24h(sym_clean, market_clean)
-                    exec_price = float(ticker.get("lastPrice", 1.0)) if ticker else 1.0
-                except Exception:
-                    exec_price = 1.0
+            exec_price = final_price if (order_type_clean == "LIMIT" and final_price) else (price or 1.0)
             notional = final_qty * exec_price
             req_margin = notional / max(1, leverage) if market_clean == "futures" else notional
 

@@ -1,62 +1,20 @@
 import os
-import asyncio
 import logging
-from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .api.routes import router as api_router
 from .api.websocket import ws_router
 from .api.trade_routes import trade_router
-from .api.autobot_routes import autobot_router
-from .services.autobot_service import autobot_service
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
-logger = logging.getLogger("main")
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Startup: Initialize background worker for AutoBot daemon
-    logger.info("Starting AutoBot background worker (Initial state: OFF / DORMANT)...")
-    stop_event = asyncio.Event()
-
-    async def _worker_loop():
-        # Short initial delay to let server boot fully
-        await asyncio.sleep(5)
-        while not stop_event.is_set():
-            try:
-                await autobot_service.run_cycle()
-            except asyncio.CancelledError:
-                break
-            except Exception as exc:
-                logger.error(f"Error in autobot background worker: {exc}")
-            
-            # Run cycle every 15 seconds
-            try:
-                await asyncio.wait_for(stop_event.wait(), timeout=15.0)
-            except asyncio.TimeoutError:
-                pass
-
-    worker_task = asyncio.create_task(_worker_loop())
-    yield
-    # Shutdown: Cleanly cancel background worker
-    logger.info("Shutting down AutoBot worker...")
-    stop_event.set()
-    worker_task.cancel()
-    try:
-        await worker_task
-    except asyncio.CancelledError:
-        pass
-
 
 app = FastAPI(
     title="Binance Crypto Structure & Forecasting API",
     description="Backend API for Smart Money Concepts (SMC), Pattern Recognition, Movement Dynamics, and Hybrid Forecasting.",
-    version="1.0.0",
-    lifespan=lifespan
+    version="1.0.0"
 )
 
 # Secure explicit CORS origins (Audit Section 6.2: do not use wildcard with credentials)
@@ -96,9 +54,6 @@ app.add_middleware(
 app.include_router(api_router)
 app.include_router(ws_router)
 app.include_router(trade_router)
-app.include_router(autobot_router)
-# Backward-compatibility alias in case of proxy prefix duplication
-app.include_router(autobot_router, prefix="/api")
 
 @app.get("/health")
 def health_check():

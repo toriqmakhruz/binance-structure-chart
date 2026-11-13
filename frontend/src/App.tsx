@@ -8,8 +8,6 @@ import { RightSidebar } from './components/HUD/RightSidebar'
 import { SettingsDrawer } from './components/Settings/SettingsDrawer'
 import { OpenPositionModal, SetupTradeTarget } from './components/Trade/OpenPositionModal'
 import { TradingDashboardDrawer } from './components/Trade/TradingDashboardDrawer'
-import { AutoBotDrawer } from './components/Trade/AutoBotDrawer'
-import { fetchAutoBotStatus } from './services/autobotApi'
 import { ToastNotification, ToastData } from './components/UI/ToastNotification'
 import { fetchAnalysis } from './services/api'
 import { BinanceWsClient } from './services/binanceWs'
@@ -129,20 +127,7 @@ export function App() {
   const [isTradeModalOpen, setIsTradeModalOpen] = useState(false)
   const [selectedTradeTarget, setSelectedTradeTarget] = useState<SetupTradeTarget | null>(null)
   const [isDashboardDrawerOpen, setIsDashboardDrawerOpen] = useState(false)
-  const [isAutoBotDrawerOpen, setIsAutoBotDrawerOpen] = useState(false)
-  const [autoBotStatus, setAutoBotStatus] = useState<any>(null)
   const [tradeRefreshSeq, setTradeRefreshSeq] = useState(0)
-
-  // Polling AutoBot live state
-  useEffect(() => {
-    const updateBot = async () => {
-      const res = await fetchAutoBotStatus()
-      if (res) setAutoBotStatus(res)
-    }
-    updateBot()
-    const timer = setInterval(updateBot, 5000)
-    return () => clearInterval(timer)
-  }, [])
 
   // Notification Toast Stack
   const [toasts, setToasts] = useState<ToastData[]>([])
@@ -494,9 +479,6 @@ export function App() {
         activeSetup={activeSetupTarget}
         isDashboardOpen={isDashboardDrawerOpen}
         onToggleDashboard={() => setIsDashboardDrawerOpen((prev) => !prev)}
-        isAutoBotOpen={isAutoBotDrawerOpen}
-        onToggleAutoBot={() => setIsAutoBotDrawerOpen((prev) => !prev)}
-        autoBotStatus={autoBotStatus}
         onSymbolClick={() => setIsSymbolModalOpen(true)}
         onTimeframeChange={handleTimeframeChange}
         onMarketChange={handleMarketChange}
@@ -560,14 +542,6 @@ export function App() {
               setTradeRefreshSeq((prev) => prev + 1)
               loadAnalysis(symbol, timeframe, market, settings)
             }}
-          />
-
-          {/* Auto-Bot Control Drawer (Manajemen Risiko & Otomatisasi Eksekusi 24/7) */}
-          <AutoBotDrawer
-            isOpen={isAutoBotDrawerOpen}
-            onClose={() => setIsAutoBotDrawerOpen(false)}
-            currentSymbol={symbol}
-            onSelectSymbol={handleSelectSymbol}
           />
         </main>
 
