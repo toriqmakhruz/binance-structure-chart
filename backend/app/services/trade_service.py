@@ -456,6 +456,25 @@ class TradeService:
 
         # Helper to cancel prior open brackets of the same type to avoid conflicts
         async def cancel_prior_brackets(order_type_str: str):
+            # 1. Clean prior open algo orders (modern Binance Futures endpoint)
+            try:
+                signed_ao = self._sign_payload({"symbol": symbol}, api_secret)
+                resp_ao = await client.get(f"{base_url}/fapi/v1/openAlgoOrders?{signed_ao}")
+                if resp_ao.status_code == 200:
+                    for ao in resp_ao.json():
+                        ao_type = str(ao.get("algoType") or ao.get("type") or "")
+                        is_match = (ao_type == order_type_str) or \
+                                   (order_type_str.startswith("STOP") and "STOP" in ao_type) or \
+                                   (order_type_str.startswith("TAKE_PROFIT") and "PROFIT" in ao_type)
+                        if is_match:
+                            aid = ao.get("algoId")
+                            d_sign = self._sign_payload({"symbol": symbol, "algoId": aid}, api_secret)
+                            await client.delete(f"{base_url}/fapi/v1/algoOrder?{d_sign}")
+                            logger.info(f"Cleaned prior algo {order_type_str} order {aid} for {symbol}")
+            except Exception as ao_err:
+                logger.warning(f"Note: error cleaning prior algo {order_type_str}: {ao_err}")
+
+            # 2. Clean prior standard open orders (legacy fallback)
             try:
                 signed_o = self._sign_payload({"symbol": symbol}, api_secret)
                 resp_o = await client.get(f"{base_url}/fapi/v1/openOrders?{signed_o}")
@@ -465,15 +484,15 @@ class TradeService:
                             oid = o.get("orderId")
                             d_sign = self._sign_payload({"symbol": symbol, "orderId": oid}, api_secret)
                             await client.delete(f"{base_url}/fapi/v1/order?{d_sign}")
-                            logger.info(f"Cleaned prior {order_type_str} order {oid} for {symbol}")
+                            logger.info(f"Cleaned prior standard {order_type_str} order {oid} for {symbol}")
             except Exception as c_err:
-                logger.warning(f"Note: error cleaning prior {order_type_str}: {c_err}")
+                logger.warning(f"Note: error cleaning prior standard {order_type_str}: {c_err}")
 
         # Helper to execute multi-strategy order placement
         async def place_single_bracket(order_type: str, raw_target_price: float, is_stop_loss: bool) -> Tuple[bool, Any]:
             target_p = float(raw_target_price)
 
-            # Prevent -2021 error: stopPrice cannot be past markPrice
+            # Prevent -2021 error: triggerPrice cannot be past markPrice
             if current_mark_price > 0:
                 if side.upper() == "BUY":  # Long position
                     if is_stop_loss and target_p >= current_mark_price:
@@ -491,72 +510,107 @@ class TradeService:
             # Cancel prior order of this type first
             await cancel_prior_brackets(order_type)
 
-            # Strategy 1: closePosition="true" with MARK_PRICE
-            # NOTE: Skip for LIMIT/unfilled orders — Binance rejects closePosition=true for open entry orders
+            # --- STRATEGY 1: Modern Binance USDS-M Algo Order API (/fapi/v1/algoOrder) ---
+            # Required by Binance for conditional types (code -4120 on legacy /fapi/v1/order)
+
+            # 1A. Try closePosition="true" if position is already filled
+            resp_1a = None
             if is_filled:
-                params1: Dict[str, Any] = {
+                algo_params_1a: Dict[str, Any] = {
                     "symbol": symbol,
                     "side": close_side,
                     "type": order_type,
-                    "stopPrice": formatted_price,
+                    "algoType": "CONDITIONAL",
+                    "triggerPrice": formatted_price,
                     "closePosition": "true",
                     "workingType": "MARK_PRICE"
                 }
                 if is_hedge:
-                    params1["positionSide"] = hedge_pos_side
+                    algo_params_1a["positionSide"] = hedge_pos_side
 
-                signed1 = self._sign_payload(params1, api_secret)
-                resp1 = await client.post(f"{base_url}/fapi/v1/order?{signed1}")
-                if resp1.status_code == 200:
-                    logger.info(f"{order_type} (closePosition=true) SUCCESS: {resp1.text}")
-                    return True, resp1.json()
+                signed_1a = self._sign_payload(algo_params_1a, api_secret)
+                resp_1a = await client.post(f"{base_url}/fapi/v1/algoOrder?{signed_1a}")
+                if resp_1a.status_code == 200:
+                    logger.info(f"{order_type} (algoOrder closePosition=true) SUCCESS: {resp_1a.text}")
+                    return True, resp_1a.json()
 
-                logger.warning(f"{order_type} Strategy 1 ({resp1.status_code}: {resp1.text}), trying Strategy 2...")
-            else:
-                logger.info(f"{order_type} skipping closePosition=true for unfilled LIMIT order, using quantity fallback directly")
+                # Handle potential -4061 positionSide mismatch
+                if "-4061" in resp_1a.text:
+                    if is_hedge:
+                        algo_params_1a.pop("positionSide", None)
+                    else:
+                        algo_params_1a["positionSide"] = hedge_pos_side
+                    signed_retry_1a = self._sign_payload(algo_params_1a, api_secret)
+                    resp_retry_1a = await client.post(f"{base_url}/fapi/v1/algoOrder?{signed_retry_1a}")
+                    if resp_retry_1a.status_code == 200:
+                        logger.info(f"{order_type} (algoOrder -4061 retry) SUCCESS: {resp_retry_1a.text}")
+                        return True, resp_retry_1a.json()
 
-            # Strategy 2: quantity fallback (in Hedge mode, omit reduceOnly; in One-Way mode, set reduceOnly="true")
-            params2: Dict[str, Any] = {
+                logger.warning(f"{order_type} algoOrder Strategy 1A ({resp_1a.status_code}: {resp_1a.text}), trying Strategy 1B...")
+
+            # 1B. Try quantity + reduceOnly="true"
+            algo_params_1b: Dict[str, Any] = {
+                "symbol": symbol,
+                "side": close_side,
+                "type": order_type,
+                "algoType": "CONDITIONAL",
+                "triggerPrice": formatted_price,
+                "quantity": formatted_qty,
+                "reduceOnly": "true",
+                "workingType": "MARK_PRICE"
+            }
+            if is_hedge:
+                algo_params_1b["positionSide"] = hedge_pos_side
+
+            signed_1b = self._sign_payload(algo_params_1b, api_secret)
+            resp_1b = await client.post(f"{base_url}/fapi/v1/algoOrder?{signed_1b}")
+            if resp_1b.status_code == 200:
+                logger.info(f"{order_type} (algoOrder quantity) SUCCESS: {resp_1b.text}")
+                return True, resp_1b.json()
+
+            if "-4061" in resp_1b.text:
+                if is_hedge:
+                    algo_params_1b.pop("positionSide", None)
+                else:
+                    algo_params_1b["positionSide"] = hedge_pos_side
+                signed_retry_1b = self._sign_payload(algo_params_1b, api_secret)
+                resp_retry_1b = await client.post(f"{base_url}/fapi/v1/algoOrder?{signed_retry_1b}")
+                if resp_retry_1b.status_code == 200:
+                    logger.info(f"{order_type} (algoOrder quantity -4061 retry) SUCCESS: {resp_retry_1b.text}")
+                    return True, resp_retry_1b.json()
+
+            logger.warning(f"{order_type} algoOrder Strategy 1B ({resp_1b.status_code}: {resp_1b.text}), trying Strategy 1C (CONTRACT_PRICE)...")
+
+            # 1C. Try CONTRACT_PRICE workingType
+            algo_params_1c = dict(algo_params_1b)
+            algo_params_1c["workingType"] = "CONTRACT_PRICE"
+            signed_1c = self._sign_payload(algo_params_1c, api_secret)
+            resp_1c = await client.post(f"{base_url}/fapi/v1/algoOrder?{signed_1c}")
+            if resp_1c.status_code == 200:
+                logger.info(f"{order_type} (algoOrder CONTRACT_PRICE) SUCCESS: {resp_1c.text}")
+                return True, resp_1c.json()
+
+            # --- STRATEGY 2: Legacy fallback to /fapi/v1/order ---
+            logger.warning(f"{order_type} algoOrder failed, attempting legacy /fapi/v1/order fallback...")
+            legacy_params: Dict[str, Any] = {
                 "symbol": symbol,
                 "side": close_side,
                 "type": order_type,
                 "stopPrice": formatted_price,
                 "quantity": formatted_qty,
+                "reduceOnly": "true",
                 "workingType": "MARK_PRICE"
             }
             if is_hedge:
-                params2["positionSide"] = hedge_pos_side
-            else:
-                params2["reduceOnly"] = "true"
+                legacy_params["positionSide"] = hedge_pos_side
 
-            signed2 = self._sign_payload(params2, api_secret)
-            resp2 = await client.post(f"{base_url}/fapi/v1/order?{signed2}")
-            if resp2.status_code == 200:
-                logger.info(f"{order_type} (quantity fallback) SUCCESS: {resp2.text}")
-                return True, resp2.json()
+            signed_leg = self._sign_payload(legacy_params, api_secret)
+            resp_leg = await client.post(f"{base_url}/fapi/v1/order?{signed_leg}")
+            if resp_leg.status_code == 200:
+                logger.info(f"{order_type} (legacy fapi/v1/order) SUCCESS: {resp_leg.text}")
+                return True, resp_leg.json()
 
-            logger.warning(f"{order_type} Strategy 2 ({resp2.status_code}: {resp2.text}), trying Strategy 3...")
-
-            # Strategy 3: CONTRACT_PRICE fallback with closePosition (only if position is filled)
-            if is_filled:
-                params3 = dict(params1)
-                params3["workingType"] = "CONTRACT_PRICE"
-                signed3 = self._sign_payload(params3, api_secret)
-                resp3 = await client.post(f"{base_url}/fapi/v1/order?{signed3}")
-                if resp3.status_code == 200:
-                    logger.info(f"{order_type} (CONTRACT_PRICE) SUCCESS: {resp3.text}")
-                    return True, resp3.json()
-
-            # Strategy 4: Quantity + CONTRACT_PRICE
-            params4 = dict(params2)
-            params4["workingType"] = "CONTRACT_PRICE"
-            signed4 = self._sign_payload(params4, api_secret)
-            resp4 = await client.post(f"{base_url}/fapi/v1/order?{signed4}")
-            if resp4.status_code == 200:
-                logger.info(f"{order_type} (Quantity + CONTRACT_PRICE) SUCCESS: {resp4.text}")
-                return True, resp4.json()
-
-            err_text = resp2.text
+            err_text = resp_1b.text or (resp_1a.text if resp_1a else "") or resp_leg.text
             logger.error(f"{order_type} ALL STRATEGIES FAILED: {err_text}")
             return False, err_text
 
@@ -930,22 +984,41 @@ class TradeService:
                         # Correlate active open trigger orders (STOP_MARKET / TAKE_PROFIT_MARKET)
                         bracket_map: Dict[str, Dict[str, Optional[float]]] = {}
                         if active_raw:
+                            # 1. Check modern Binance USDS-M openAlgoOrders
+                            try:
+                                algo_query = self._sign_payload({"symbol": sym_clean} if sym_clean else {}, api_secret)
+                                algo_resp = await client.get(f"{base_url}/fapi/v1/openAlgoOrders?{algo_query}")
+                                if algo_resp.status_code == 200:
+                                    for ao in algo_resp.json():
+                                        aosym = ao.get("symbol")
+                                        aotype = str(ao.get("algoType") or ao.get("type") or "")
+                                        trig_p = float(ao.get("triggerPrice") or ao.get("stopPrice") or ao.get("price") or 0)
+                                        if aosym not in bracket_map:
+                                            bracket_map[aosym] = {"stopLoss": None, "takeProfit": None}
+                                        if "STOP" in aotype:
+                                            bracket_map[aosym]["stopLoss"] = trig_p
+                                        elif "PROFIT" in aotype:
+                                            bracket_map[aosym]["takeProfit"] = trig_p
+                            except Exception as a_err:
+                                logger.warning(f"Failed correlating open algo orders for positions: {a_err}")
+
+                            # 2. Check legacy openOrders (fallback)
                             try:
                                 ord_query = self._sign_payload({"symbol": sym_clean} if sym_clean else {}, api_secret)
                                 ord_resp = await client.get(f"{base_url}/fapi/v1/openOrders?{ord_query}")
                                 if ord_resp.status_code == 200:
                                     for o in ord_resp.json():
                                         osym = o.get("symbol")
-                                        otype = o.get("type")
+                                        otype = str(o.get("type") or "")
                                         trigger_price = float(o.get("stopPrice") or o.get("price") or 0)
                                         if osym not in bracket_map:
                                             bracket_map[osym] = {"stopLoss": None, "takeProfit": None}
-                                        if otype in ("STOP_MARKET", "STOP"):
+                                        if "STOP" in otype and not bracket_map[osym].get("stopLoss"):
                                             bracket_map[osym]["stopLoss"] = trigger_price
-                                        elif otype in ("TAKE_PROFIT_MARKET", "TAKE_PROFIT"):
+                                        elif "PROFIT" in otype and not bracket_map[osym].get("takeProfit"):
                                             bracket_map[osym]["takeProfit"] = trigger_price
                             except Exception as ord_err:
-                                logger.warning(f"Failed correlating open orders for positions: {ord_err}")
+                                logger.warning(f"Failed correlating legacy open orders for positions: {ord_err}")
 
                         for p in active_raw:
                             amt = float(p.get("positionAmt", 0))
@@ -1087,9 +1160,9 @@ class TradeService:
                 url = f"{base_url}{path}?{signed_query}"
 
                 resp = await client.get(url)
+                formatted_orders = []
                 if resp.status_code == 200:
                     raw_orders = resp.json()
-                    formatted_orders = []
                     for o in raw_orders:
                         raw_t = o.get("time", 0)
                         formatted_orders.append({
@@ -1106,6 +1179,34 @@ class TradeService:
                             "time": int(raw_t // 1000) if raw_t > 10000000000 else int(raw_t),
                             "is_simulated": False
                         })
+
+                # Also fetch modern algo orders (STOP / TAKE_PROFIT) on Futures
+                if market_clean == "futures":
+                    try:
+                        signed_algo_q = self._sign_payload(query_params, api_secret)
+                        resp_algo = await client.get(f"{base_url}/fapi/v1/openAlgoOrders?{signed_algo_q}")
+                        if resp_algo.status_code == 200:
+                            for ao in resp_algo.json():
+                                raw_at = ao.get("time", 0)
+                                formatted_orders.append({
+                                    "orderId": ao.get("algoId"),
+                                    "symbol": ao.get("symbol"),
+                                    "status": "NEW",
+                                    "clientOrderId": ao.get("clientAlgoId"),
+                                    "type": ao.get("algoType") or ao.get("type"),
+                                    "side": ao.get("side"),
+                                    "price": float(ao.get("price", 0)),
+                                    "stopPrice": float(ao.get("triggerPrice") or ao.get("stopPrice", 0)),
+                                    "origQty": float(ao.get("quantity", 0)),
+                                    "executedQty": 0.0,
+                                    "time": int(raw_at // 1000) if raw_at > 10000000000 else int(raw_at),
+                                    "is_simulated": False,
+                                    "is_algo": True
+                                })
+                    except Exception as a_err:
+                        logger.warning(f"Error fetching openAlgoOrders in get_open_orders: {a_err}")
+
+                if resp.status_code == 200 or formatted_orders:
                     return {
                         "success": True,
                         "mode": mode_clean,
@@ -1199,7 +1300,14 @@ class TradeService:
                     signed_del = self._sign_payload({"symbol": sym_clean}, api_secret)
                     await client.delete(f"{base_url}/fapi/v1/allOpenOrders?{signed_del}")
                 except Exception as del_err:
-                    logger.warning(f"Failed to cancel remaining orders after close: {del_err}")
+                    logger.warning(f"Failed to cancel remaining standard orders after close: {del_err}")
+
+                if market_clean == "futures":
+                    try:
+                        signed_del_algo = self._sign_payload({"symbol": sym_clean}, api_secret)
+                        await client.delete(f"{base_url}/fapi/v1/algoOpenOrders?{signed_del_algo}")
+                    except Exception as del_algo_err:
+                        logger.warning(f"Failed to cancel remaining algo orders after close: {del_algo_err}")
 
                 return {
                     "success": True,
@@ -1248,9 +1356,19 @@ class TradeService:
                 resp = await client.delete(url)
                 if resp.status_code == 200:
                     return {"success": True, "message": f"Order #{order_id} ({sym_clean}) berhasil dibatalkan di Binance."}
-                else:
-                    err_json = resp.json() if resp.text else {}
-                    return {"success": False, "message": err_json.get("msg") or f"HTTP {resp.status_code}"}
+
+                # If standard delete failed on Futures, attempt cancelling as an Algo Order
+                if market_clean == "futures":
+                    try:
+                        signed_algo_cancel = self._sign_payload({"symbol": sym_clean, "algoId": order_id}, api_secret)
+                        resp_algo_del = await client.delete(f"{base_url}/fapi/v1/algoOrder?{signed_algo_cancel}")
+                        if resp_algo_del.status_code == 200:
+                            return {"success": True, "message": f"Algo Order #{order_id} ({sym_clean}) berhasil dibatalkan di Binance."}
+                    except Exception as a_del_err:
+                        logger.warning(f"Failed cancelling as algo order: {a_del_err}")
+
+                err_json = resp.json() if resp.text else {}
+                return {"success": False, "message": err_json.get("msg") or f"HTTP {resp.status_code}"}
             except Exception as exc:
                 return {"success": False, "message": f"Gagal membatalkan order: {str(exc)}"}
 
