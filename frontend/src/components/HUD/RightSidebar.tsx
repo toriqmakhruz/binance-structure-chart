@@ -35,6 +35,7 @@ interface RightSidebarProps {
   forecast?: ForecastResult
   patterns?: ChartPattern[]
   currentPrice?: number
+  lockedSetups?: Record<string, any>
   onSelectSymbol: (symbol: string) => void
   onOpenTrade?: (setup: any) => void
   onPositionClosed?: (symbol: string) => void
@@ -51,6 +52,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   forecast,
   patterns = [],
   currentPrice,
+  lockedSetups,
   onSelectSymbol,
   onOpenTrade,
   onPositionClosed
@@ -100,6 +102,10 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     )
   }, [forecast])
 
+  const hasLockedPositions = useMemo(() => {
+    return Boolean(lockedSetups && Object.keys(lockedSetups).length > 0)
+  }, [lockedSetups])
+
   // Collapsed State (Slim Right Dock Rail)
   if (!isOpen) {
     return (
@@ -145,8 +151,8 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           }`}
         >
           <Target className="w-4 h-4" />
-          {hasActiveBox && (
-            <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-[#00c087] ring-2 ring-[#111620]" />
+          {(hasActiveBox || hasLockedPositions) && (
+            <span className={`absolute top-1.5 right-1.5 w-2 h-2 rounded-full ${hasLockedPositions ? 'bg-[#00c087] animate-pulse ring-1 ring-[#00c087]' : 'bg-[#00c087] ring-2 ring-[#111620]'}`} />
           )}
         </button>
 
@@ -234,6 +240,9 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           >
             <Target className={`w-3 h-3 shrink-0 ${activeTab === 'setup' ? 'text-[#00c087]' : ''}`} />
             <span>Setup</span>
+            {hasLockedPositions && (
+              <span className="w-1.5 h-1.5 rounded-full bg-[#00c087] animate-pulse ml-0.5" title="Ada Posisi Aktif" />
+            )}
           </button>
 
           <button
@@ -307,6 +316,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           settings={settings}
           forecast={forecast}
           currentPrice={currentPrice}
+          lockedSetups={lockedSetups}
           onSelectSymbol={onSelectSymbol}
           onOpenTrade={onOpenTrade}
         />

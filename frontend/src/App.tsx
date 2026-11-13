@@ -557,6 +557,7 @@ export function App() {
           forecast={effectiveForecast}
           patterns={analysis?.patterns?.patterns}
           currentPrice={lastCandle?.close}
+          lockedSetups={lockedSetups}
           onSelectSymbol={handleSelectSymbol}
           onOpenTrade={handleOpenTrade}
           onPositionClosed={(closedSym) => {
