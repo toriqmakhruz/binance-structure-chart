@@ -95,6 +95,7 @@ async def websocket_tickers_relay(
                     ping_interval=20,
                     ping_timeout=20,
                     open_timeout=5,
+                    close_timeout=1,
                     max_size=4 * 1024 * 1024
                 ) as b_ws:
                     connected_announced = False
@@ -102,7 +103,7 @@ async def websocket_tickers_relay(
 
                     while not stop_event.is_set():
                         # Enforce strict frame timeout so stalled WS handshakes fall back immediately
-                        msg_str = await asyncio.wait_for(b_ws.recv(), timeout=4.0)
+                        msg_str = await asyncio.wait_for(b_ws.recv(), timeout=2.5)
                         raw_list = json.loads(msg_str)
                         if not isinstance(raw_list, list):
                             continue
@@ -147,7 +148,7 @@ async def websocket_tickers_relay(
                 break
             except Exception as exc:
                 logger.warning(f"Ticker WS relay stalled/failed on {target_url}: {exc}; falling back to live 2.5s feed")
-                _STALLED_TICKER_WS_UNTIL[market_clean] = time.time() + 300.0
+                _STALLED_TICKER_WS_UNTIL[market_clean] = time.time() + 3600.0
                 await poll_live_rest_tickers()
                 return
 
