@@ -213,3 +213,33 @@ export interface AppSettings {
   forecastHorizon: number
   htf: string
 }
+
+export interface ValidSetupItem {
+  symbol: string
+  baseAsset: string
+  market: 'spot' | 'futures'
+  timeframe: string
+  direction: 'LONG' | 'SHORT'
+  name: string
+  entry_price: number
+  entry_time: number
+  entry_zone_high: number
+  entry_zone_low: number
+  invalidation_price: number
+  target_price: number
+  risk_reward_ratio: number
+  confluence_weight: number
+  confluence_score: number
+  current_price: number
+  price_change_pct: number
+  quote_volume: number
+}
+
+export interface ValidSetupsResponse {
+  market: 'spot' | 'futures'
+  timeframe: string
+  scanned_count: number
+  valid_count: number
+  updated_at: number
+  setups: ValidSetupItem[]
+}

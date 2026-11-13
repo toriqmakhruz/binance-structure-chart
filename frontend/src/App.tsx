@@ -325,10 +325,12 @@ export function App() {
           />
         </main>
 
-        {/* Right: Collapsible Navigation Sidebar (Indeks & Kalkulator Posisi) */}
+        {/* Right: Collapsible Navigation Sidebar (Indeks, Setup Valid, Kalkulator, Watchlist) */}
         <RightSidebar
           symbol={symbol}
+          timeframe={timeframe}
           market={market}
+          settings={settings}
           candles={candles}
           movement={analysis?.movement}
           smc={analysis?.smc}

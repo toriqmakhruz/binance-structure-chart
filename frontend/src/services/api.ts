@@ -1,4 +1,4 @@
-import { FullAnalysisResponse, AppSettings } from '../types/analysis'
+import { FullAnalysisResponse, AppSettings, ValidSetupsResponse } from '../types/analysis'
 
 const API_BASE = '/api'
 
@@ -42,6 +42,32 @@ export async function fetchAnalysis(
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({ detail: resp.statusText }))
     throw new Error(typeof err.detail === 'string' ? err.detail : (err.detail?.message || 'Analysis request failed'))
+  }
+
+  return await resp.json()
+}
+
+export async function fetchValidSetups(
+  timeframe: string,
+  market: 'spot' | 'futures' = 'futures',
+  settings: AppSettings = defaultAppSettings,
+  forceRefresh = false
+): Promise<ValidSetupsResponse> {
+  const activeSettings = settings || defaultAppSettings
+  const params = new URLSearchParams({
+    timeframe,
+    market,
+    swing_length: (activeSettings.swingLength || 5).toString(),
+    fvg_min_pct: (activeSettings.fvgMinPct || 0.05).toString(),
+    forecast_horizon: (activeSettings.forecastHorizon || 20).toString(),
+    scan_limit: '24',
+    force_refresh: forceRefresh ? 'true' : 'false'
+  })
+
+  const resp = await fetch(`${API_BASE}/setups?${params.toString()}`)
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ detail: resp.statusText }))
+    throw new Error(typeof err.detail === 'string' ? err.detail : (err.detail?.message || 'Setup scan failed'))
   }
 
   return await resp.json()
