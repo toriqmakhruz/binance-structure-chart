@@ -3,10 +3,11 @@ import json
 import time
 import random
 import logging
+import httpx
 import websockets
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from ..config import settings
-from ..services.binance_service import binance_service
+from ..services.binance_service import binance_service, HEADERS
 
 logger = logging.getLogger("websocket_router")
 ws_router = APIRouter()
@@ -214,22 +215,71 @@ async def websocket_kline_relay(
         except Exception:
             pass
 
-    async def monitor_stale_data():
-        """Periodically checks if live ticks have ceased, marking upstream as STALE."""
-        stale_alerted = False
-        while not stop_event.is_set():
-            await asyncio.sleep(5)
-            elapsed = time.time() - last_message_at
-            if elapsed > 45.0 and not stale_alerted:
-                logger.warning(f"No ticks for {stream_name} in {elapsed:.1f}s. Marking DATA_STALE.")
-                await send_status("DATA_STALE", f"No ticks received in {elapsed:.1f}s", {"age_seconds": round(elapsed, 1)})
-                stale_alerted = True
-            elif elapsed <= 45.0 and stale_alerted:
-                stale_alerted = False
-                await send_status("CONNECTED", "Live stream resumed")
+    async def poll_live_kline():
+        """Ultra-fast live kline polling (1.0s) for markets/networks where upstream WS stalls."""
+        nonlocal last_message_at
+        endpoint = "https://fapi.binance.com/fapi/v1/klines" if market_clean == "futures" else "https://api.binance.com/api/v3/klines"
+        url = f"{endpoint}?symbol={symbol.upper()}&interval={timeframe}&limit=1"
+        timeout = httpx.Timeout(3.0, connect=2.0)
+        await send_status("CONNECTED", f"Connected to {source_name} live feed")
+
+        last_k_time = None
+        consecutive_errors = 0
+
+        async with httpx.AsyncClient(headers=HEADERS, timeout=timeout, verify=settings.TLS_VERIFY) as client:
+            while not stop_event.is_set():
+                try:
+                    resp = await client.get(url)
+                    if resp.status_code == 200:
+                        raw = resp.json()
+                        if isinstance(raw, list) and len(raw) > 0:
+                            k = raw[0]
+                            k_time = int(k[0] // 1000)
+                            close_time_ms = int(k[6])
+                            now_ms = int(time.time() * 1000)
+                            is_closed = now_ms >= close_time_ms or (last_k_time is not None and k_time > last_k_time)
+
+                            payload = {
+                                "type": "CANDLE_TICK",
+                                "symbol": symbol.upper(),
+                                "timeframe": timeframe,
+                                "source": f"{source_name}_LIVE",
+                                "is_closed": is_closed,
+                                "candle": {
+                                    "time": k_time,
+                                    "open": float(k[1]),
+                                    "high": float(k[2]),
+                                    "low": float(k[3]),
+                                    "close": float(k[4]),
+                                    "volume": float(k[5]),
+                                    "taker_buy_volume": float(k[9]) if len(k) > 9 else 0.0,
+                                    "is_closed": is_closed
+                                }
+                            }
+                            await websocket.send_text(json.dumps(payload))
+                            last_message_at = time.time()
+                            last_k_time = k_time
+                            consecutive_errors = 0
+                    else:
+                        consecutive_errors += 1
+                except asyncio.CancelledError:
+                    break
+                except Exception as exc:
+                    consecutive_errors += 1
+                    logger.debug(f"Live kline poll tick error for {symbol.upper()}: {exc}")
+
+                if consecutive_errors >= 5:
+                    await asyncio.sleep(2.0)
+                else:
+                    await asyncio.sleep(1.0)
 
     async def forward_from_binance():
         nonlocal last_message_at
+        # If market is futures, fstream drops frames on cloud IPs. Use the reliable 1.0s live feed immediately.
+        if market_clean == "futures":
+            await poll_live_kline()
+            return
+
         backoff = 1.0
         active_url_idx = 0
 
@@ -245,16 +295,20 @@ async def websocket_kline_relay(
                     target_url,
                     ping_interval=20,
                     ping_timeout=20,
-                    open_timeout=8
+                    open_timeout=5,
+                    close_timeout=1
                 ) as b_ws:
-                    logger.info(f"Binance upstream connected for {stream_name}")
-                    last_message_at = time.time()
-                    await send_status("CONNECTED", f"Connected to {source_name}")
-                    backoff = 1.0  # Reset backoff on success
+                    connected_announced = False
+                    backoff = 1.0
 
                     while not stop_event.is_set():
-                        msg_str = await b_ws.recv()
+                        # Timeout on first receive if upstream silently drops frames
+                        msg_str = await asyncio.wait_for(b_ws.recv(), timeout=4.0)
                         last_message_at = time.time()
+                        if not connected_announced:
+                            await send_status("CONNECTED", f"Connected to {source_name}")
+                            connected_announced = True
+
                         data = json.loads(msg_str)
                         if "k" in data:
                             k = data["k"]
@@ -278,24 +332,20 @@ async def websocket_kline_relay(
                             await websocket.send_text(json.dumps(candle_payload))
 
             except asyncio.CancelledError:
-                logger.info(f"Relay task cancelled cleanly for {stream_name}")
                 break
-            except websockets.exceptions.ConnectionClosed as cc:
-                logger.warning(f"Upstream closed connection for {stream_name} ({cc}). Reconnecting...")
             except Exception as e:
-                logger.warning(f"Upstream error on {target_url} ({e}). Reconnecting...")
+                logger.warning(f"Kline WS error/timeout on {target_url} ({e}); switching to live feed")
+                await poll_live_kline()
+                return
 
             if not stop_event.is_set():
-                # Exponential backoff with random jitter
-                jitter = random.uniform(0.1, 0.75)
-                wait_time = min(backoff + jitter, 25.0)
+                wait_time = min(backoff + random.uniform(0.1, 0.75), 10.0)
                 await send_status("RECONNECTING", f"Upstream disconnected. Reconnecting in {wait_time:.1f}s...")
                 active_url_idx += 1
                 await asyncio.sleep(wait_time)
-                backoff = min(backoff * 2.0, 20.0)
+                backoff = min(backoff * 2.0, 10.0)
 
     forward_task = asyncio.create_task(forward_from_binance())
-    stale_task = asyncio.create_task(monitor_stale_data())
 
     try:
         while True:
@@ -307,5 +357,4 @@ async def websocket_kline_relay(
     finally:
         stop_event.set()
         forward_task.cancel()
-        stale_task.cancel()
-        await asyncio.gather(forward_task, stale_task, return_exceptions=True)
+        await asyncio.gather(forward_task, return_exceptions=True)

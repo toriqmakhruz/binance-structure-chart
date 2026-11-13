@@ -182,7 +182,10 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     }
   }, [symbol, timeframe, candles, focusRecentBars])
 
-  // 3. Update Candle & Volume Data with Dynamic Price Precision
+  // 3. Update Candle & Volume Data with Dynamic Price Precision & Smooth Live Ticks
+  const prevCandlesCountRef = useRef<number>(0)
+  const prevLastTimeRef = useRef<number>(0)
+
   useEffect(() => {
     if (!candleSeriesRef.current || !volumeSeriesRef.current || candles.length === 0) return
 
@@ -210,8 +213,25 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
       color: c.close >= c.open ? 'rgba(0, 192, 135, 0.25)' : 'rgba(246, 70, 93, 0.25)'
     }))
 
-    candleSeriesRef.current.setData(formattedCandles)
-    volumeSeriesRef.current.setData(visibility.volume ? formattedVolumes : [])
+    const lastCandle = formattedCandles[formattedCandles.length - 1]
+    const lastVolume = formattedVolumes[formattedVolumes.length - 1]
+    const lastTimeNum = Number(lastCandle.time)
+
+    // Smooth real-time update: use update() if ticking the existing live candle bar
+    if (
+      prevCandlesCountRef.current === formattedCandles.length &&
+      prevLastTimeRef.current === lastTimeNum
+    ) {
+      candleSeriesRef.current.update(lastCandle)
+      if (visibility.volume) {
+        volumeSeriesRef.current.update(lastVolume)
+      }
+    } else {
+      candleSeriesRef.current.setData(formattedCandles)
+      volumeSeriesRef.current.setData(visibility.volume ? formattedVolumes : [])
+      prevCandlesCountRef.current = formattedCandles.length
+      prevLastTimeRef.current = lastTimeNum
+    }
 
     // Markers for Swings and BOS/CHoCH with strict deduplication and time ordering
     const markerMap = new Map<string, SeriesMarker<Time>>()
