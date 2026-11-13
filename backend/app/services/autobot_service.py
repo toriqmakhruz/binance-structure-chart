@@ -242,10 +242,12 @@ class AutoBotService:
                 api_secret=api_secret
             )
             all_positions = pos_res.get("positions", [])
-            active_pos = [
-                p for p in all_positions
-                if abs(float(p.get("contracts", 0))) > 0
-            ]
+            active_pos = []
+            for p in all_positions:
+                amt = abs(float(p.get("positionAmt") or p.get("contracts") or p.get("size") or 0))
+                if amt > 0:
+                    p["contracts"] = amt
+                    active_pos.append(p)
             self.active_positions = active_pos
 
             open_orders_res = await trade_service.get_open_orders(

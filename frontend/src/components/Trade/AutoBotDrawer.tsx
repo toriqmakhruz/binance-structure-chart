@@ -341,9 +341,9 @@ export const AutoBotDrawer: React.FC<AutoBotDrawerProps> = ({
                 const pend = !pos && pendingOrders[idx - activePositions.length]
 
                 if (pos) {
-                  const contracts = parseFloat(pos.contracts || 0)
-                  const isLong = pos.side === 'BUY' || contracts > 0
-                  const pnl = parseFloat(pos.unrealizedPnl || 0)
+                  const contracts = parseFloat(pos.contracts || pos.positionAmt || pos.size || 0)
+                  const isLong = pos.side === 'BUY' || pos.side === 'LONG' || parseFloat(pos.positionAmt || 0) > 0
+                  const pnl = parseFloat(pos.unrealizedPnl ?? pos.unrealizedProfit ?? 0)
                   return (
                     <div 
                       key={`slot_pos_${idx}`}
