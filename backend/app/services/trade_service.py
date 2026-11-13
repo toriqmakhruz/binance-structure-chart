@@ -526,47 +526,97 @@ class TradeService:
                 close_side = "SELL" if side_clean == "BUY" else "BUY"
 
                 if market_clean == "futures":
+                    # If MARKET order, small pause to ensure fill is registered on exchange
+                    if order_type_clean == "MARKET":
+                        await asyncio.sleep(0.15)
+
                     # Place Stop Loss
                     if stop_loss and stop_loss > 0:
                         try:
                             sl_formatted = self.format_price(stop_loss, tick_size, price_prec)
+                            # Primary attempt: closePosition=true without timeInForce (valid for filled positions)
                             sl_params = {
                                 "symbol": sym_clean,
                                 "side": close_side,
                                 "type": "STOP_MARKET",
                                 "stopPrice": sl_formatted,
                                 "closePosition": "true",
-                                "timeInForce": "GTC"
+                                "workingType": "MARK_PRICE"
                             }
                             signed_sl = self._sign_payload(sl_params, api_secret)
                             sl_resp = await client.post(f"{base_url}/fapi/v1/order?{signed_sl}")
                             if sl_resp.status_code == 200:
                                 bracket_results["stop_loss"] = sl_resp.json()
+                                logger.info(f"Stop Loss order (closePosition=true) placed successfully: {sl_resp.text}")
                             else:
-                                bracket_results["stop_loss_error"] = sl_resp.text
+                                logger.warning(f"closePosition STOP_MARKET failed ({sl_resp.status_code}: {sl_resp.text}), trying with quantity={final_qty}...")
+                                # Secondary attempt: STOP_MARKET with quantity (valid for pending LIMIT orders or when position is 0)
+                                sl_params_qty = {
+                                    "symbol": sym_clean,
+                                    "side": close_side,
+                                    "type": "STOP_MARKET",
+                                    "stopPrice": sl_formatted,
+                                    "quantity": final_qty,
+                                    "workingType": "MARK_PRICE"
+                                }
+                                signed_sl_qty = self._sign_payload(sl_params_qty, api_secret)
+                                sl_resp2 = await client.post(f"{base_url}/fapi/v1/order?{signed_sl_qty}")
+                                if sl_resp2.status_code == 200:
+                                    bracket_results["stop_loss"] = sl_resp2.json()
+                                    logger.info(f"Stop Loss order (with quantity) placed successfully: {sl_resp2.text}")
+                                else:
+                                    logger.error(f"Stop Loss order completely rejected: {sl_resp2.status_code} {sl_resp2.text}")
+                                    bracket_results["stop_loss_error"] = sl_resp2.text
                         except Exception as sl_exc:
+                            logger.error(f"Stop Loss exception: {sl_exc}")
                             bracket_results["stop_loss_error"] = str(sl_exc)
 
                     # Place Take Profit
                     if take_profit and take_profit > 0:
                         try:
                             tp_formatted = self.format_price(take_profit, tick_size, price_prec)
+                            # Primary attempt: closePosition=true without timeInForce
                             tp_params = {
                                 "symbol": sym_clean,
                                 "side": close_side,
                                 "type": "TAKE_PROFIT_MARKET",
                                 "stopPrice": tp_formatted,
                                 "closePosition": "true",
-                                "timeInForce": "GTC"
+                                "workingType": "MARK_PRICE"
                             }
                             signed_tp = self._sign_payload(tp_params, api_secret)
                             tp_resp = await client.post(f"{base_url}/fapi/v1/order?{signed_tp}")
                             if tp_resp.status_code == 200:
                                 bracket_results["take_profit"] = tp_resp.json()
+                                logger.info(f"Take Profit order (closePosition=true) placed successfully: {tp_resp.text}")
                             else:
-                                bracket_results["take_profit_error"] = tp_resp.text
+                                logger.warning(f"closePosition TAKE_PROFIT_MARKET failed ({tp_resp.status_code}: {tp_resp.text}), trying with quantity={final_qty}...")
+                                # Secondary attempt: TAKE_PROFIT_MARKET with quantity
+                                tp_params_qty = {
+                                    "symbol": sym_clean,
+                                    "side": close_side,
+                                    "type": "TAKE_PROFIT_MARKET",
+                                    "stopPrice": tp_formatted,
+                                    "quantity": final_qty,
+                                    "workingType": "MARK_PRICE"
+                                }
+                                signed_tp_qty = self._sign_payload(tp_params_qty, api_secret)
+                                tp_resp2 = await client.post(f"{base_url}/fapi/v1/order?{signed_tp_qty}")
+                                if tp_resp2.status_code == 200:
+                                    bracket_results["take_profit"] = tp_resp2.json()
+                                    logger.info(f"Take Profit order (with quantity) placed successfully: {tp_resp2.text}")
+                                else:
+                                    logger.error(f"Take Profit order completely rejected: {tp_resp2.status_code} {tp_resp2.text}")
+                                    bracket_results["take_profit_error"] = tp_resp2.text
                         except Exception as tp_exc:
+                            logger.error(f"Take Profit exception: {tp_exc}")
                             bracket_results["take_profit_error"] = str(tp_exc)
+
+                status_msg = f"Order {side_clean} {exec_qty} {sym_clean} ({status_res}) berhasil dikirim ke Binance {mode_clean.upper()}!"
+                if bracket_results.get("stop_loss_error"):
+                    status_msg += f" [PERINGATAN: SL gagal terpasang: {bracket_results['stop_loss_error']}]"
+                if bracket_results.get("take_profit_error"):
+                    status_msg += f" [PERINGATAN: TP gagal terpasang: {bracket_results['take_profit_error']}]"
 
                 return {
                     "success": True,
@@ -584,7 +634,7 @@ class TradeService:
                     "leverage": leverage if market_clean == "futures" else 1,
                     "bracket_orders": bracket_results,
                     "raw": order_res,
-                    "message": f"Order {side_clean} {exec_qty} {sym_clean} ({status_res}) berhasil dikirim ke Binance {mode_clean.upper()}!"
+                    "message": status_msg
                 }
 
             except Exception as exc:

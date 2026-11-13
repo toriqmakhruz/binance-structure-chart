@@ -456,7 +456,10 @@ export function App() {
       invalidation_price: setup.invalidation_price || 0,
       target_price: setup.target_price || 0,
       risk_reward_ratio: setup.risk_reward_ratio,
-      confluence_score: setup.confluence_score || setup.confluence_weight
+      confluence_score: setup.confluence_score || setup.confluence_weight,
+      planned_risk: setup.planned_risk,
+      planned_risk_mode: setup.planned_risk_mode,
+      planned_leverage: setup.planned_leverage
     })
     setIsTradeModalOpen(true)
   }, [symbol, market, lastCandle?.close])
@@ -617,23 +620,35 @@ export function App() {
             created_at: Date.now()
           })
 
-          addToast({
-            type: 'success',
-            title: 'Posisi Berhasil Dibuka! 🚀',
-            message: 'Box setup di chart TERKUNCI dan tidak akan berubah sampai posisi ditutup atau menyentuh TP/SL.',
-            details: {
-              symbol: sym,
-              side: (orderRes.side as any) || (dir === 'LONG' ? 'BUY' : 'SELL'),
-              quantity: orderRes.executed_qty,
-              price: entryP,
-              leverage: orderRes.leverage,
-              mode: orderRes.mode as 'demo' | 'live',
-              orderId: orderRes.order_id,
-              stopLoss: slP,
-              takeProfit: tpP
-            },
-            duration: 7000
-          })
+          const hasSlError = Boolean(orderRes.bracket_orders?.stop_loss_error)
+          const hasTpError = Boolean(orderRes.bracket_orders?.take_profit_error)
+
+          if (hasSlError || hasTpError) {
+            addToast({
+              type: 'warning',
+              title: 'Posisi Terbuka, SL/TP Perlu Perhatian ⚠️',
+              message: `Order utama berhasil, namun order pelindung Binance menolak: ${orderRes.bracket_orders?.stop_loss_error || orderRes.bracket_orders?.take_profit_error}.`,
+              duration: 8000
+            })
+          } else {
+            addToast({
+              type: 'success',
+              title: 'Posisi & SL/TP Berhasil Dibuka! 🚀',
+              message: `Order utama aktif dengan SL ($${slP}) & TP ($${tpP}) terpasang di Binance. Box terkunci.`,
+              details: {
+                symbol: sym,
+                side: (orderRes.side as any) || (dir === 'LONG' ? 'BUY' : 'SELL'),
+                quantity: orderRes.executed_qty,
+                price: entryP,
+                leverage: orderRes.leverage,
+                mode: orderRes.mode as 'demo' | 'live',
+                orderId: orderRes.order_id,
+                stopLoss: slP,
+                takeProfit: tpP
+              },
+              duration: 7000
+            })
+          }
         }}
       />
 

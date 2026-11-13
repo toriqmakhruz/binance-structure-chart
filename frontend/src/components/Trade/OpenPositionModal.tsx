@@ -42,6 +42,9 @@ export interface SetupTradeTarget {
   target_price: number
   risk_reward_ratio?: number
   confluence_score?: number
+  planned_risk?: number
+  planned_risk_mode?: 'USDT' | 'PERCENT'
+  planned_leverage?: number
 }
 
 interface OpenPositionModalProps {
@@ -58,6 +61,36 @@ const STORAGE_KEYS = {
   lastLeverage: 'cp_trade_last_leverage',
   riskValue: 'cp_trade_risk_value',
   riskMode: 'cp_trade_risk_mode'
+}
+
+function readStoredRiskValue(): number {
+  try {
+    const raw = localStorage.getItem('cp_calc_risk_value') || localStorage.getItem(STORAGE_KEYS.riskValue)
+    if (raw) {
+      const n = parseFloat(raw)
+      if (Number.isFinite(n) && n > 0) return n
+    }
+  } catch {}
+  return 20
+}
+
+function readStoredRiskMode(): 'USDT' | 'PERCENT' {
+  try {
+    const raw = localStorage.getItem('cp_calc_risk_mode') || localStorage.getItem(STORAGE_KEYS.riskMode)
+    if (raw === 'PERCENT') return 'PERCENT'
+  } catch {}
+  return 'USDT'
+}
+
+function readStoredLeverage(): number {
+  try {
+    const raw = localStorage.getItem('cp_calc_leverage') || localStorage.getItem(STORAGE_KEYS.lastLeverage)
+    if (raw) {
+      const n = parseInt(raw, 10)
+      if (Number.isFinite(n) && n >= 1 && n <= 125) return n
+    }
+  } catch {}
+  return 10
 }
 
 function readStoredCredentials(): TradeCredentials {
@@ -117,12 +150,12 @@ export const OpenPositionModal: React.FC<OpenPositionModalProps> = ({
   const [entryInput, setEntryInput] = useState<string>('')
   const [slInput, setSlInput] = useState<string>('')
   const [tpInput, setTpInput] = useState<string>('')
-  const [leverage, setLeverage] = useState<number>(10)
+  const [leverage, setLeverage] = useState<number>(() => readStoredLeverage())
   const [attachBracket, setAttachBracket] = useState<boolean>(true)
 
-  // Sizing inputs
-  const [riskMode, setRiskMode] = useState<'USDT' | 'PERCENT'>('USDT')
-  const [riskValue, setRiskValue] = useState<number>(25)
+  // Sizing inputs (Synchronized with Calculator & Local Storage, default $20)
+  const [riskMode, setRiskMode] = useState<'USDT' | 'PERCENT'>(() => readStoredRiskMode())
+  const [riskValue, setRiskValue] = useState<number>(() => readStoredRiskValue())
 
   // Symbol rules from Binance
   const [rules, setRules] = useState<{ stepSize: number; tickSize: number; minQty: number; minNotional: number }>({
@@ -137,12 +170,18 @@ export const OpenPositionModal: React.FC<OpenPositionModalProps> = ({
   const [executionResult, setExecutionResult] = useState<TradeOrderResponse | null>(null)
   const [confirmLiveOpen, setConfirmLiveOpen] = useState<boolean>(false)
 
-  // Persist settings
+  // Persist settings across sessions and tabs
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEYS.accountMode, mode)
+      localStorage.setItem(STORAGE_KEYS.riskValue, String(riskValue))
+      localStorage.setItem('cp_calc_risk_value', String(riskValue))
+      localStorage.setItem(STORAGE_KEYS.riskMode, riskMode)
+      localStorage.setItem('cp_calc_risk_mode', riskMode)
+      localStorage.setItem(STORAGE_KEYS.lastLeverage, String(leverage))
+      localStorage.setItem('cp_calc_leverage', String(leverage))
     } catch {}
-  }, [mode])
+  }, [mode, riskValue, riskMode, leverage])
 
   // Sync inputs when target setup changes or modal opens
   useEffect(() => {
@@ -153,6 +192,17 @@ export const OpenPositionModal: React.FC<OpenPositionModalProps> = ({
     setTpInput(target.target_price > 0 ? String(target.target_price) : '')
     setExecutionResult(null)
     setConfirmLiveOpen(false)
+
+    // Sync planned risk & leverage if passed from calculator
+    if (target.planned_risk && target.planned_risk > 0) {
+      setRiskValue(target.planned_risk)
+    }
+    if (target.planned_risk_mode) {
+      setRiskMode(target.planned_risk_mode)
+    }
+    if (target.planned_leverage && target.planned_leverage > 0) {
+      setLeverage(target.planned_leverage)
+    }
 
     // Load symbol precision & minNotional
     fetchTradeRules(target.symbol, target.market, mode).then((res) => {
@@ -253,20 +303,23 @@ export const OpenPositionModal: React.FC<OpenPositionModalProps> = ({
       target?.direction === 'LONG' ? stopLoss < entryPrice : stopLoss > entryPrice
     )
 
-    // Sizing: Quantity = Risk USDT / SL Distance
+    // Sizing: Quantity = Risk USDT / SL Distance (Strictly floored to stepSize so risk NEVER exceeds riskUSDT)
     let rawQty = (slDist > 0 && isSlValid) ? riskUSDT / slDist : 0
     if (rules.stepSize > 0) {
-      const steps = Math.floor(rawQty / rules.stepSize)
-      rawQty = steps * rules.stepSize
+      const stepStr = rules.stepSize.toString()
+      const precision = stepStr.includes('.') ? stepStr.split('.')[1].length : 0
+      const steps = Math.floor(rawQty / rules.stepSize + 1e-9)
+      rawQty = parseFloat((steps * rules.stepSize).toFixed(precision))
     }
 
     const notionalUSDT = rawQty * entryPrice
     const requiredMargin = effectiveLeverage > 0 ? notionalUSDT / effectiveLeverage : notionalUSDT
     const isMarginExceeded = requiredMargin > safeAccount && safeAccount > 0
     const isUnderMinNotional = notionalUSDT < rules.minNotional && notionalUSDT > 0
+    const isUnderMinQty = rawQty < rules.minQty && rawQty > 0
 
     const estProfitUSDT = rawQty * tpDist
-    const estLossUSDT = riskUSDT
+    const estLossUSDT = rawQty > 0 && slDist > 0 ? parseFloat((rawQty * slDist).toFixed(2)) : riskUSDT
     const roeProfitPct = requiredMargin > 0 ? (estProfitUSDT / requiredMargin) * 100 : 0
     const roeLossPct = requiredMargin > 0 ? -(estLossUSDT / requiredMargin) * 100 : 0
     const rr = slDist > 0 ? tpDist / slDist : 0

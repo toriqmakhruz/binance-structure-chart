@@ -785,7 +785,10 @@ export const PositionCalculator: React.FC<PositionCalculatorProps> = ({
                 entry_price: entryPrice,
                 invalidation_price: stopLoss,
                 target_price: targetPrice,
-                risk_reward_ratio: calc.rr > 0 ? Number(calc.rr.toFixed(2)) : undefined
+                risk_reward_ratio: calc.rr > 0 ? Number(calc.rr.toFixed(2)) : undefined,
+                planned_risk: riskValue,
+                planned_risk_mode: riskMode,
+                planned_leverage: effectiveLeverage
               })
             }}
             disabled={!calc.isSlValidSide || calc.qty <= 0}
