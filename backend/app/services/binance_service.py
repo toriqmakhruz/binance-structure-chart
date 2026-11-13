@@ -1,3 +1,4 @@
+import asyncio
 import math
 import time
 import httpx
@@ -7,6 +8,12 @@ from ..config import settings
 from ..models.schemas import Candle, AnalysisMetadata
 
 logger = logging.getLogger("binance_service")
+
+STABLECOIN_AND_FIAT_BASES = {
+    "USDC", "FDUSD", "TUSD", "USDP", "BUSD", "DAI", "USD1", "RLUSD",
+    "USDE", "PYUSD", "BFUSD", "EURI", "EUR", "AEUR", "GBP", "AUD",
+    "TRY", "BRL", "JPY", "ARS", "UAH", "PLN", "RON", "CZK", "VAI"
+}
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
@@ -25,6 +32,8 @@ class BinanceService:
     def __init__(self):
         self.spot_endpoints = settings.BINANCE_SPOT_REST_ENDPOINTS
         self.futures_endpoints = settings.BINANCE_FUTURES_REST_ENDPOINTS
+        self._exchange_meta_cache: Dict[str, Tuple[float, Dict[str, str]]] = {}
+        self._exchange_meta_ttl = 600.0
 
     def _get_candidate_urls(self, path: str, market: str) -> List[str]:
         """
@@ -243,9 +252,72 @@ class BinanceService:
 
         return candles, metadata
 
+    async def _get_allowed_crypto_usdt_map(
+        self,
+        client: httpx.AsyncClient,
+        market_clean: str
+    ) -> Optional[Dict[str, str]]:
+        """
+        Return a cached mapping of {symbol: baseAsset} for active TRADING crypto USDT pairs.
+        - Futures: only PERPETUAL + COIN contracts (excludes TRADIFI_PERPETUAL equities/commodities and delivery contracts).
+        - Spot: only active TRADING spot pairs with quoteAsset=USDT, excluding stablecoin/fiat pairs.
+        """
+        now = time.time()
+        cached = self._exchange_meta_cache.get(market_clean)
+        if cached and now < cached[0]:
+            return cached[1]
+
+        path = "/api/v3/exchangeInfo" if market_clean == "spot" else "/fapi/v1/exchangeInfo"
+        urls = self._get_candidate_urls(path, market_clean)
+
+        for url in urls:
+            try:
+                resp = await client.get(url)
+                if resp.status_code != 200:
+                    continue
+                payload = resp.json()
+                raw_symbols = payload.get("symbols") if isinstance(payload, dict) else None
+                if not isinstance(raw_symbols, list):
+                    continue
+
+                allowed: Dict[str, str] = {}
+                for item in raw_symbols:
+                    if not isinstance(item, dict):
+                        continue
+                    if item.get("status") != "TRADING" or item.get("quoteAsset") != "USDT":
+                        continue
+
+                    sym = item.get("symbol", "")
+                    base = item.get("baseAsset", "")
+                    if not sym or not base:
+                        continue
+
+                    if market_clean == "futures":
+                        if item.get("contractType") != "PERPETUAL":
+                            continue
+                        if item.get("underlyingType") != "COIN":
+                            continue
+                    else:
+                        if not item.get("isSpotTradingAllowed", True):
+                            continue
+                        if base.upper() in STABLECOIN_AND_FIAT_BASES:
+                            continue
+
+                    allowed[sym] = base
+
+                if allowed:
+                    self._exchange_meta_cache[market_clean] = (now + self._exchange_meta_ttl, allowed)
+                    return allowed
+            except Exception as exc:
+                logger.warning(f"Failed fetching exchangeInfo from {url}: {exc}")
+                continue
+
+        return cached[1] if cached else None
+
     async def get_symbols(self, market: str = "futures", demo_mode: bool = False) -> List[Dict[str, Any]]:
         """
-        Fetch 24h ticker info strictly from the selected market.
+        Fetch 24h ticker info strictly from the selected market, filtered to active crypto USDT pairs
+        and sorted by 24h quoteVolume descending to match Binance's market ranking.
         NEVER injects synthetic or hardcoded prices in production.
         """
         market_clean = market.lower().strip()
@@ -254,32 +326,38 @@ class BinanceService:
 
         tickers = None
         last_error = None
+        allowed_map: Optional[Dict[str, str]] = None
         timeout = httpx.Timeout(settings.HTTP_TIMEOUT_SECONDS, connect=5.0)
 
-        async with httpx.AsyncClient(headers=HEADERS, timeout=timeout, verify=settings.TLS_VERIFY) as client:
+        async def fetch_tickers(client: httpx.AsyncClient):
+            nonlocal last_error
             for url in urls:
                 try:
                     resp = await client.get(url)
                     if resp.status_code == 200:
                         json_resp = resp.json()
                         if isinstance(json_resp, list):
-                            tickers = json_resp
-                            break
-                        else:
-                            last_error = f"Expected list response from {url}, got {type(json_resp)}"
+                            return json_resp
+                        last_error = f"Expected list response from {url}, got {type(json_resp)}"
                     else:
                         last_error = f"HTTP {resp.status_code} from {url}"
                 except Exception as exc:
                     last_error = str(exc)
-                    continue
+            return None
+
+        async with httpx.AsyncClient(headers=HEADERS, timeout=timeout, verify=settings.TLS_VERIFY) as client:
+            tickers, allowed_map = await asyncio.gather(
+                fetch_tickers(client),
+                self._get_allowed_crypto_usdt_map(client, market_clean)
+            )
 
         if not tickers:
             if demo_mode:
-                logger.warning(f"Upstream tickers unavailable. Demo mode active, returning tagged DEMO data.")
+                logger.warning("Upstream tickers unavailable. Demo mode active, returning tagged DEMO data.")
                 return [
-                    {"symbol": "BTCUSDT", "lastPrice": 88500.0, "priceChangePercent": 2.45, "quoteVolume": 2500000000, "market": market_clean, "is_demo": True},
-                    {"symbol": "ETHUSDT", "lastPrice": 3200.0, "priceChangePercent": 1.82, "quoteVolume": 1200000000, "market": market_clean, "is_demo": True},
-                    {"symbol": "SOLUSDT", "lastPrice": 215.0, "priceChangePercent": 5.14, "quoteVolume": 850000000, "market": market_clean, "is_demo": True},
+                    {"symbol": "BTCUSDT", "baseAsset": "BTC", "lastPrice": 88500.0, "priceChangePercent": 2.45, "quoteVolume": 2500000000, "market": market_clean, "is_demo": True},
+                    {"symbol": "ETHUSDT", "baseAsset": "ETH", "lastPrice": 3200.0, "priceChangePercent": 1.82, "quoteVolume": 1200000000, "market": market_clean, "is_demo": True},
+                    {"symbol": "SOLUSDT", "baseAsset": "SOL", "lastPrice": 215.0, "priceChangePercent": 5.14, "quoteVolume": 850000000, "market": market_clean, "is_demo": True},
                 ]
             err_msg = f"DATA_UNAVAILABLE: Failed to retrieve 24hr tickers for market '{market_clean}'. Last error: {last_error}"
             logger.error(err_msg)
@@ -290,21 +368,30 @@ class BinanceService:
             if not isinstance(t, dict):
                 continue
             sym = t.get("symbol", "")
-            if sym.endswith("USDT"):
-                try:
-                    symbols_list.append({
-                        "symbol": sym,
-                        "lastPrice": float(t.get("lastPrice", 0)),
-                        "priceChangePercent": float(t.get("priceChangePercent", 0)),
-                        "quoteVolume": float(t.get("quoteVolume", 0)),
-                        "market": market_clean,
-                        "source": f"BINANCE_{market_clean.upper()}",
-                        "is_demo": False
-                    })
-                except (ValueError, TypeError):
+            if not sym.endswith("USDT"):
+                continue
+            if allowed_map is not None and sym not in allowed_map:
+                continue
+
+            try:
+                last_price = float(t.get("lastPrice", 0))
+                if last_price <= 0:
                     continue
+                base_asset = allowed_map[sym] if allowed_map and sym in allowed_map else sym[:-4]
+                symbols_list.append({
+                    "symbol": sym,
+                    "baseAsset": base_asset,
+                    "lastPrice": last_price,
+                    "priceChangePercent": float(t.get("priceChangePercent", 0)),
+                    "quoteVolume": float(t.get("quoteVolume", 0)),
+                    "market": market_clean,
+                    "source": f"BINANCE_{market_clean.upper()}",
+                    "is_demo": False
+                })
+            except (ValueError, TypeError):
+                continue
 
         symbols_list.sort(key=lambda x: x["quoteVolume"], reverse=True)
-        return symbols_list[:80]
+        return symbols_list
 
 binance_service = BinanceService()

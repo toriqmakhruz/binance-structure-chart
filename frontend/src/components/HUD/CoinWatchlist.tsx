@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { fetchSymbols } from '../../services/api'
+import { WatchlistWsClient, TickerTick } from '../../services/binanceWs'
 import { formatPrice } from '../../utils/formatters'
 import {
   Search,
@@ -8,11 +9,14 @@ import {
   TrendingUp,
   TrendingDown,
   Coins,
-  X
+  X,
+  ArrowDown,
+  ArrowUp
 } from 'lucide-react'
 
 export interface SymbolTickerItem {
   symbol: string
+  baseAsset?: string
   lastPrice: number
   priceChangePercent: number
   quoteVolume: number
@@ -26,8 +30,11 @@ interface CoinWatchlistProps {
 }
 
 type WatchlistFilter = 'ALL' | 'FAV' | 'GAINERS' | 'LOSERS'
+type SortField = 'volume' | 'price' | 'change' | 'symbol'
+type SortDir = 'desc' | 'asc'
 
 const FAV_STORAGE_KEY = 'cp_watchlist_favorites'
+const MAX_UNFILTERED_ROWS = 180
 
 function readFavorites(): string[] {
   try {
@@ -40,6 +47,14 @@ function readFavorites(): string[] {
   }
 }
 
+function formatQuoteVolume(vol: number): string {
+  if (!Number.isFinite(vol) || vol <= 0) return '$0'
+  if (vol >= 1_000_000_000) return `$${(vol / 1_000_000_000).toFixed(2)}B`
+  if (vol >= 1_000_000) return `$${(vol / 1_000_000).toFixed(1)}M`
+  if (vol >= 1_000) return `$${(vol / 1_000).toFixed(0)}K`
+  return `$${vol.toFixed(0)}`
+}
+
 export const CoinWatchlist: React.FC<CoinWatchlistProps> = ({
   market,
   currentSymbol,
@@ -48,17 +63,29 @@ export const CoinWatchlist: React.FC<CoinWatchlistProps> = ({
 }) => {
   const [symbols, setSymbols] = useState<SymbolTickerItem[]>([])
   const [isLoading, setIsLoading] = useState<boolean>(false)
+  const [isWsConnected, setIsWsConnected] = useState<boolean>(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState<string>('')
   const [filter, setFilter] = useState<WatchlistFilter>('ALL')
+  const [sortField, setSortField] = useState<SortField>('volume')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [favorites, setFavorites] = useState<string[]>(() => readFavorites())
+
+  const prevPricesRef = useRef<Record<string, number>>({})
+  const flashDirRef = useRef<Record<string, { dir: 'up' | 'down'; expiresAt: number }>>({})
 
   const loadSymbols = useCallback(async (silent = false) => {
     if (!silent) setIsLoading(true)
     setErrorMsg(null)
     try {
       const data = await fetchSymbols(market)
-      setSymbols(Array.isArray(data) ? data : [])
+      const list = Array.isArray(data) ? data : []
+      for (const item of list) {
+        if (prevPricesRef.current[item.symbol] === undefined) {
+          prevPricesRef.current[item.symbol] = item.lastPrice
+        }
+      }
+      setSymbols(list)
     } catch (err: any) {
       setErrorMsg(err?.message || 'Gagal memuat daftar koin')
     } finally {
@@ -66,12 +93,93 @@ export const CoinWatchlist: React.FC<CoinWatchlistProps> = ({
     }
   }, [market])
 
-  // Fetch on mount / market change & refresh silently every 30s
+  // Fetch initial sorted list from backend & periodic resync every 60s
   useEffect(() => {
+    prevPricesRef.current = {}
+    flashDirRef.current = {}
     loadSymbols(false)
-    const timer = setInterval(() => loadSymbols(true), 30000)
+    const timer = setInterval(() => loadSymbols(true), 60000)
     return () => clearInterval(timer)
   }, [loadSymbols])
+
+  // Real-time Binance !ticker@arr WebSocket updates (~1s live ticks)
+  useEffect(() => {
+    const wsClient = new WatchlistWsClient(market, {
+      onStatusChange: (connected) => {
+        setIsWsConnected(connected)
+      },
+      onTickers: (batch: TickerTick[]) => {
+        if (!batch.length) return
+        const tickMap = new Map<string, TickerTick>()
+        const now = Date.now()
+
+        for (const t of batch) {
+          tickMap.set(t.s, t)
+          const prev = prevPricesRef.current[t.s]
+          if (prev !== undefined && t.c !== prev) {
+            flashDirRef.current[t.s] = {
+              dir: t.c > prev ? 'up' : 'down',
+              expiresAt: now + 900
+            }
+          }
+          prevPricesRef.current[t.s] = t.c
+        }
+
+        setSymbols((prevList) => {
+          if (prevList.length === 0) return prevList
+          let changed = false
+          const next = prevList.map((item) => {
+            const u = tickMap.get(item.symbol)
+            if (!u) return item
+            if (
+              u.c === item.lastPrice &&
+              u.P === item.priceChangePercent &&
+              u.q === item.quoteVolume
+            ) {
+              return item
+            }
+            changed = true
+            return {
+              ...item,
+              lastPrice: u.c,
+              priceChangePercent: u.P,
+              quoteVolume: u.q > 0 ? u.q : item.quoteVolume
+            }
+          })
+          return changed ? next : prevList
+        })
+      }
+    })
+
+    wsClient.connect()
+    return () => {
+      wsClient.disconnect()
+      setIsWsConnected(false)
+    }
+  }, [market])
+
+  const handleFilterChange = (nextFilter: WatchlistFilter) => {
+    setFilter(nextFilter)
+    if (nextFilter === 'GAINERS') {
+      setSortField('change')
+      setSortDir('desc')
+    } else if (nextFilter === 'LOSERS') {
+      setSortField('change')
+      setSortDir('asc')
+    } else if (filter === 'GAINERS' || filter === 'LOSERS') {
+      setSortField('volume')
+      setSortDir('desc')
+    }
+  }
+
+  const handleSortClick = (field: SortField) => {
+    if (sortField === field) {
+      setSortDir((prev) => (prev === 'desc' ? 'asc' : 'desc'))
+    } else {
+      setSortField(field)
+      setSortDir(field === 'symbol' ? 'asc' : 'desc')
+    }
+  }
 
   const toggleFavorite = (sym: string, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -92,13 +200,9 @@ export const CoinWatchlist: React.FC<CoinWatchlistProps> = ({
     if (filter === 'FAV') {
       list = list.filter((item) => favorites.includes(item.symbol))
     } else if (filter === 'GAINERS') {
-      list = [...list]
-        .filter((item) => item.priceChangePercent > 0)
-        .sort((a, b) => b.priceChangePercent - a.priceChangePercent)
+      list = list.filter((item) => item.priceChangePercent > 0)
     } else if (filter === 'LOSERS') {
-      list = [...list]
-        .filter((item) => item.priceChangePercent < 0)
-        .sort((a, b) => a.priceChangePercent - b.priceChangePercent)
+      list = list.filter((item) => item.priceChangePercent < 0)
     }
 
     const q = searchTerm.trim().toLowerCase()
@@ -106,8 +210,33 @@ export const CoinWatchlist: React.FC<CoinWatchlistProps> = ({
       list = list.filter((item) => item.symbol.toLowerCase().includes(q))
     }
 
-    return list
-  }, [symbols, filter, favorites, searchTerm])
+    const sorted = [...list].sort((a, b) => {
+      let cmp = 0
+      if (sortField === 'volume') {
+        cmp = a.quoteVolume - b.quoteVolume
+      } else if (sortField === 'price') {
+        cmp = a.lastPrice - b.lastPrice
+      } else if (sortField === 'change') {
+        cmp = a.priceChangePercent - b.priceChangePercent
+      } else {
+        cmp = a.symbol.localeCompare(b.symbol)
+      }
+      return sortDir === 'desc' ? -cmp : cmp
+    })
+
+    return q ? sorted : sorted.slice(0, MAX_UNFILTERED_ROWS)
+  }, [symbols, filter, favorites, searchTerm, sortField, sortDir])
+
+  const renderSortIcon = (field: SortField) => {
+    if (sortField !== field) return null
+    return sortDir === 'desc' ? (
+      <ArrowDown className="w-2.5 h-2.5 text-[#f0b90b] inline ml-0.5" />
+    ) : (
+      <ArrowUp className="w-2.5 h-2.5 text-[#f0b90b] inline ml-0.5" />
+    )
+  }
+
+  const nowTs = Date.now()
 
   return (
     <div className="w-full flex-1 flex flex-col overflow-hidden select-none text-xs">
@@ -117,12 +246,23 @@ export const CoinWatchlist: React.FC<CoinWatchlistProps> = ({
           <div className="flex items-center space-x-1.5 text-slate-300 font-bold uppercase tracking-wider text-[11px]">
             <Coins className="w-3.5 h-3.5 text-[#f0b90b]" />
             <span>Watchlist ({market.toUpperCase()})</span>
+            <span
+              title={isWsConnected ? 'Harga & Urutan Live Real-Time Binance' : 'Menyinkronkan Ticker...'}
+              className={`inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                isWsConnected
+                  ? 'bg-emerald-950/80 text-[#00c087] border border-emerald-800/60'
+                  : 'bg-slate-800 text-slate-400 border border-slate-700'
+              }`}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${isWsConnected ? 'bg-[#00c087] animate-pulse' : 'bg-slate-500'}`} />
+              <span>{isWsConnected ? 'LIVE' : 'SYNC'}</span>
+            </span>
           </div>
           <button
             type="button"
             onClick={() => loadSymbols(false)}
             disabled={isLoading}
-            title="Refresh harga pasar"
+            title="Refresh daftar koin"
             className="p-1 rounded text-slate-400 hover:text-white hover:bg-[#1e2533] transition-colors"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-[#f0b90b]' : ''}`} />
@@ -161,7 +301,7 @@ export const CoinWatchlist: React.FC<CoinWatchlistProps> = ({
             <button
               key={tab.key}
               type="button"
-              onClick={() => setFilter(tab.key as WatchlistFilter)}
+              onClick={() => handleFilterChange(tab.key as WatchlistFilter)}
               className={`py-1 rounded text-[10px] font-bold border transition-colors ${
                 filter === tab.key
                   ? 'bg-[#f0b90b]/15 text-[#f0b90b] border-[#f0b90b]/50'
@@ -174,11 +314,39 @@ export const CoinWatchlist: React.FC<CoinWatchlistProps> = ({
         </div>
       </div>
 
-      {/* 2. Column Headers (TradingView Watchlist Style) */}
+      {/* 2. Interactive Sortable Column Headers (Binance Watchlist Style) */}
       <div className="grid grid-cols-12 px-3 py-1.5 bg-[#0d1117] border-b border-[#21262d] text-[10px] font-bold uppercase tracking-wider text-slate-500 shrink-0">
-        <div className="col-span-5">Simbol</div>
-        <div className="col-span-4 text-right">Harga</div>
-        <div className="col-span-3 text-right">24j %</div>
+        <div className="col-span-5 flex items-center space-x-1.5">
+          <button
+            type="button"
+            onClick={() => handleSortClick('symbol')}
+            className={`hover:text-slate-200 transition-colors ${sortField === 'symbol' ? 'text-[#f0b90b]' : ''}`}
+          >
+            Simbol{renderSortIcon('symbol')}
+          </button>
+          <span className="text-slate-700">/</span>
+          <button
+            type="button"
+            onClick={() => handleSortClick('volume')}
+            className={`hover:text-slate-200 transition-colors ${sortField === 'volume' ? 'text-[#f0b90b]' : ''}`}
+          >
+            Vol{renderSortIcon('volume')}
+          </button>
+        </div>
+        <button
+          type="button"
+          onClick={() => handleSortClick('price')}
+          className={`col-span-4 text-right hover:text-slate-200 transition-colors ${sortField === 'price' ? 'text-[#f0b90b]' : ''}`}
+        >
+          Harga{renderSortIcon('price')}
+        </button>
+        <button
+          type="button"
+          onClick={() => handleSortClick('change')}
+          className={`col-span-3 text-right hover:text-slate-200 transition-colors ${sortField === 'change' ? 'text-[#f0b90b]' : ''}`}
+        >
+          24j %{renderSortIcon('change')}
+        </button>
       </div>
 
       {/* 3. Scrollable Coin List */}
@@ -210,8 +378,10 @@ export const CoinWatchlist: React.FC<CoinWatchlistProps> = ({
             const isFav = favorites.includes(item.symbol)
             const displayPrice = isSelected && currentPrice ? currentPrice : item.lastPrice
             const isPositive = item.priceChangePercent >= 0
-            const baseName = item.symbol.replace(/USDT$|BUSD$|USDC$/i, '')
+            const baseName = item.baseAsset || item.symbol.replace(/USDT$|BUSD$|USDC$/i, '')
             const quoteName = item.symbol.slice(baseName.length) || 'USDT'
+            const flash = flashDirRef.current[item.symbol]
+            const activeFlash = flash && flash.expiresAt > nowTs ? flash.dir : null
 
             return (
               <div
@@ -243,13 +413,21 @@ export const CoinWatchlist: React.FC<CoinWatchlistProps> = ({
                       <span className="font-mono text-[9px] text-slate-500">/{quoteName}</span>
                     </div>
                     <div className="text-[9px] text-slate-500 font-mono">
-                      Vol ${(item.quoteVolume / 1_000_000).toFixed(0)}M
+                      Vol {formatQuoteVolume(item.quoteVolume)}
                     </div>
                   </div>
                 </div>
 
-                {/* Last Price */}
-                <div className="col-span-4 text-right font-mono text-[11px] font-semibold text-slate-100 truncate">
+                {/* Last Price with live tick color feedback */}
+                <div
+                  className={`col-span-4 text-right font-mono text-[11px] font-semibold truncate transition-colors duration-300 ${
+                    activeFlash === 'up'
+                      ? 'text-[#00c087]'
+                      : activeFlash === 'down'
+                      ? 'text-[#f6465d]'
+                      : 'text-slate-100'
+                  }`}
+                >
                   ${formatPrice(displayPrice)}
                 </div>
 
