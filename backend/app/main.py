@@ -1,20 +1,38 @@
 import os
+import asyncio
 import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .api.routes import router as api_router
 from .api.websocket import ws_router
 from .api.trade_routes import trade_router
+from .api.telegram_routes import telegram_router
+from .services.telegram_service import telegram_service
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: Initialize background Telegram scanner
+    bg_task = asyncio.create_task(telegram_service.start_background_scanner())
+    telegram_service._scanner_task = bg_task
+    yield
+    # Shutdown: Cleanly cancel background scanner
+    telegram_service.stop_background_scanner()
+    try:
+        await bg_task
+    except asyncio.CancelledError:
+        pass
+
 app = FastAPI(
     title="Binance Crypto Structure & Forecasting API",
     description="Backend API for Smart Money Concepts (SMC), Pattern Recognition, Movement Dynamics, and Hybrid Forecasting.",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # Secure explicit CORS origins (Audit Section 6.2: do not use wildcard with credentials)
@@ -54,6 +72,7 @@ app.add_middleware(
 app.include_router(api_router)
 app.include_router(ws_router)
 app.include_router(trade_router)
+app.include_router(telegram_router)
 
 @app.get("/health")
 def health_check():

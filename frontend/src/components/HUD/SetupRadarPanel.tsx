@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
-import { fetchValidSetups, fetchOpenPositions } from '../../services/api'
+import { fetchValidSetups, fetchOpenPositions, fetchTelegramSettings } from '../../services/api'
 import { WatchlistWsClient, TickerTick } from '../../services/binanceWs'
 import { formatPrice } from '../../utils/formatters'
 import {
@@ -19,8 +19,11 @@ import {
   ArrowUpRight,
   Zap,
   CheckCircle2,
-  Activity
+  Activity,
+  Send
 } from 'lucide-react'
+
+import { TelegramAlertModal } from '../Settings/TelegramAlertModal'
 
 export interface ActivePositionBadgeInfo {
   symbol: string
@@ -107,6 +110,19 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
   onOpenTrade
 }) => {
   const [setups, setSetups] = useState<ValidSetupItem[]>([])
+  const [isTelegramModalOpen, setIsTelegramModalOpen] = useState(false)
+  const [isTelegramEnabled, setIsTelegramEnabled] = useState(false)
+
+  const checkTelegramStatus = useCallback(() => {
+    fetchTelegramSettings().then(cfg => {
+      if (cfg) setIsTelegramEnabled(Boolean(cfg.enabled && cfg.has_token && cfg.chat_id))
+    }).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    checkTelegramStatus()
+  }, [checkTelegramStatus])
+
   const [activePositions, setActivePositions] = useState<Map<string, ActivePositionBadgeInfo>>(new Map())
   const [scannedCount, setScannedCount] = useState<number>(24)
   const [isLoading, setIsLoading] = useState<boolean>(false)
@@ -422,18 +438,33 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
             </span>
           </div>
 
-          <button
-            type="button"
-            onClick={() => {
-              loadSetups(true, false)
-              loadActivePositions()
-            }}
+          <div className="flex items-center space-x-1">
+            <button
+              type="button"
+              onClick={() => setIsTelegramModalOpen(true)}
+              title={isTelegramEnabled ? "Notifikasi Telegram Aktif (Klik untuk ubah)" : "Atur Notifikasi Telegram"}
+              className={`p-1 rounded transition-colors flex items-center gap-1 ${
+                isTelegramEnabled
+                  ? 'text-[#0088cc] hover:bg-[#0088cc]/10'
+                  : 'text-slate-400 hover:text-white hover:bg-[#1e2533]'
+              }`}
+            >
+              <Send className="w-3.5 h-3.5" />
+              {isTelegramEnabled && <span className="w-1.5 h-1.5 rounded-full bg-[#0088cc] animate-pulse" />}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                loadSetups(true, false)
+                loadActivePositions()
+              }}
             disabled={isLoading}
             title="Pindai ulang setup & sinkronkan posisi"
             className="p-1 rounded text-slate-400 hover:text-white hover:bg-[#1e2533] transition-colors"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-[#f0b90b]' : ''}`} />
           </button>
+          </div>
         </div>
 
         <p className="text-[10px] text-slate-400 leading-relaxed">
@@ -687,6 +718,12 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
           })
         )}
       </div>
+    
+      <TelegramAlertModal
+        isOpen={isTelegramModalOpen}
+        onClose={() => setIsTelegramModalOpen(false)}
+        onSaved={checkTelegramStatus}
+      />
     </div>
   )
 }

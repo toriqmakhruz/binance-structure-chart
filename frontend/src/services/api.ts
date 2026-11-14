@@ -368,3 +368,55 @@ export async function clearTradeHistory(): Promise<{ success: boolean; message?:
     return { success: false, message: err?.message || 'Gagal membersihkan riwayat trade' }
   }
 }
+
+
+export interface TelegramSettings {
+  enabled: boolean
+  bot_token?: string
+  bot_token_masked?: string
+  has_token?: boolean
+  chat_id: string
+  min_rr: number
+  market: 'spot' | 'futures'
+  timeframe: string
+  scan_interval_seconds: number
+  min_confluence_score: number
+  is_running?: boolean
+}
+
+export async function fetchTelegramSettings(): Promise<TelegramSettings | null> {
+  try {
+    const resp = await fetch(`${API_BASE}/telegram/settings`)
+    if (!resp.ok) return null
+    return await resp.json()
+  } catch (err) {
+    console.error('Failed to fetch Telegram settings:', err)
+    return null
+  }
+}
+
+export async function saveTelegramSettings(settings: Partial<TelegramSettings>): Promise<{ status: string; message: string; data?: TelegramSettings }> {
+  const resp = await fetch(`${API_BASE}/telegram/settings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings)
+  })
+  const data = await resp.json()
+  if (!resp.ok) {
+    throw new Error(data?.detail || 'Gagal menyimpan pengaturan Telegram')
+  }
+  return data
+}
+
+export async function testTelegramNotification(params: { bot_token?: string; chat_id?: string }): Promise<{ status: string; message: string }> {
+  const resp = await fetch(`${API_BASE}/telegram/test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params)
+  })
+  const data = await resp.json()
+  if (!resp.ok) {
+    throw new Error(data?.detail || 'Gagal mengirim pesan uji coba Telegram')
+  }
+  return data
+}
