@@ -6,6 +6,8 @@ import { LayerToggles } from './components/Chart/LayerToggles'
 import { ChartContainer } from './components/Chart/ChartContainer'
 import { RightSidebar } from './components/HUD/RightSidebar'
 import { SettingsDrawer } from './components/Settings/SettingsDrawer'
+import { TelegramAlertModal } from './components/Settings/TelegramAlertModal'
+import { fetchTelegramSettings } from './services/api'
 import { OpenPositionModal, SetupTradeTarget } from './components/Trade/OpenPositionModal'
 import { TradingDashboardDrawer } from './components/Trade/TradingDashboardDrawer'
 import { ToastNotification, ToastData } from './components/UI/ToastNotification'
@@ -125,6 +127,19 @@ export function App() {
   // Modals / Drawers
   const [isSymbolModalOpen, setIsSymbolModalOpen] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [isTelegramModalOpen, setIsTelegramModalOpen] = useState(false)
+  const [isTelegramActive, setIsTelegramActive] = useState(false)
+
+  const checkTelegramStatus = useCallback(() => {
+    fetchTelegramSettings().then(cfg => {
+      if (cfg) setIsTelegramActive(Boolean(cfg.enabled && cfg.has_token && cfg.chat_id))
+    }).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    checkTelegramStatus()
+  }, [checkTelegramStatus])
+
   const [isTradeModalOpen, setIsTradeModalOpen] = useState(false)
   const [selectedTradeTarget, setSelectedTradeTarget] = useState<SetupTradeTarget | null>(null)
   const [isDashboardDrawerOpen, setIsDashboardDrawerOpen] = useState(false)
@@ -589,6 +604,8 @@ export function App() {
         onLayoutChange={(l) => setLayout(l)}
         onRefresh={() => loadAnalysis(symbol, timeframe, market, settings)}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenTelegram={() => setIsTelegramModalOpen(true)}
+        isTelegramActive={isTelegramActive}
         onOpenTrade={handleOpenTrade}
         isSetupLocked={Boolean(currentLockedSetup)}
         onUnlockSetup={() => unlockSetup(symbol, 'Kunci box setup chart dilepas manual.')}
@@ -685,6 +702,12 @@ export function App() {
         onSelectSymbol={handleSelectSymbol}
       />
 
+      {/* Telegram Alert Modal */}
+      <TelegramAlertModal
+        isOpen={isTelegramModalOpen}
+        onClose={() => setIsTelegramModalOpen(false)}
+        onSaved={checkTelegramStatus}
+      />
       {/* Settings Drawer */}
       <SettingsDrawer
         isOpen={isSettingsOpen}

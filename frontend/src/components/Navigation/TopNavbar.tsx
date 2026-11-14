@@ -1,6 +1,7 @@
 import React from 'react'
 import { 
-  TrendingUp, 
+  TrendingUp,
+  Send, 
   Settings as SettingsIcon, 
   RefreshCw, 
   LayoutGrid, 
@@ -35,6 +36,8 @@ interface TopNavbarProps {
   onLayoutChange: (l: 'single' | 'split-vertical' | 'split-horizontal' | 'grid-4') => void
   onRefresh: () => void
   onOpenSettings: () => void
+  onOpenTelegram?: () => void
+  isTelegramActive?: boolean
   onOpenTrade?: (setup: any) => void
   isSetupLocked?: boolean
   onUnlockSetup?: () => void
@@ -60,6 +63,8 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
   onLayoutChange,
   onRefresh,
   onOpenSettings,
+  onOpenTelegram,
+  isTelegramActive = false,
   onOpenTrade,
   isSetupLocked = false,
   onUnlockSetup
@@ -295,6 +300,25 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
         >
           <RefreshCw className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isLoading ? 'animate-spin text-[#f0b90b]' : ''}`} />
         </button>
+
+        {/* Telegram Alert Settings Button */}
+        {onOpenTelegram && (
+          <button
+            type="button"
+            onClick={onOpenTelegram}
+            title={isTelegramActive ? "Notifikasi Telegram Aktif (Klik untuk ubah)" : "Atur Notifikasi Telegram"}
+            className={`p-1.5 md:p-2 rounded-lg transition-all border flex items-center gap-1.5 ${
+              isTelegramActive
+                ? 'bg-[#0088cc]/15 text-[#0088cc] border-[#0088cc]/50 shadow-sm'
+                : 'bg-[#1a202c] hover:bg-[#252d3d] text-slate-300 hover:text-[#0088cc] border-[#2d3748]'
+            }`}
+          >
+            <Send className="w-3.5 h-3.5 md:w-4 md:h-4" />
+            {isTelegramActive && (
+              <span className="w-1.5 h-1.5 rounded-full bg-[#0088cc] animate-pulse" />
+            )}
+          </button>
+        )}
 
         {/* Settings Drawer Button */}
         <button
