@@ -112,7 +112,7 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
   const badge = getBadgeConfig()
 
     return (
-    <header className="h-12 md:h-14 bg-[#111620] border-b border-[#21262d] flex items-center justify-between px-2 md:px-3 z-30 select-none overflow-x-hidden">
+    <header className="h-12 md:h-14 shrink-0 bg-[#111620] border-b border-[#21262d] flex items-center justify-between px-2 md:px-3 z-30 select-none overflow-x-hidden">
       {/* Left: Branding & Symbol Search */}
       <div className="flex items-center space-x-1.5 md:space-x-3 shrink-0">
         <div className="flex items-center space-x-1.5 md:space-x-2 mr-0.5 md:mr-2">

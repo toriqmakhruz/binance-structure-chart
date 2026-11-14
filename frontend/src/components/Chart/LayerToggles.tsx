@@ -38,7 +38,7 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
   ]
 
   return (
-    <div className="h-9 bg-[#111620]/90 backdrop-blur border-b border-[#21262d] flex items-center px-3 space-x-1 overflow-x-auto select-none text-xs">
+    <div className="h-9 shrink-0 bg-[#111620]/90 backdrop-blur border-b border-[#21262d] flex items-center px-3 space-x-1 overflow-x-auto select-none text-xs">
       <span className="text-slate-500 font-semibold text-[11px] uppercase mr-1 tracking-wider">
         LAYERS:
       </span>

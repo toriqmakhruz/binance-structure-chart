@@ -600,7 +600,7 @@ export function App() {
   }, [symbol, market, lastCandle?.close, lastCandle?.time, lockSetup])
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-[#0b0e14] text-slate-100 overflow-hidden">
+    <div className="flex flex-col h-full h-[100dvh] max-h-[100dvh] w-full overflow-hidden bg-[#0b0e14] text-slate-100 select-none">
       {/* 1. Top Navbar */}
       <TopNavbar
         symbol={symbol}
@@ -635,7 +635,7 @@ export function App() {
       />
 
       {/* 3. Main Workspace */}
-      <div className="flex flex-1 w-full overflow-hidden relative">
+      <div className="flex flex-1 w-full min-h-0 overflow-hidden relative">
         {/* Left: Drawing Toolbar */}
         <DrawingToolbar
           activeTool={activeTool}
@@ -645,8 +645,8 @@ export function App() {
         />
 
         {/* Center: Interactive Chart Workspace with Bottom Trading Dashboard */}
-        <main className="flex-1 h-full relative overflow-hidden bg-[#0b0e14] flex flex-col">
-          <div className="flex-1 w-full h-full relative overflow-hidden">
+        <main className="flex-1 h-full min-h-0 relative overflow-hidden bg-[#0b0e14] flex flex-col">
+          <div className="flex-1 w-full h-full min-h-0 relative overflow-hidden">
             <ChartContainer
               symbol={symbol}
               timeframe={timeframe}

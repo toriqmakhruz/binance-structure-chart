@@ -3,6 +3,18 @@
 @tailwind utilities;
 
 @layer base {
+  html, body, #root {
+    height: 100%;
+    height: 100dvh;
+    max-height: 100dvh;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
   body {
     @apply bg-[#0b0e14] text-slate-100 font-sans antialiased;
   }
@@ -25,4 +37,10 @@
 
 ::-webkit-scrollbar-thumb:hover {
   background: #3b465c;
+}
+
+/* Firefox scrollbar support */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #252d3d #111620;
 }

@@ -316,7 +316,7 @@ export const PositionCalculator: React.FC<PositionCalculatorProps> = ({
   }
 
   return (
-    <div className="w-full flex-1 flex flex-col overflow-y-auto select-none divide-y divide-[#21262d] text-xs">
+    <div className="w-full flex-1 min-h-0 flex flex-col overflow-y-auto overscroll-contain touch-pan-y select-none divide-y divide-[#21262d] text-xs pb-24">
       {/* 1. Sync Status & Direction Header */}
       <div className="p-3.5 bg-gradient-to-b from-[#161d2b] to-[#111620] space-y-2.5">
         <div className="flex items-center justify-between">

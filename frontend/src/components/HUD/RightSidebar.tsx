@@ -236,7 +236,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
         onClick={() => setIsOpen(false)}
       />
 
-      <aside className="fixed inset-y-0 right-0 z-50 w-full sm:w-85 max-w-[85vw] md:relative md:inset-auto md:z-20 md:w-80 md:max-w-none bg-[#111620] border-l border-[#21262d] flex flex-col h-full shrink-0 overflow-hidden shadow-2xl md:shadow-none animate-in slide-in-from-right duration-200 md:animate-none">
+      <aside className="fixed inset-y-0 right-0 z-50 w-full sm:w-85 max-w-[85vw] md:relative md:inset-auto md:z-20 md:w-80 md:max-w-none bg-[#111620] border-l border-[#21262d] flex flex-col h-full min-h-0 shrink-0 overflow-hidden shadow-2xl md:shadow-none animate-in slide-in-from-right duration-200 md:animate-none">
       {/* Sidebar Navigation Bar + Collapse Toggle */}
       <div className="flex items-center justify-between px-1 py-1.5 bg-[#0d1117] border-b border-[#21262d] shrink-0">
         <div className="grid grid-cols-5 gap-0.5 flex-1 mr-1">
@@ -321,7 +321,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
 
       {/* Tab Content */}
       {activeTab === 'index' && (
-        <div className="flex-1 flex flex-col overflow-hidden [&>aside]:w-full [&>aside]:border-l-0 [&>aside]:flex-1 [&>aside]:h-full">
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
           <ConfluenceSidebar
             movement={movement}
             smc={smc}
@@ -333,47 +333,55 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
       )}
 
       {activeTab === 'setup' && (
-        <SetupRadarPanel
-          symbol={symbol}
-          timeframe={timeframe}
-          market={market}
-          settings={settings}
-          forecast={forecast}
-          currentPrice={currentPrice}
-          lockedSetups={lockedSetups}
-          onSelectSymbol={onSelectSymbol}
-          onOpenTrade={onOpenTrade}
-        />
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+          <SetupRadarPanel
+            symbol={symbol}
+            timeframe={timeframe}
+            market={market}
+            settings={settings}
+            forecast={forecast}
+            currentPrice={currentPrice}
+            lockedSetups={lockedSetups}
+            onSelectSymbol={onSelectSymbol}
+            onOpenTrade={onOpenTrade}
+          />
+        </div>
       )}
 
       {activeTab === 'positions' && (
-        <PositionsSidebarPanel
-          currentSymbol={symbol}
-          market={market}
-          onSelectSymbol={onSelectSymbol}
-          onOpenTradeModal={() => onOpenTrade?.({ symbol, market, direction: 'LONG', entry_price: currentPrice || 0 })}
-          onPositionClosed={onPositionClosed}
-        />
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+          <PositionsSidebarPanel
+            currentSymbol={symbol}
+            market={market}
+            onSelectSymbol={onSelectSymbol}
+            onOpenTradeModal={() => onOpenTrade?.({ symbol, market, direction: 'LONG', entry_price: currentPrice || 0 })}
+            onPositionClosed={onPositionClosed}
+          />
+        </div>
       )}
 
       {activeTab === 'calculator' && (
-        <PositionCalculator
-          symbol={symbol}
-          market={market}
-          candles={candles}
-          forecast={forecast}
-          currentPrice={currentPrice}
-          onOpenTrade={onOpenTrade}
-        />
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+          <PositionCalculator
+            symbol={symbol}
+            market={market}
+            candles={candles}
+            forecast={forecast}
+            currentPrice={currentPrice}
+            onOpenTrade={onOpenTrade}
+          />
+        </div>
       )}
 
       {activeTab === 'watchlist' && (
-        <CoinWatchlist
-          market={market}
-          currentSymbol={symbol}
-          currentPrice={currentPrice}
-          onSelectSymbol={onSelectSymbol}
-        />
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+          <CoinWatchlist
+            market={market}
+            currentSymbol={symbol}
+            currentPrice={currentPrice}
+            onSelectSymbol={onSelectSymbol}
+          />
+        </div>
       )}
     </aside>
     </>

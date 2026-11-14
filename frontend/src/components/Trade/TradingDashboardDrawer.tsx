@@ -517,7 +517,7 @@ export const TradingDashboardDrawer: React.FC<TradingDashboardDrawerProps> = ({
 
       {/* 2. Expandable Panel Drawer Content */}
       {isOpen && (
-        <div className="h-56 overflow-y-auto bg-[#0a0e17] text-slate-200">
+        <div className="h-56 max-h-[35vh] overflow-y-auto overscroll-contain touch-pan-y bg-[#0a0e17] text-slate-200 pb-10">
           {/* TAB 1: Open Positions Table */}
           {activeTab === 'positions' && (
             (() => {

@@ -418,7 +418,7 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
   }, [dirFilter, combinedSetups, inPositionSetups, activePositions])
 
   return (
-    <div className="w-full flex-1 flex flex-col overflow-hidden select-none text-xs">
+    <div className="w-full flex-1 min-h-0 flex flex-col overflow-hidden select-none text-xs">
       {/* 1. Header */}
       <div className="p-3 bg-[#131823] border-b border-[#21262d] space-y-2 shrink-0">
         <div className="flex items-center justify-between">
@@ -525,7 +525,7 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
       </div>
 
       {/* 2. Scrollable Valid Setup Cards */}
-      <div className="flex-1 overflow-y-auto p-2.5 space-y-2">
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain touch-pan-y p-2.5 pb-24 space-y-2">
         {isLoading && setups.length === 0 ? (
           <div className="p-6 text-center space-y-2 text-slate-400 text-[11px]">
             <RefreshCw className="w-5 h-5 animate-spin text-[#f0b90b] mx-auto" />

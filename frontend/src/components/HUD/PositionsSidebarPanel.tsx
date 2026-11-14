@@ -169,7 +169,7 @@ export const PositionsSidebarPanel: React.FC<PositionsSidebarPanelProps> = ({
   }
 
   return (
-    <div className="w-full flex-1 flex flex-col overflow-hidden select-none text-xs">
+    <div className="w-full flex-1 min-h-0 flex flex-col overflow-hidden select-none text-xs">
       {/* 1. Header Bar */}
       <div className="p-3 bg-[#131823] border-b border-[#21262d] space-y-2 shrink-0">
         <div className="flex items-center justify-between">
@@ -274,7 +274,7 @@ export const PositionsSidebarPanel: React.FC<PositionsSidebarPanelProps> = ({
       })()}
 
       {/* 2. Scrollable Body: Position & Order Cards */}
-      <div className="flex-1 overflow-y-auto p-2.5 space-y-3">
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain touch-pan-y p-2.5 pb-24 space-y-3">
         {/* SECTION A: Positions */}
         <div className="space-y-1.5">
           <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 uppercase tracking-wider px-1">

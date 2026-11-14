@@ -37,10 +37,10 @@ export const ConfluenceSidebar: React.FC<ConfluenceSidebarProps> = ({
 }) => {
   if (!movement) {
     return (
-      <aside className="w-80 bg-[#111620] border-l border-[#21262d] p-4 flex flex-col justify-center items-center text-slate-500 text-sm">
+      <div className="w-full flex-1 min-h-0 bg-[#111620] p-4 flex flex-col justify-center items-center text-slate-500 text-sm">
         <Activity className="w-8 h-8 animate-pulse text-slate-600 mb-2" />
         <span>Menunggu data analisa...</span>
-      </aside>
+      </div>
     )
   }
 
@@ -65,7 +65,7 @@ export const ConfluenceSidebar: React.FC<ConfluenceSidebarProps> = ({
   const sellPct = 100 - buyPct
 
   return (
-    <aside className="w-80 bg-[#111620] border-l border-[#21262d] flex flex-col h-full overflow-y-auto select-none divide-y divide-[#21262d] text-xs">
+    <div className="w-full flex-1 min-h-0 bg-[#111620] flex flex-col overflow-y-auto overscroll-contain touch-pan-y select-none divide-y divide-[#21262d] text-xs pb-24">
       {/* 1. Confluence Index Header */}
       <div className="p-4 bg-gradient-to-b from-[#161d2b] to-[#111620]">
         <div className="flex items-center justify-between mb-2">
@@ -293,6 +293,6 @@ export const ConfluenceSidebar: React.FC<ConfluenceSidebarProps> = ({
           })}
         </div>
       )}
-    </aside>
+    </div>
   )
 }

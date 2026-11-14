@@ -239,7 +239,7 @@ export const CoinWatchlist: React.FC<CoinWatchlistProps> = ({
   const nowTs = Date.now()
 
   return (
-    <div className="w-full flex-1 flex flex-col overflow-hidden select-none text-xs">
+    <div className="w-full flex-1 min-h-0 flex flex-col overflow-hidden select-none text-xs">
       {/* 1. Header & Search */}
       <div className="p-3 bg-[#131823] border-b border-[#21262d] space-y-2 shrink-0">
         <div className="flex items-center justify-between">
@@ -350,7 +350,7 @@ export const CoinWatchlist: React.FC<CoinWatchlistProps> = ({
       </div>
 
       {/* 3. Scrollable Coin List */}
-      <div className="flex-1 overflow-y-auto divide-y divide-[#1a202c]">
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain touch-pan-y divide-y divide-[#1a202c] pb-24">
         {isLoading && symbols.length === 0 ? (
           <div className="p-6 text-center text-slate-400 text-[11px]">
             Memuat daftar koin Binance...
