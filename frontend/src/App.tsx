@@ -442,19 +442,9 @@ export function App() {
               }
             }
 
-            // B. Only remove setups matching THIS specific market & mode that are confirmed closed (with 10s grace period)
-            const now = Date.now()
-            for (const symKey of Object.keys(next)) {
-              const setup = next[symKey]
-              const setupMarket = setup.market || 'futures'
-              const setupMode = setup.mode || 'demo'
-              const ageMs = now - (setup.created_at || 0)
-
-              if (setupMarket === market && setupMode === mode && ageMs > 10000 && !activeSyms.has(symKey.toUpperCase())) {
-                delete next[symKey]
-                changed = true
-              }
-            }
+            // B. Box tetap terkunci aman dan tidak dihapus sembarangan oleh timer 10 detik.
+            // Pelepasan kunci (unlock) hanya dilakukan ketika posisi ditutup di dashboard,
+            // menyentuh target TP/SL, atau dilepas manual oleh user via tombol buka kunci di TopNavbar.
 
             if (changed) {
               writeStorage('cp_locked_trade_setups', next)
@@ -566,22 +556,48 @@ export function App() {
 
   const handleOpenTrade = useCallback((setup: any) => {
     if (!setup) return
-    setSelectedTradeTarget({
-      symbol: setup.symbol || symbol,
+    const symUpper = String(setup.symbol || symbol).toUpperCase()
+    const targetEntry = Number(setup.entry_price || lastCandle?.close || 0)
+    const targetDir = (setup.direction || 'LONG') as 'LONG' | 'SHORT'
+    const targetSl = Number(setup.invalidation_price || (targetDir === 'LONG' ? targetEntry * 0.985 : targetEntry * 1.015))
+    const targetTp = Number(setup.target_price || (targetDir === 'LONG' ? targetEntry * 1.03 : targetEntry * 0.97))
+    const targetRr = Number(setup.risk_reward_ratio || 2.0)
+    const targetConf = Number(setup.confluence_score || setup.confluence_weight || 90)
+
+    // KUNCI BOX SETUP SEKETIKA saat tombol Open Posisi ditekan
+    // Mencegah box bergeser / hilang saat analisa dinamis background berjalan
+    lockSetup({
+      symbol: symUpper,
       market: setup.market || market,
-      direction: setup.direction || 'LONG',
+      mode: (localStorage.getItem('cp_trade_active_mode') === 'live') ? 'live' : 'demo',
+      direction: targetDir,
+      name: setup.name || 'Setup Posisi Terpilih',
+      entry_price: targetEntry,
+      invalidation_price: targetSl,
+      target_price: targetTp,
+      risk_reward_ratio: targetRr,
+      confluence_score: targetConf,
+      entry_time: setup.entry_time || lastCandle?.time || Math.floor(Date.now() / 1000),
+      status: 'ACTIVE',
+      created_at: Date.now()
+    })
+
+    setSelectedTradeTarget({
+      symbol: symUpper,
+      market: setup.market || market,
+      direction: targetDir,
       name: setup.name,
-      entry_price: setup.entry_price || lastCandle?.close || 0,
-      invalidation_price: setup.invalidation_price || 0,
-      target_price: setup.target_price || 0,
-      risk_reward_ratio: setup.risk_reward_ratio,
-      confluence_score: setup.confluence_score || setup.confluence_weight,
+      entry_price: targetEntry,
+      invalidation_price: targetSl,
+      target_price: targetTp,
+      risk_reward_ratio: targetRr,
+      confluence_score: targetConf,
       planned_risk: setup.planned_risk,
       planned_risk_mode: setup.planned_risk_mode,
       planned_leverage: setup.planned_leverage
     })
     setIsTradeModalOpen(true)
-  }, [symbol, market, lastCandle?.close])
+  }, [symbol, market, lastCandle?.close, lastCandle?.time, lockSetup])
 
   return (
     <div className="flex flex-col h-screen w-screen bg-[#0b0e14] text-slate-100 overflow-hidden">
