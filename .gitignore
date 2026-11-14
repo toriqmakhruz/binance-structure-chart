@@ -48,3 +48,6 @@ binance_chart_deploy.tar.gz
 # Local data & paper trading storage
 data/
 *.json.bak
+
+graphify-out/
+
