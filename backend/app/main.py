@@ -50,7 +50,11 @@ allowed_origins = [
     "http://38.47.191.164:3050",
     "http://38.47.191.164:8050",
     "http://38.47.191.164:3000",
-    "http://38.47.191.164:8000"
+    "http://38.47.191.164:8000",
+    "http://202.134.242.16:3050",
+    "http://202.134.242.16:8050",
+    "http://202.134.242.16:3000",
+    "http://202.134.242.16:8000"
 ]
 
 cors_env = os.getenv("CORS_ORIGINS")
@@ -63,7 +67,7 @@ if cors_env:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|38\.47\.191\.164)(:\d+)?",
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|38\.47\.191\.164|202\.134\.242\.16)(:\d+)?",
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
