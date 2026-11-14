@@ -373,6 +373,12 @@ async def get_valid_setups(
                 reverse=True
             )
             _SETUPS_SCAN_CACHE[cache_key] = (time.time() + _SETUPS_CACHE_TTL_SECONDS, valid_setups)
+            try:
+                from ..services.telegram_service import telegram_service
+                if valid_setups and telegram_service.settings.get("enabled"):
+                    asyncio.create_task(telegram_service.notify_new_setups_from_radar(valid_setups))
+            except Exception as _tg_err:
+                logger.debug(f"Telegram dispatch from radar ignored: {_tg_err}")
             return {
                 "market": market,
                 "timeframe": tf_clean,

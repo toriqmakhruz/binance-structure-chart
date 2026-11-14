@@ -1,16 +1,13 @@
 import React, { useState, useEffect } from 'react'
 import {
   Send,
-  Bell,
   CheckCircle2,
   XCircle,
   RefreshCw,
   X,
   Eye,
   EyeOff,
-  HelpCircle,
-  ExternalLink,
-  ShieldAlert
+  HelpCircle
 } from 'lucide-react'
 import {
   fetchTelegramSettings,
@@ -76,19 +73,14 @@ export const TelegramAlertModal: React.FC<TelegramAlertModalProps> = ({
     try {
       const payload: Partial<TelegramSettings> = {
         enabled: form.enabled,
-        chat_id: form.chat_id,
-        min_rr: Number(form.min_rr),
-        market: form.market,
-        timeframe: form.timeframe,
-        scan_interval_seconds: Number(form.scan_interval_seconds)
+        chat_id: form.chat_id.trim()
       }
-      // Only include bot_token if user edited it and it is not the masked placeholder
       if (form.bot_token && !form.bot_token.includes('...')) {
         payload.bot_token = form.bot_token.trim()
       }
 
       const res = await saveTelegramSettings(payload)
-      setStatusMsg({ type: 'success', text: res.message || 'Pengaturan berhasil disimpan!' })
+      setStatusMsg({ type: 'success', text: res.message || 'Pengaturan notifikasi berhasil disimpan!' })
       if (res.data) {
         setForm((prev) => ({
           ...prev,
@@ -123,7 +115,7 @@ export const TelegramAlertModal: React.FC<TelegramAlertModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-150">
-      <div className="relative w-full max-w-lg bg-[#161b22] border border-[#30363d] rounded-2xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden text-slate-200">
+      <div className="relative w-full max-w-md bg-[#161b22] border border-[#30363d] rounded-2xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden text-slate-200">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#21262d] bg-[#0d1117]/80">
           <div className="flex items-center space-x-3">
@@ -132,7 +124,7 @@ export const TelegramAlertModal: React.FC<TelegramAlertModalProps> = ({
             </div>
             <div>
               <h3 className="text-base font-bold text-white flex items-center gap-2">
-                Notifikasi Telegram Setup Radar
+                Notifikasi Telegram Setup
                 {form.enabled ? (
                   <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
                     Aktif
@@ -143,7 +135,7 @@ export const TelegramAlertModal: React.FC<TelegramAlertModalProps> = ({
                   </span>
                 )}
               </h3>
-              <p className="text-xs text-slate-400">Kirim sinyal pola & entry A+ real-time ke akun Telegram Anda</p>
+              <p className="text-xs text-slate-400">Info otomatis setiap ada setup baru muncul di tab Radar</p>
             </div>
           </div>
           <button
@@ -175,14 +167,14 @@ export const TelegramAlertModal: React.FC<TelegramAlertModalProps> = ({
           )}
 
           {/* Master Enable Toggle */}
-          <div className="p-3.5 rounded-xl bg-[#0d1117] border border-[#30363d] flex items-center justify-between">
+          <div className="p-4 rounded-xl bg-[#0d1117] border border-[#30363d] flex items-center justify-between">
             <div>
-              <div className="font-semibold text-white text-sm">Aktifkan Notifikasi Otomatis</div>
-              <div className="text-slate-400 text-[11px]">
-                Bot akan memantau pasar di latar belakang dan mengirimkan pesan setiap ada setup valid baru.
+              <div className="font-semibold text-white text-sm">Aktifkan Notifikasi Telegram</div>
+              <div className="text-slate-400 text-[11px] mt-0.5">
+                Setiap kali setup baru muncul di tab Setup Radar, infokan langsung ke Telegram.
               </div>
             </div>
-            <label className="relative inline-flex items-center cursor-pointer">
+            <label className="relative inline-flex items-center cursor-pointer ml-3">
               <input
                 type="checkbox"
                 checked={form.enabled}
@@ -205,7 +197,7 @@ export const TelegramAlertModal: React.FC<TelegramAlertModalProps> = ({
                   className="text-[#0088cc] hover:underline flex items-center gap-1 text-[11px]"
                 >
                   <HelpCircle className="w-3.5 h-3.5" />
-                  Cara dapatkan Token & Chat ID
+                  Cara dapat Token & Chat ID
                 </button>
               </div>
               <div className="relative">
@@ -230,20 +222,20 @@ export const TelegramAlertModal: React.FC<TelegramAlertModalProps> = ({
             {showGuide && (
               <div className="p-3.5 rounded-xl bg-[#0088cc]/10 border border-[#0088cc]/20 text-slate-300 space-y-2 text-[11px] leading-relaxed">
                 <div className="font-semibold text-[#0088cc] flex items-center gap-1.5">
-                  <Send className="w-3.5 h-3.5" /> Panduan Singkat (Hanya 1 Menit):
+                  <Send className="w-3.5 h-3.5" /> Panduan Singkat (1 Menit):
                 </div>
-                <ol className="list-decimal list-inside space-y-1 text-slate-300">
+                <ol className="list-decimal list-inside space-y-1.5 text-slate-300">
                   <li>
-                    Buka Telegram dan cari akun resmi <b>@BotFather</b>.
+                    Buka Telegram, cari akun resmi <b>@BotFather</b> lalu ketik <code>/newbot</code>.
                   </li>
                   <li>
-                    Kirim pesan <code>/newbot</code>, beri nama bot Anda, lalu Anda akan menerima <b>Bot Token</b>.
+                    Beri nama bot Anda, lalu BotFather akan memberikan <b>Bot Token</b>.
                   </li>
                   <li>
-                    Buka bot yang baru dibuat tersebut lalu tekan <b>START</b> agar bot bisa mengirim pesan ke Anda.
+                    Buka bot yang baru dibuat tersebut dan tekan tombol <b>START</b>.
                   </li>
                   <li>
-                    Cari akun <b>@userinfobot</b> di Telegram untuk melihat <b>ID</b> akun Anda (Chat ID berupa angka).
+                    Cari akun <b>@userinfobot</b> di Telegram untuk melihat <b>ID</b> akun Anda (Chat ID).
                   </li>
                 </ol>
               </div>
@@ -251,7 +243,7 @@ export const TelegramAlertModal: React.FC<TelegramAlertModalProps> = ({
 
             {/* Telegram Chat ID */}
             <div>
-              <label className="block font-semibold text-slate-300 mb-1.5">Telegram Chat ID / Channel ID</label>
+              <label className="block font-semibold text-slate-300 mb-1.5">Telegram Chat ID</label>
               <input
                 type="text"
                 placeholder="Contoh: 123456789 atau -100123456789"
@@ -260,74 +252,8 @@ export const TelegramAlertModal: React.FC<TelegramAlertModalProps> = ({
                 className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-[#0088cc] transition-colors"
               />
               <p className="text-[10px] text-slate-500 mt-1">
-                Bisa ID akun pribadi atau ID Channel/Grup (pastikan bot sudah dijadikan Admin di grup/channel).
+                Bisa ID akun pribadi Anda atau ID Grup/Channel (jika grup/channel, pastikan bot sudah dimasukkan sebagai Admin).
               </p>
-            </div>
-
-            {/* Filter Setup Settings */}
-            <div className="grid grid-cols-2 gap-3 pt-2">
-              <div>
-                <label className="block font-semibold text-slate-300 mb-1.5">Market Target</label>
-                <select
-                  value={form.market}
-                  onChange={(e) => setForm({ ...form, market: e.target.value as any })}
-                  className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#0088cc]"
-                >
-                  <option value="futures">USD-M Futures</option>
-                  <option value="spot">Binance Spot</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-300 mb-1.5">Timeframe Sinyal</label>
-                <select
-                  value={form.timeframe}
-                  onChange={(e) => setForm({ ...form, timeframe: e.target.value })}
-                  className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#0088cc]"
-                >
-                  <option value="5m">5 Menit (5m)</option>
-                  <option value="15m">15 Menit (15m - Disarankan)</option>
-                  <option value="30m">30 Menit (30m)</option>
-                  <option value="1h">1 Jam (1h)</option>
-                  <option value="4h">4 Jam (4h)</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Minimum Risk/Reward & Interval */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block font-semibold text-slate-300 mb-1.5">
-                  Minimal Risk/Reward (R:R)
-                </label>
-                <input
-                  type="number"
-                  step="0.1"
-                  min="1.0"
-                  max="10.0"
-                  value={form.min_rr}
-                  onChange={(e) => setForm({ ...form, min_rr: parseFloat(e.target.value) || 1.5 })}
-                  className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#0088cc]"
-                />
-                <p className="text-[10px] text-slate-500 mt-1">Hanya kirim setup dengan R:R minimal ini (cth: 1.5).</p>
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-300 mb-1.5">
-                  Frekuensi Pindai (Detik)
-                </label>
-                <select
-                  value={form.scan_interval_seconds}
-                  onChange={(e) => setForm({ ...form, scan_interval_seconds: parseInt(e.target.value) || 60 })}
-                  className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#0088cc]"
-                >
-                  <option value={30}>Setiap 30 Detik</option>
-                  <option value={60}>Setiap 60 Detik (Disarankan)</option>
-                  <option value={120}>Setiap 2 Menit</option>
-                  <option value={300}>Setiap 5 Menit</option>
-                </select>
-                <p className="text-[10px] text-slate-500 mt-1">Interval scanner background memantau pasar.</p>
-              </div>
             </div>
           </div>
         </div>
@@ -359,7 +285,7 @@ export const TelegramAlertModal: React.FC<TelegramAlertModalProps> = ({
               className="px-5 py-2 rounded-xl bg-[#0088cc] hover:bg-[#0077b5] text-white font-semibold flex items-center gap-1.5 transition-colors shadow-lg shadow-[#0088cc]/20 disabled:opacity-50"
             >
               {saving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-              Simpan Pengaturan
+              Simpan
             </button>
           </div>
         </div>

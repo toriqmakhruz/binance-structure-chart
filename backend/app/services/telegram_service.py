@@ -206,6 +206,39 @@ class TelegramService:
         )
         return msg
 
+    async def notify_new_setups_from_radar(self, setups: List[Dict[str, Any]]) -> int:
+        """Notify any newly detected setups directly from Setup Radar."""
+        if not self.settings.get("enabled"):
+            return 0
+        if not self.settings.get("bot_token") or not self.settings.get("chat_id"):
+            return 0
+
+        notified_count = 0
+        now = time.time()
+        for r in setups:
+            if not isinstance(r, dict):
+                continue
+            sym = r.get("symbol")
+            direction = r.get("direction")
+            entry_p = r.get("entry_price")
+            entry_t = r.get("entry_time")
+            setup_id = f"{sym}_{direction}_{entry_p}_{entry_t}"
+
+            if setup_id in self._notified_ids:
+                continue
+
+            msg = self.format_setup_message(r)
+            ok, resp_msg = await self.send_message(msg)
+            if ok:
+                self._notified_ids[setup_id] = now
+                notified_count += 1
+                logger.info(f"Telegram alert sent from Setup Radar: {setup_id}")
+                await asyncio.sleep(0.5)
+
+        if notified_count > 0:
+            self._save_history()
+        return notified_count
+
     async def scan_and_notify_new_setups(self) -> int:
         """
         Scan market for new valid setups and dispatch notifications.
