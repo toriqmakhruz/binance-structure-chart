@@ -331,12 +331,14 @@ export const TradingDashboardDrawer: React.FC<TradingDashboardDrawerProps> = ({
 
   const historySummary = useMemo(() => {
     const list = displayedHistory
-    const totalPnl = list.reduce((acc, t) => acc + Number(t.realizedPnl || 0), 0)
-    const winning = list.filter((t) => Number(t.realizedPnl || 0) > 0).length
-    const losing = list.filter((t) => Number(t.realizedPnl || 0) < 0).length
+    const totalPnl = list.reduce((acc, t) => acc + Number(t.netPnl != null ? t.netPnl : (t.realizedPnl || 0)), 0)
+    const totalFee = list.reduce((acc, t) => acc + Number(t.fee || t.commission || 0), 0)
+    const winning = list.filter((t) => Number(t.netPnl != null ? t.netPnl : (t.realizedPnl || 0)) > 0).length
+    const losing = list.filter((t) => Number(t.netPnl != null ? t.netPnl : (t.realizedPnl || 0)) < 0).length
     const winRate = list.length > 0 ? (winning / list.length) * 100 : 0
     return {
       totalPnl: Math.round(totalPnl * 100) / 100,
+      totalFee: Math.round(totalFee * 10000) / 10000,
       winning,
       losing,
       winRate: Math.round(winRate * 10) / 10,
@@ -933,24 +935,33 @@ export const TradingDashboardDrawer: React.FC<TradingDashboardDrawerProps> = ({
               {/* Summary Cards */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <div className="p-2.5 rounded-lg bg-[#111724] border border-[#212d40]">
-                  <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Total Realized PnL</p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Total PnL Bersih</p>
+                    <span className="text-[9px] px-1 py-0.2 rounded bg-emerald-950/60 text-emerald-400 border border-emerald-800/40 font-mono">Net</span>
+                  </div>
                   <p className={`text-base sm:text-lg font-bold font-mono mt-0.5 ${historySummary.totalPnl >= 0 ? 'text-[#00c087]' : 'text-[#f6465d]'}`}>
                     {historySummary.totalPnl >= 0 ? '+' : ''}${historySummary.totalPnl.toFixed(2)} <span className="text-[10px] font-normal text-slate-400">USDT</span>
                   </p>
+                  <p className="text-[9px] text-slate-500 mt-0.5">Sudah dipotong total fee</p>
                 </div>
 
                 <div className="p-2.5 rounded-lg bg-[#111724] border border-[#212d40]">
-                  <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Win Rate</p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Terpotong Fee</p>
+                    <span className="text-[9px] px-1 py-0.2 rounded bg-amber-950/60 text-amber-400 border border-amber-800/40 font-mono">Komisi</span>
+                  </div>
                   <p className="text-base sm:text-lg font-bold font-mono mt-0.5 text-amber-400">
+                    -${historySummary.totalFee.toFixed(4)} <span className="text-[10px] font-normal text-slate-400">USDT</span>
+                  </p>
+                  <p className="text-[9px] text-slate-500 mt-0.5">Total komisi exchange</p>
+                </div>
+
+                <div className="p-2.5 rounded-lg bg-[#111724] border border-[#212d40]">
+                  <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Win Rate Bersih</p>
+                  <p className="text-base sm:text-lg font-bold font-mono mt-0.5 text-purple-400">
                     {historySummary.winRate.toFixed(1)}%
                   </p>
-                </div>
-
-                <div className="p-2.5 rounded-lg bg-[#111724] border border-[#212d40]">
-                  <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Total Trade Selesai</p>
-                  <p className="text-base sm:text-lg font-bold font-mono mt-0.5 text-slate-100">
-                    {historySummary.totalCount} <span className="text-[10px] font-normal text-slate-400">Trades</span>
-                  </p>
+                  <p className="text-[9px] text-slate-500 mt-0.5">Berdasarkan trade profit bersih</p>
                 </div>
 
                 <div className="p-2.5 rounded-lg bg-[#111724] border border-[#212d40] flex items-center justify-between">
@@ -961,6 +972,7 @@ export const TradingDashboardDrawer: React.FC<TradingDashboardDrawerProps> = ({
                       <span className="text-slate-500 mx-1">/</span>
                       <span className="text-[#f6465d]">{historySummary.losing}L</span>
                     </p>
+                    <p className="text-[9px] text-slate-500 mt-0.5">{historySummary.totalCount} Trade Selesai</p>
                   </div>
                   {mode === 'demo' && history.length > 0 && (
                     <button
@@ -992,8 +1004,9 @@ export const TradingDashboardDrawer: React.FC<TradingDashboardDrawerProps> = ({
                   {/* Mobile Cards View */}
                   <div className="block md:hidden space-y-2">
                     {displayedHistory.map((tr) => {
-                      const isProfit = Number(tr.realizedPnl || 0) >= 0
-                      const pnlNum = Number(tr.realizedPnl || 0)
+                      const netPnl = Number(tr.netPnl != null ? tr.netPnl : (tr.realizedPnl || 0))
+                      const feeNum = Number(tr.fee || tr.commission || 0)
+                      const isProfit = netPnl >= 0
                       const roeNum = tr.roePct != null ? Number(tr.roePct) : null
                       const dateStr = tr.time ? new Date(tr.time).toLocaleString('id-ID', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'
 
@@ -1021,15 +1034,27 @@ export const TradingDashboardDrawer: React.FC<TradingDashboardDrawerProps> = ({
                               <p className="font-mono text-slate-300 text-[11px]">
                                 {tr.entryPrice ? formatPrice(tr.entryPrice) : '-'} → {tr.closePrice ? formatPrice(tr.closePrice) : (tr.price ? formatPrice(tr.price) : '-')}
                               </p>
+                              {feeNum > 0 && (
+                                <p className="text-[10px] text-amber-400/90 font-mono mt-0.5">
+                                  Fee: -${feeNum.toFixed(4)}
+                                </p>
+                              )}
                             </div>
                             <div className="text-right">
-                              <p className="text-[10px] text-slate-400">Realized PnL</p>
+                              <p className="text-[10px] text-slate-400">PnL Bersih</p>
                               <p className={`font-bold font-mono text-xs ${isProfit ? 'text-[#00c087]' : 'text-[#f6465d]'}`}>
-                                {isProfit ? '+' : ''}${pnlNum.toFixed(2)}
+                                {isProfit ? '+' : ''}${netPnl.toFixed(2)}
                                 {roeNum != null && (
                                   <span className="text-[10px] ml-1 font-normal opacity-90">({isProfit ? '+' : ''}{roeNum.toFixed(1)}%)</span>
                                 )}
                               </p>
+                              <span className={`inline-block text-[9px] px-1.5 py-0.2 rounded font-bold mt-0.5 ${
+                                isProfit
+                                  ? 'bg-emerald-950/80 text-[#00c087] border border-emerald-800/60'
+                                  : 'bg-rose-950/80 text-[#f6465d] border border-rose-800/60'
+                              }`}>
+                                {isProfit ? 'WIN' : 'LOSS'}
+                              </span>
                             </div>
                           </div>
                         </div>
@@ -1048,14 +1073,16 @@ export const TradingDashboardDrawer: React.FC<TradingDashboardDrawerProps> = ({
                           <th className="py-2.5 px-3 text-right">Harga Masuk</th>
                           <th className="py-2.5 px-3 text-right">Harga Keluar</th>
                           <th className="py-2.5 px-3 text-right">Jumlah</th>
-                          <th className="py-2.5 px-3 text-right">Realized PnL</th>
+                          <th className="py-2.5 px-3 text-right">Fee Terpotong</th>
+                          <th className="py-2.5 px-3 text-right">PnL Bersih</th>
                           <th className="py-2.5 px-3 text-center">Status</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#1c2638] bg-[#0c1017]">
                         {displayedHistory.map((tr) => {
-                          const isProfit = Number(tr.realizedPnl || 0) >= 0
-                          const pnlNum = Number(tr.realizedPnl || 0)
+                          const netPnl = Number(tr.netPnl != null ? tr.netPnl : (tr.realizedPnl || 0))
+                          const feeNum = Number(tr.fee || tr.commission || 0)
+                          const isProfit = netPnl >= 0
                           const roeNum = tr.roePct != null ? Number(tr.roePct) : null
                           const dateStr = tr.time ? new Date(tr.time).toLocaleString('id-ID', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'
 
@@ -1083,9 +1110,16 @@ export const TradingDashboardDrawer: React.FC<TradingDashboardDrawerProps> = ({
                               <td className="py-2 px-3 text-right font-mono text-slate-300">
                                 {tr.quantity ? tr.quantity.toLocaleString('en-US', { maximumFractionDigits: 4 }) : '-'}
                               </td>
+                              <td className="py-2 px-3 text-right font-mono text-slate-400 text-xs">
+                                {feeNum > 0 ? (
+                                  <span className="text-amber-400/90 font-mono">-${feeNum.toFixed(4)}</span>
+                                ) : (
+                                  <span className="text-slate-500 font-mono">$0.0000</span>
+                                )}
+                              </td>
                               <td className="py-2 px-3 text-right font-mono font-bold">
                                 <span className={isProfit ? 'text-[#00c087]' : 'text-[#f6465d]'}>
-                                  {isProfit ? '+' : ''}${pnlNum.toFixed(2)}
+                                  {isProfit ? '+' : ''}${netPnl.toFixed(2)}
                                 </span>
                                 {roeNum != null && (
                                   <span className={`block text-[10px] font-normal ${isProfit ? 'text-emerald-400/80' : 'text-rose-400/80'}`}>
@@ -1094,8 +1128,12 @@ export const TradingDashboardDrawer: React.FC<TradingDashboardDrawerProps> = ({
                                 )}
                               </td>
                               <td className="py-2 px-3 text-center">
-                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#1c2638] text-slate-300">
-                                  {tr.reason || 'Closed'}
+                                <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${
+                                  isProfit
+                                    ? 'bg-emerald-950/80 text-[#00c087] border border-emerald-800/60'
+                                    : 'bg-rose-950/80 text-[#f6465d] border border-rose-800/60'
+                                }`}>
+                                  {isProfit ? 'WIN' : 'LOSS'}
                                 </span>
                               </td>
                             </tr>

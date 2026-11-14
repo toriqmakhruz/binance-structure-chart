@@ -290,7 +290,7 @@ export async function saveServerCredentials(data: ServerCredentialsData): Promis
 export interface TradeHistoryItem {
   id: string
   symbol: string
-  side: 'LONG' | 'SHORT' | 'BUY' | 'SELL' | 'PROFIT' | 'LOSS'
+  side: 'LONG' | 'SHORT' | 'BUY' | 'SELL' | 'PROFIT' | 'LOSS' | 'WIN'
   entryPrice?: number | null
   closePrice?: number | null
   price?: number | null
@@ -298,6 +298,9 @@ export interface TradeHistoryItem {
   margin?: number
   leverage?: number
   realizedPnl: number
+  grossPnl?: number
+  fee?: number
+  netPnl?: number
   roePct?: number | null
   commission?: number
   time: number
@@ -311,6 +314,8 @@ export interface TradeHistoryResponse {
   market: string
   is_simulated?: boolean
   total_realized_pnl: number
+  total_fee?: number
+  net_realized_pnl?: number
   win_rate_pct: number
   total_trades: number
   winning_trades: number

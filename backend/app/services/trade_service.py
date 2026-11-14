@@ -1409,9 +1409,12 @@ class TradeService:
                 qty = float(p.get("quantity", 0))
                 is_long = p.get("side") == "BUY"
                 diff = (mark_p - entry_p) if is_long else (entry_p - mark_p)
-                realized_pnl = round(diff * qty, 2)
-                roe = round((realized_pnl / margin) * 100, 2) if margin > 0 else 0.0
-                total_closed_pnl += realized_pnl
+                gross_pnl = round(diff * qty, 2)
+                # Realistic Binance Futures taker fee (0.05% of notional)
+                fee = round(mark_p * qty * 0.0005, 4)
+                net_pnl = round(gross_pnl - fee, 2)
+                roe = round((net_pnl / margin) * 100, 2) if margin > 0 else 0.0
+                total_closed_pnl += net_pnl
 
                 history_item = {
                     "id": p.get("id") or f"paper_{int(time.time()*1000)}",
@@ -1422,14 +1425,18 @@ class TradeService:
                     "quantity": qty,
                     "margin": margin,
                     "leverage": p.get("leverage", 1),
-                    "realizedPnl": realized_pnl,
+                    "grossPnl": gross_pnl,
+                    "fee": fee,
+                    "commission": fee,
+                    "realizedPnl": net_pnl,
+                    "netPnl": net_pnl,
                     "roePct": roe,
                     "time": int(time.time() * 1000),
                     "reason": "Market Close",
                     "is_simulated": True
                 }
                 self._paper_history.insert(0, history_item)
-                self._paper_wallet["USDT"] = round(self._paper_wallet.get("USDT", 10000.0) + margin + realized_pnl, 2)
+                self._paper_wallet["USDT"] = round(self._paper_wallet.get("USDT", 10000.0) + margin + net_pnl, 2)
 
             self._save_paper_data()
             self._positions_cache.clear()
@@ -1703,22 +1710,54 @@ class TradeService:
                 trades = [t for t in trades if t.get("symbol") == sym_clean]
             
             selected = trades[:limit]
-            total_realized_pnl = round(sum(float(t.get("realizedPnl", 0)) for t in selected), 2)
-            winning = len([t for t in selected if float(t.get("realizedPnl", 0)) > 0])
-            losing = len([t for t in selected if float(t.get("realizedPnl", 0)) < 0])
-            win_rate = round((winning / len(selected) * 100), 1) if selected else 0.0
+            formatted_selected = []
+            total_net_pnl = 0.0
+            total_fee = 0.0
+            winning = 0
+            losing = 0
+
+            for t in selected:
+                raw_pnl = float(t.get("realizedPnl", 0))
+                qty = float(t.get("quantity", 0))
+                close_p = float(t.get("closePrice", t.get("price", 0)))
+                fee = float(t.get("fee", t.get("commission", 0)))
+                if fee == 0 and qty > 0 and close_p > 0:
+                    fee = round(qty * close_p * 0.0005, 4)
+
+                net_pnl = float(t.get("netPnl", raw_pnl - (fee if "netPnl" not in t else 0)))
+                net_pnl = round(net_pnl, 2)
+
+                if net_pnl > 0:
+                    winning += 1
+                elif net_pnl < 0:
+                    losing += 1
+
+                total_net_pnl += net_pnl
+                total_fee += fee
+
+                formatted_selected.append({
+                    **t,
+                    "realizedPnl": net_pnl,
+                    "netPnl": net_pnl,
+                    "fee": round(fee, 4),
+                    "commission": round(fee, 4),
+                    "grossPnl": round(float(t.get("grossPnl", raw_pnl)), 2)
+                })
+
+            win_rate = round((winning / len(formatted_selected) * 100), 1) if formatted_selected else 0.0
 
             return {
                 "success": True,
                 "mode": "demo",
                 "market": market_clean,
                 "is_simulated": True,
-                "total_realized_pnl": total_realized_pnl,
+                "total_realized_pnl": round(total_net_pnl, 2),
+                "total_fee": round(total_fee, 4),
                 "win_rate_pct": win_rate,
-                "total_trades": len(selected),
+                "total_trades": len(formatted_selected),
                 "winning_trades": winning,
                 "losing_trades": losing,
-                "trades": selected
+                "trades": formatted_selected
             }
 
         if not api_key or not api_secret:
@@ -1757,9 +1796,9 @@ class TradeService:
         async with httpx.AsyncClient(headers=headers, timeout=timeout) as client:
             try:
                 if market_clean == "futures":
+                    # Query both REALIZED_PNL and COMMISSION to calculate accurate Net PnL and Fees
                     query_params: Dict[str, Any] = {
-                        "incomeType": "REALIZED_PNL",
-                        "limit": min(limit, 100)
+                        "limit": min(limit * 2, 100)
                     }
                     if sym_clean:
                         query_params["symbol"] = sym_clean
@@ -1770,33 +1809,82 @@ class TradeService:
                     resp = await client.get(url)
                     if resp.status_code == 200:
                         raw_income = resp.json()
+                        
+                        # Group micro-fills and associate commissions by tradeId / cluster
+                        grouped_trades: Dict[str, Dict[str, Any]] = {}
+                        for item in raw_income:
+                            inc_type = item.get("incomeType")
+                            if inc_type not in ("REALIZED_PNL", "COMMISSION"):
+                                continue
+
+                            sym = item.get("symbol", "")
+                            trade_id = str(item.get("tradeId") or "")
+                            time_stamp = int(item.get("time", 0))
+                            
+                            # Group key: tradeId if present, else cluster by 5s timestamp window
+                            group_key = f"{sym}_{trade_id}" if trade_id and trade_id != "0" else f"{sym}_{time_stamp // 5000}"
+
+                            if group_key not in grouped_trades:
+                                grouped_trades[group_key] = {
+                                    "id": str(item.get("tranId") or trade_id or time_stamp),
+                                    "symbol": sym,
+                                    "grossPnl": 0.0,
+                                    "fee": 0.0,
+                                    "time": time_stamp,
+                                    "has_realized_pnl": False
+                                }
+
+                            val = float(item.get("income", 0))
+                            if inc_type == "REALIZED_PNL":
+                                grouped_trades[group_key]["grossPnl"] += val
+                                grouped_trades[group_key]["has_realized_pnl"] = True
+                            elif inc_type == "COMMISSION":
+                                grouped_trades[group_key]["fee"] += abs(val)
+
                         formatted_trades = []
-                        total_realized_pnl = 0.0
+                        total_net_pnl = 0.0
+                        total_fee = 0.0
                         winning = 0
                         losing = 0
 
-                        for item in raw_income:
-                            income_val = round(float(item.get("income", 0)), 4)
-                            total_realized_pnl += income_val
-                            if income_val > 0:
+                        # Filter and format only actual trade realizations
+                        for grp in grouped_trades.values():
+                            if not grp["has_realized_pnl"]:
+                                continue
+
+                            gross = round(grp["grossPnl"], 2)
+                            fee = round(grp["fee"], 4)
+                            net = round(gross - fee, 2)
+
+                            if net > 0:
                                 winning += 1
-                            elif income_val < 0:
+                            elif net < 0:
                                 losing += 1
 
+                            total_net_pnl += net
+                            total_fee += fee
+
                             formatted_trades.append({
-                                "id": str(item.get("tranId") or item.get("tradeId") or int(time.time()*1000)),
-                                "symbol": item.get("symbol", ""),
-                                "side": "PROFIT" if income_val >= 0 else "LOSS",
+                                "id": grp["id"],
+                                "symbol": grp["symbol"],
+                                "side": "WIN" if net >= 0 else "LOSS",
                                 "entryPrice": None,
                                 "closePrice": None,
                                 "quantity": 0,
-                                "realizedPnl": income_val,
+                                "grossPnl": gross,
+                                "fee": fee,
+                                "commission": fee,
+                                "realizedPnl": net,
+                                "netPnl": net,
                                 "roePct": None,
-                                "commission": 0.0,
-                                "time": int(item.get("time", 0)),
+                                "time": grp["time"],
                                 "reason": "Realized PnL",
                                 "is_simulated": False
                             })
+
+                        # Sort newest first
+                        formatted_trades.sort(key=lambda x: x["time"], reverse=True)
+                        formatted_trades = formatted_trades[:limit]
 
                         win_rate = round((winning / len(formatted_trades) * 100), 1) if formatted_trades else 0.0
                         result = {
@@ -1804,7 +1892,8 @@ class TradeService:
                             "mode": mode_clean,
                             "market": market_clean,
                             "is_simulated": False,
-                            "total_realized_pnl": round(total_realized_pnl, 2),
+                            "total_realized_pnl": round(total_net_pnl, 2),
+                            "total_fee": round(total_fee, 4),
                             "win_rate_pct": win_rate,
                             "total_trades": len(formatted_trades),
                             "winning_trades": winning,
