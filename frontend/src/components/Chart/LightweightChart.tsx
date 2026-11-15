@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react'
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import {
   createChart,
   IChartApi,
@@ -18,8 +18,9 @@ import {
   OpenInterestData
 } from '../../types/analysis'
 import { formatPrice, getPricePrecision, formatOpenInterestValue, formatOpenInterest } from '../../utils/formatters'
-import { Crosshair } from 'lucide-react'
+import { Crosshair, Clock } from 'lucide-react'
 import { OpenInterestPane } from './OpenInterestPane'
+import { extractSessionBlocks, getCurrentActiveSessions, SessionBlock } from '../../utils/marketSessions'
 
 interface LightweightChartProps {
   symbol: string
@@ -90,6 +91,17 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
   const [isDrawing, setIsDrawing] = useState(false)
   const [drawingStart, setDrawingStart] = useState<{ time: number; price: number; x: number; y: number } | null>(null)
   const [currentMouse, setCurrentMouse] = useState<{ x: number; y: number; time: number; price: number } | null>(null)
+
+  // Market Sessions extraction & live UTC status
+  const sessionBlocks = useMemo(() => extractSessionBlocks(candles), [candles])
+  const [activeSessionInfo, setActiveSessionInfo] = useState(getCurrentActiveSessions)
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setActiveSessionInfo(getCurrentActiveSessions())
+    }, 20000)
+    return () => clearInterval(timer)
+  }, [])
 
   // 1. Initialize Chart
   useEffect(() => {
@@ -367,6 +379,83 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     const width = canvas.width
     const height = canvas.height
     ctx.clearRect(0, 0, width, height)
+
+    // 0. Market Sessions (Asia, London, New York background shading & High/Low range levels)
+    if (visibility.marketSessions && sessionBlocks.length > 0) {
+      const isIntraday = !['4h', '1d', '3d', '1w'].includes(timeframe.toLowerCase())
+      if (isIntraday) {
+        sessionBlocks.forEach((sb: SessionBlock) => {
+          const pStart = resolveCoord(sb.startTime, sb.high)
+          const pEnd = resolveCoord(sb.endTime, sb.low)
+          if (!pStart || !pEnd) return
+
+          let x1 = pStart.x
+          let x2 = pEnd.x
+          if (x2 < x1) {
+            const tmp = x1
+            x1 = x2
+            x2 = tmp
+          }
+          const boxWidth = Math.max(14, x2 - x1)
+
+          // Offscreen culling
+          if (x1 + boxWidth < 0 || x1 > width) return
+
+          const yHigh = series.priceToCoordinate(sb.high)
+          const yLow = series.priceToCoordinate(sb.low)
+          if (yHigh === null || yLow === null) return
+
+          const boxTop = Math.min(yHigh, yLow)
+          const boxHeight = Math.abs(yLow - yHigh)
+
+          ctx.save()
+          // A. Subtle full-height vertical session column
+          ctx.fillStyle = sb.session.fillColor
+          ctx.fillRect(x1, 0, boxWidth, height)
+
+          // B. Session Range Box (High to Low)
+          ctx.fillStyle = sb.session.fillColor
+          ctx.fillRect(x1, boxTop, boxWidth, boxHeight)
+          ctx.strokeStyle = sb.session.borderStroke
+          ctx.lineWidth = 1
+          ctx.strokeRect(x1, boxTop, boxWidth, boxHeight)
+
+          // C. Session High line
+          ctx.beginPath()
+          ctx.setLineDash([3, 3])
+          ctx.strokeStyle = sb.session.color
+          ctx.lineWidth = 1.2
+          ctx.moveTo(x1, yHigh)
+          ctx.lineTo(x1 + boxWidth, yHigh)
+          ctx.stroke()
+
+          // Session High label
+          ctx.fillStyle = sb.session.color
+          ctx.font = 'bold 9px monospace'
+          ctx.fillText(`${sb.session.label} H: $${formatPrice(sb.high)}`, x1 + 4, yHigh > 18 ? yHigh - 3 : yHigh + 11)
+
+          // D. Session Low line
+          ctx.beginPath()
+          ctx.moveTo(x1, yLow)
+          ctx.lineTo(x1 + boxWidth, yLow)
+          ctx.stroke()
+          ctx.setLineDash([])
+
+          // Session Low label
+          ctx.fillText(`${sb.session.label} L: $${formatPrice(sb.low)}`, x1 + 4, yLow + 11)
+
+          // E. Session Title Badge at the top
+          const badgeWidth = Math.min(boxWidth, 54)
+          ctx.fillStyle = sb.session.badgeBg
+          ctx.fillRect(x1, 4, badgeWidth, 14)
+          ctx.fillStyle = '#ffffff'
+          ctx.font = 'bold 8.5px monospace'
+          ctx.fillText(sb.session.label, x1 + 4, 14)
+
+          ctx.restore()
+        })
+      }
+    }
 
     // A. Support & Resistance Levels (Horizontal S/R Lines)
     if (patterns && visibility.srLevels && patterns.support_resistance) {
@@ -1203,7 +1292,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         ctx.setLineDash([])
       }
     }
-  }, [smc, patterns, visibility, htfOverlay, forecast, drawings, isDrawing, drawingStart, currentMouse, activeTool, resolveCoord])
+  }, [smc, patterns, visibility, htfOverlay, forecast, drawings, isDrawing, drawingStart, currentMouse, activeTool, resolveCoord, sessionBlocks, timeframe])
 
   // Always update the ref with the latest redraw function
   useEffect(() => {
@@ -1309,6 +1398,25 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
             activeTool !== 'cursor' ? 'cursor-crosshair pointer-events-auto' : 'pointer-events-none'
           }`}
         />
+
+        {/* Floating Active Market Session Indicator */}
+        {visibility.marketSessions && (
+          <div
+            className="absolute top-2 right-14 z-20 hidden sm:flex items-center space-x-2 px-2.5 py-1 rounded-md bg-[#0d1117]/85 border border-[#21262d] backdrop-blur-sm shadow-md font-mono text-[11px] select-none pointer-events-auto"
+            title="Sesi Pasar: Asia (00:00-08:00 UTC), London (07:00-16:00 UTC), New York (13:00-21:00 UTC)"
+          >
+            <Clock className="w-3.5 h-3.5 text-amber-400" />
+            <span className="text-slate-400 text-[10px]">{activeSessionInfo.utcTimeString}:</span>
+            <span className={`font-semibold flex items-center space-x-1 ${
+              activeSessionInfo.activeSessions.length > 0 ? 'text-amber-400' : 'text-slate-400'
+            }`}>
+              {activeSessionInfo.activeSessions.length > 0 && (
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block mr-1" />
+              )}
+              <span>{activeSessionInfo.label}</span>
+            </span>
+          </div>
+        )}
 
         {/* Loading state indicator when candles are empty */}
         {candles.length === 0 && (

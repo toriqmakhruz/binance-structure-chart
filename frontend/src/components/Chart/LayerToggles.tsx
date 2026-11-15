@@ -91,7 +91,8 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
       category: 'Pola & Level Pasar',
       items: [
         { key: 'patterns', label: 'Pola Chart', desc: 'Double Top/Bottom, H&S, Triangles', icon: <Shapes className="w-3.5 h-3.5" />, color: 'text-emerald-400', bgHover: 'hover:bg-emerald-950/30' },
-        { key: 'srLevels', label: 'S/R Levels', desc: 'Support & Resistance dinamis', icon: <Minus className="w-3.5 h-3.5" />, color: 'text-teal-400', bgHover: 'hover:bg-teal-950/30' }
+        { key: 'srLevels', label: 'S/R Levels', desc: 'Support & Resistance dinamis', icon: <Minus className="w-3.5 h-3.5" />, color: 'text-teal-400', bgHover: 'hover:bg-teal-950/30' },
+        { key: 'marketSessions', label: 'Sesi Pasar (Sessions)', desc: 'Asia, London, New York & Range H/L', icon: <Clock className="w-3.5 h-3.5" />, color: 'text-amber-400', bgHover: 'hover:bg-amber-950/30' }
       ]
     },
     {
@@ -115,7 +116,7 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
   // Count active layers
   const allKeys: (keyof LayerVisibility)[] = [
     'smcEvents', 'orderBlocks', 'fvgs', 'smcSwings',
-    'patterns', 'srLevels', 'forecastCone', 'forecastScenarios',
+    'patterns', 'srLevels', 'marketSessions', 'forecastCone', 'forecastScenarios',
     'entryBoxes', 'volume', 'openInterest', ...(hasHtf ? ['htfOverlay' as keyof LayerVisibility] : [])
   ]
   const activeCount = allKeys.filter((k) => visibility[k]).length

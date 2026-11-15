@@ -201,6 +201,7 @@ export interface LayerVisibility {
   fvgs: boolean
   patterns: boolean
   srLevels: boolean
+  marketSessions: boolean
   forecastCone: boolean
   forecastScenarios: boolean
   entryBoxes: boolean
