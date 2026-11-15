@@ -19,6 +19,7 @@ import {
 } from '../../types/analysis'
 import { formatPrice, getPricePrecision, formatOpenInterestValue, formatOpenInterest } from '../../utils/formatters'
 import { Crosshair } from 'lucide-react'
+import { OpenInterestPane } from './OpenInterestPane'
 
 interface LightweightChartProps {
   symbol: string
@@ -35,6 +36,7 @@ interface LightweightChartProps {
   onRemoveDrawing: (id: string) => void
   openInterest?: OpenInterestData | null
   market?: 'spot' | 'futures'
+  onToggleLayer?: (key: keyof LayerVisibility) => void
 }
 
 export const LightweightChart: React.FC<LightweightChartProps> = ({
@@ -51,13 +53,15 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
   onAddDrawing,
   onRemoveDrawing,
   openInterest,
-  market = 'futures'
+  market = 'futures',
+  onToggleLayer
 }) => {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
   const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null)
+  const prevVolumeVisibleRef = useRef<boolean>(Boolean(visibility.volume))
 
   // Ref to always hold the latest redrawCanvas function (avoids stale closures during pan/scroll)
   const redrawCanvasRef = useRef<() => void>(() => {})
@@ -130,7 +134,8 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     const volumeSeries = chart.addHistogramSeries({
       color: '#26a69a',
       priceFormat: { type: 'volume' },
-      priceScaleId: 'volume'
+      priceScaleId: 'volume',
+      visible: Boolean(visibility.volume)
     })
 
     chart.priceScale('volume').applyOptions({
@@ -191,7 +196,25 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     }
   }, [symbol, timeframe, candles, focusRecentBars])
 
-  // 3. Update Candle & Volume Data with Dynamic Price Precision & Smooth Live Ticks
+  // 3. Dedicated sync for Volume Layer Visibility
+  useEffect(() => {
+    if (!volumeSeriesRef.current) return
+    const isVisible = Boolean(visibility.volume)
+    volumeSeriesRef.current.applyOptions({ visible: isVisible })
+    if (!isVisible) {
+      volumeSeriesRef.current.setData([])
+    } else if (candles.length > 0) {
+      const formattedVolumes = candles.map((c) => ({
+        time: c.time as Time,
+        value: c.volume,
+        color: c.close >= c.open ? 'rgba(0, 192, 135, 0.25)' : 'rgba(246, 70, 93, 0.25)'
+      }))
+      volumeSeriesRef.current.setData(formattedVolumes)
+    }
+    prevVolumeVisibleRef.current = isVisible
+  }, [visibility.volume, candles])
+
+  // 4. Update Candle & Volume Data with Dynamic Price Precision & Smooth Live Ticks
   const prevCandlesCountRef = useRef<number>(0)
   const prevLastTimeRef = useRef<number>(0)
   const loadedSymbolRef = useRef<string>(symbol)
@@ -254,11 +277,17 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     const lastVolume = formattedVolumes[formattedVolumes.length - 1]
     const lastTimeNum = Number(lastCandle.time)
 
-    // Smooth real-time update: ONLY if it's NOT a new series and count & time match
+    const volumeVisibilityChanged = prevVolumeVisibleRef.current !== Boolean(visibility.volume)
+    prevVolumeVisibleRef.current = Boolean(visibility.volume)
+
+    // Smooth real-time update: ONLY if it's NOT a new series, volume visibility didn't change, and count & time match
     const isIncrementalUpdate =
       !isNewSeries &&
+      !volumeVisibilityChanged &&
       prevCandlesCountRef.current === formattedCandles.length &&
       prevLastTimeRef.current === lastTimeNum
+
+    volumeSeriesRef.current.applyOptions({ visible: Boolean(visibility.volume) })
 
     if (isIncrementalUpdate) {
       candleSeriesRef.current.update(lastCandle)
@@ -267,7 +296,11 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
       }
     } else {
       candleSeriesRef.current.setData(formattedCandles)
-      volumeSeriesRef.current.setData(visibility.volume ? formattedVolumes : [])
+      if (visibility.volume) {
+        volumeSeriesRef.current.setData(formattedVolumes)
+      } else {
+        volumeSeriesRef.current.setData([])
+      }
       prevCandlesCountRef.current = formattedCandles.length
       prevLastTimeRef.current = lastTimeNum
 
@@ -280,7 +313,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     candleSeriesRef.current.setMarkers([])
 
     redrawCanvasRef.current()
-  }, [candles, smc, visibility, symbol, timeframe, focusRecentBars])
+  }, [candles, smc, visibility.volume, symbol, timeframe, focusRecentBars])
 
   // 4. Robust Coordinate Resolver
   const resolveCoord = useCallback((time: number, price: number): { x: number; y: number } | null => {
@@ -1260,68 +1293,58 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
 
   return (
     <div 
-      className="relative w-full h-full overflow-hidden select-none group"
+      className="relative w-full h-full flex flex-col overflow-hidden select-none"
       onWheel={handleInteraction}
       onMouseMove={handleInteraction}
     >
-      <div ref={containerRef} className="w-full h-full" />
-      <canvas
-        ref={canvasRef}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        className={`absolute inset-0 z-10 ${
-          activeTool !== 'cursor' ? 'cursor-crosshair pointer-events-auto' : 'pointer-events-none'
-        }`}
-      />
+      {/* Main Candlestick Chart Area */}
+      <div className="relative flex-1 w-full min-h-0 overflow-hidden">
+        <div ref={containerRef} className="w-full h-full" />
+        <canvas
+          ref={canvasRef}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          className={`absolute inset-0 z-10 ${
+            activeTool !== 'cursor' ? 'cursor-crosshair pointer-events-auto' : 'pointer-events-none'
+          }`}
+        />
 
-      {/* Floating TradingView-style Open Interest Indicator Legend */}
-      {visibility.openInterest && openInterest && market === 'futures' && (
-        <div 
-          className="absolute top-2 left-3 z-20 flex items-center space-x-2 px-2.5 py-1 rounded-md bg-[#0d1117]/85 border border-[#21262d] backdrop-blur-sm shadow-md font-mono text-[11px] select-none pointer-events-auto"
-          title={`Open Interest (OI) Binance Futures: Total nilai posisi terbuka saat ini. Indikator murni, tidak mempengaruhi rumus sinyal.`}
-        >
-          <span className="font-bold text-sky-400 flex items-center space-x-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse" />
-            <span>OI:</span>
-          </span>
-          <span className="text-white font-semibold">
-            {formatOpenInterestValue(openInterest.open_interest_value)}
-          </span>
-          <span className="text-slate-400 text-[10px] hidden sm:inline">
-            ({formatOpenInterest(openInterest.open_interest)} {symbol.replace('USDT', '')})
-          </span>
-          <span className={`text-[10px] font-bold ${openInterest.change_pct_1h >= 0 ? 'text-[#00c087]' : 'text-[#f6465d]'}`}>
-            1h: {openInterest.change_pct_1h >= 0 ? '+' : ''}{openInterest.change_pct_1h}%
-          </span>
-          <span className={`text-[10px] font-bold hidden md:inline ${openInterest.change_pct_24h >= 0 ? 'text-[#00c087]' : 'text-[#f6465d]'}`}>
-            24h: {openInterest.change_pct_24h >= 0 ? '+' : ''}{openInterest.change_pct_24h}%
-          </span>
-        </div>
-      )}
-
-      {/* Loading state indicator when candles are empty */}
-      {candles.length === 0 && (
-        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-[#0b0e14]/80 text-slate-400 font-mono text-xs space-y-3 pointer-events-none">
-          <div className="w-6 h-6 border-2 border-[#f0b90b] border-t-transparent rounded-full animate-spin" />
-          <div className="text-center space-y-1">
-            <p className="text-slate-200 font-semibold">Sinkronisasi Data Candlestick {symbol}...</p>
-            <p className="text-[11px] text-slate-500">Menghubungkan ke upstream Binance...</p>
+        {/* Loading state indicator when candles are empty */}
+        {candles.length === 0 && (
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-[#0b0e14]/80 text-slate-400 font-mono text-xs space-y-3 pointer-events-none">
+            <div className="w-6 h-6 border-2 border-[#f0b90b] border-t-transparent rounded-full animate-spin" />
+            <div className="text-center space-y-1">
+              <p className="text-slate-200 font-semibold">Sinkronisasi Data Candlestick {symbol}...</p>
+              <p className="text-[11px] text-slate-500">Menghubungkan ke upstream Binance...</p>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Floating Action: Snap View On Point to the latest price & setup */}
-      {candles.length > 0 && (
-        <button
-          type="button"
-          onClick={() => focusRecentBars(candles.length)}
-          title="Fokus ke harga terbaru & area setup (On Point)"
-          className="absolute bottom-8 right-16 z-20 flex items-center space-x-1.5 px-2 py-1 rounded bg-[#161b22]/90 hover:bg-[#1f2634] border border-[#30363d] hover:border-[#f0b90b]/60 text-slate-300 hover:text-[#f0b90b] text-[10px] font-mono font-semibold shadow-lg backdrop-blur-sm transition-all"
-        >
-          <Crosshair className="w-3 h-3 text-[#f0b90b]" />
-          <span>On Point</span>
-        </button>
+        {/* Floating Action: Snap View On Point to the latest price & setup */}
+        {candles.length > 0 && (
+          <button
+            type="button"
+            onClick={() => focusRecentBars(candles.length)}
+            title="Fokus ke harga terbaru & area setup (On Point)"
+            className="absolute bottom-8 right-16 z-20 flex items-center space-x-1.5 px-2 py-1 rounded bg-[#161b22]/90 hover:bg-[#1f2634] border border-[#30363d] hover:border-[#f0b90b]/60 text-slate-300 hover:text-[#f0b90b] text-[10px] font-mono font-semibold shadow-lg backdrop-blur-sm transition-all"
+          >
+            <Crosshair className="w-3 h-3 text-[#f0b90b]" />
+            <span>On Point</span>
+          </button>
+        )}
+      </div>
+
+      {/* Sub-Chart Pane: Open Interest Indicator Graph at the bottom */}
+      {visibility.openInterest && market === 'futures' && (
+        <OpenInterestPane
+          symbol={symbol}
+          timeframe={timeframe}
+          candles={candles}
+          openInterest={openInterest}
+          mainChart={chartRef.current}
+          onClose={() => onToggleLayer?.('openInterest')}
+        />
       )}
     </div>
   )

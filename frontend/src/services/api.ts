@@ -55,9 +55,9 @@ export async function fetchAnalysis(
   return await resp.json()
 }
 
-export async function fetchOpenInterest(symbol: string): Promise<OpenInterestData | null> {
+export async function fetchOpenInterest(symbol: string, timeframe: string = '15m'): Promise<OpenInterestData | null> {
   try {
-    const resp = await fetch(`${API_BASE}/open-interest?symbol=${encodeURIComponent(symbol.toUpperCase())}`)
+    const resp = await fetch(`${API_BASE}/open-interest?symbol=${encodeURIComponent(symbol.toUpperCase())}&timeframe=${encodeURIComponent(timeframe)}`)
     if (!resp.ok) return null
     return await resp.json()
   } catch (err) {

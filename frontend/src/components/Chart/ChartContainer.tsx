@@ -25,6 +25,7 @@ interface SubChartProps {
   onAddDrawing: (d: DrawingItem) => void
   onRemoveDrawing: (id: string) => void
   openInterest?: OpenInterestData | null
+  onToggleLayer?: (key: keyof LayerVisibility) => void
 }
 
 const SubTimeframeChart: React.FC<SubChartProps> = ({
@@ -37,7 +38,8 @@ const SubTimeframeChart: React.FC<SubChartProps> = ({
   drawings,
   onAddDrawing,
   onRemoveDrawing,
-  openInterest
+  openInterest,
+  onToggleLayer
 }) => {
   const [data, setData] = useState<FullAnalysisResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -88,6 +90,7 @@ const SubTimeframeChart: React.FC<SubChartProps> = ({
       onRemoveDrawing={onRemoveDrawing}
       openInterest={data?.open_interest || openInterest}
       market={market}
+      onToggleLayer={onToggleLayer}
     />
   )
 }
@@ -109,6 +112,7 @@ interface ChartContainerProps {
   onAddDrawing: (d: DrawingItem) => void
   onRemoveDrawing: (id: string) => void
   openInterest?: OpenInterestData | null
+  onToggleLayer?: (key: keyof LayerVisibility) => void
 }
 
 export const ChartContainer: React.FC<ChartContainerProps> = ({
@@ -127,7 +131,8 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
   drawings,
   onAddDrawing,
   onRemoveDrawing,
-  openInterest
+  openInterest,
+  onToggleLayer
 }) => {
   const renderChart = (chartId: string, subTf?: string) => {
     const isSub = Boolean(subTf && subTf.toLowerCase() !== timeframe.toLowerCase())
@@ -156,6 +161,7 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
               onAddDrawing={onAddDrawing}
               onRemoveDrawing={onRemoveDrawing}
               openInterest={openInterest}
+              onToggleLayer={onToggleLayer}
             />
           ) : (
             <LightweightChart
@@ -173,6 +179,8 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
               onAddDrawing={onAddDrawing}
               onRemoveDrawing={onRemoveDrawing}
               openInterest={openInterest}
+              market={market}
+              onToggleLayer={onToggleLayer}
             />
           )}
         </div>

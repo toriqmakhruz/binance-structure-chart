@@ -709,6 +709,7 @@ export function App() {
               onAddDrawing={handleAddDrawing}
               onRemoveDrawing={handleRemoveDrawing}
               openInterest={analysis?.open_interest}
+              onToggleLayer={handleToggleLayer}
             />
           </div>
 

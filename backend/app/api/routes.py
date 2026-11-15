@@ -161,7 +161,7 @@ async def get_full_analysis(
         oi_data = None
         if market.lower() == "futures":
             try:
-                oi_data = await binance_service.get_open_interest(symbol=symbol)
+                oi_data = await binance_service.get_open_interest(symbol=symbol, timeframe=tf_clean)
             except Exception as oi_err:
                 logger.debug(f"OI fetch error: {oi_err}")
 
@@ -411,10 +411,11 @@ async def get_valid_setups(
 
 @router.get("/open-interest", response_model=Optional[OpenInterestData])
 async def get_open_interest(
-    symbol: str = Query("BTCUSDT", pattern=r"^[A-Za-z0-9]{3,16}$")
+    symbol: str = Query("BTCUSDT", pattern=r"^[A-Za-z0-9]{3,16}$"),
+    timeframe: str = Query("15m")
 ):
     """
     Get real-time Open Interest statistics for Binance USD-M Futures.
     Purely informational indicator for traders - not used in automated entry scoring.
     """
-    return await binance_service.get_open_interest(symbol=symbol)
+    return await binance_service.get_open_interest(symbol=symbol, timeframe=timeframe)

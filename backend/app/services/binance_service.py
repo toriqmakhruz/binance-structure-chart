@@ -534,24 +534,41 @@ class BinanceService:
         symbols_list.sort(key=lambda x: x["quoteVolume"], reverse=True)
         return symbols_list
 
-    async def get_open_interest(self, symbol: str) -> Optional[OpenInterestData]:
+    async def get_open_interest(self, symbol: str, timeframe: str = "15m") -> Optional[OpenInterestData]:
         """
-        Fetch real-time Open Interest and 15m statistics from Binance Futures.
+        Fetch real-time Open Interest and historical statistics from Binance Futures.
         Purely an informational indicator - never passed into forecasting or entry formulas.
         """
         sym_upper = symbol.upper().strip()
+        tf_clean = timeframe.lower().strip()
         now = time.time()
         
         # Check cache (15s TTL)
-        if sym_upper in self._oi_cache:
-            cache_time, cached_data = self._oi_cache[sym_upper]
+        cache_key = f"{sym_upper}_{tf_clean}"
+        if cache_key in self._oi_cache:
+            cache_time, cached_data = self._oi_cache[cache_key]
             if now - cache_time < 15.0:
                 return cached_data
+
+        period_map = {
+            "1m": "5m",
+            "3m": "5m",
+            "5m": "5m",
+            "15m": "15m",
+            "30m": "30m",
+            "1h": "1h",
+            "2h": "2h",
+            "4h": "4h",
+            "6h": "6h",
+            "12h": "12h",
+            "1d": "1d",
+        }
+        period = period_map.get(tf_clean, "15m")
 
         try:
             async with httpx.AsyncClient(timeout=6.0, headers=HEADERS, verify=settings.TLS_VERIFY) as client:
                 oi_url = f"https://fapi.binance.com/fapi/v1/openInterest?symbol={sym_upper}"
-                hist_url = f"https://fapi.binance.com/futures/data/openInterestHist?symbol={sym_upper}&period=15m&limit=30"
+                hist_url = f"https://fapi.binance.com/futures/data/openInterestHist?symbol={sym_upper}&period={period}&limit=100"
 
                 res_oi, res_hist = await asyncio.gather(
                     client.get(oi_url),
@@ -588,12 +605,22 @@ class BinanceService:
                         if history_points:
                             latest_hist = history_points[-1]
                             current_oi_value = latest_hist.open_interest_value
-                            if len(history_points) >= 4:
+                            
+                            # 1h delta based on timestamp (~3600s ago)
+                            target_1h_ts = latest_hist.timestamp - 3600 * 1000
+                            closest_1h = min(history_points, key=lambda p: abs(p.timestamp - target_1h_ts))
+                            if closest_1h.open_interest > 0 and closest_1h != latest_hist:
+                                change_1h = round(((current_oi - closest_1h.open_interest) / closest_1h.open_interest) * 100, 2)
+                            elif len(history_points) >= 4:
                                 base_1h = history_points[-4].open_interest
                                 if base_1h > 0:
                                     change_1h = round(((current_oi - base_1h) / base_1h) * 100, 2)
-                            base_24h = history_points[0].open_interest
-                            if base_24h > 0:
+                                    
+                            # 24h delta based on timestamp (~86400s ago) or earliest point
+                            target_24h_ts = latest_hist.timestamp - 86400 * 1000
+                            closest_24h = min(history_points, key=lambda p: abs(p.timestamp - target_24h_ts))
+                            base_24h = closest_24h.open_interest if closest_24h.open_interest > 0 else history_points[0].open_interest
+                            if base_24h > 0 and closest_24h != latest_hist:
                                 change_24h = round(((current_oi - base_24h) / base_24h) * 100, 2)
 
                 if current_oi_value <= 0:
@@ -609,7 +636,7 @@ class BinanceService:
                     history=history_points
                 )
 
-                self._oi_cache[sym_upper] = (now, oi_result)
+                self._oi_cache[cache_key] = (now, oi_result)
                 return oi_result
         except Exception as e:
             logger.warning(f"Failed to fetch Open Interest for {sym_upper}: {e}")
