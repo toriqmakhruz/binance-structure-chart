@@ -962,8 +962,8 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         if (!pStart || yEntry === null || yTarget === null || yStop === null) return
 
         const startX = Math.max(10, pStart.x)
-        const endX = pEnd ? Math.max(startX + 120, pEnd.x) : Math.min(width - 65, startX + 220)
-        const boxWidth = Math.max(100, endX - startX)
+        const endX = pEnd ? Math.max(startX + 140, pEnd.x) : Math.min(width - 65, startX + 220)
+        const boxWidth = Math.max(120, endX - startX)
 
         if (startX > width || startX + boxWidth < 0) return
 
@@ -1012,39 +1012,33 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         ctx.lineTo(startX + boxWidth, yEntry)
         ctx.stroke()
 
-        // 5. Badges & Text Labels
+        // 5. Badges & Text Labels (Ditempatkan rapi di sisi kanan box agar tidak menghalangi candlestick)
         const profitPct = Math.abs(((targetPrice - entryPrice) / entryPrice) * 100)
         const lossPct = Math.abs(((invalidationPrice - entryPrice) / entryPrice) * 100)
 
-        // TP Label
+        ctx.save()
+        ctx.font = 'bold 10px monospace'
+        const labelX = Math.max(startX + 60, Math.min(startX + boxWidth - 8, width - 70))
+        ctx.textAlign = 'right'
+
+        // TP Label (Di sisi kanan zona TP)
         ctx.fillStyle = '#00c087'
-        ctx.font = 'bold 10px monospace'
         const tpLabel = `TP: $${formatPrice(targetPrice)} (+${profitPct.toFixed(2)}%)`
-        ctx.fillText(tpLabel, startX + 8, isLong ? tpY + 12 : tpY + tpHeight - 4)
+        ctx.fillText(tpLabel, labelX, isLong ? tpY + 12 : tpY + tpHeight - 4)
 
-        // SL Label
+        // SL Label (Di sisi kanan zona SL)
         ctx.fillStyle = '#f6465d'
-        ctx.font = 'bold 10px monospace'
         const slLabel = `SL: $${formatPrice(invalidationPrice)} (-${lossPct.toFixed(2)}%)`
-        ctx.fillText(slLabel, startX + 8, isLong ? slY + slHeight - 4 : slY + 12)
+        ctx.fillText(slLabel, labelX, isLong ? slY + slHeight - 4 : slY + 12)
 
-        // Entry Level Label
+        // Entry Level Label (Di sisi kanan garis entry - tidak ada banner solid yang menutupi candle)
         ctx.fillStyle = '#38bdf8'
-        ctx.font = 'bold 10px monospace'
         const entryText = isLocked
-          ? `🔒 POSISI AKTIF: $${formatPrice(entryPrice)} (R:R 1:${sc.risk_reward_ratio})`
+          ? `🔒 ${isLong ? 'BUY' : 'SELL'}: $${formatPrice(entryPrice)} (R:R 1:${sc.risk_reward_ratio})`
           : `ENTRY: $${formatPrice(entryPrice)} (R:R 1:${sc.risk_reward_ratio})`
-        ctx.fillText(entryText, startX + 8, yEntry - 4)
+        ctx.fillText(entryText, labelX, yEntry - 4)
 
-        // If locked position, render status banner above the entry line
-        if (isLocked) {
-          ctx.fillStyle = isLong ? 'rgba(0, 192, 135, 0.92)' : 'rgba(246, 70, 93, 0.92)'
-          const bannerY = isLong ? Math.max(tpY + 2, yEntry - 22) : Math.min(slY + slHeight - 16, yEntry + 8)
-          ctx.fillRect(startX + 8, bannerY, 155, 14)
-          ctx.fillStyle = '#0b0e14'
-          ctx.font = 'bold 9px sans-serif'
-          ctx.fillText(`● POSISI AKTIF (${isLong ? 'BUY' : 'SELL'})`, startX + 14, bannerY + 10)
-        }
+        ctx.restore()
       })
       }
     }
