@@ -21,7 +21,8 @@ import {
   CheckCircle2,
   Activity,
   Send,
-  Lock
+  Lock,
+  Unlock
 } from 'lucide-react'
 
 import { TelegramAlertModal } from '../Settings/TelegramAlertModal'
@@ -71,6 +72,7 @@ interface SetupRadarPanelProps {
   lockedSetups?: Record<string, LockedTradeSetup>
   onSelectSymbol: (symbol: string) => void
   onOpenTrade?: (setup: ValidSetupItem) => void
+  onUnlockSetup?: (symbol: string) => void
 }
 
 type DirectionFilter = 'ALL' | 'LONG' | 'SHORT' | 'IN_POSITION'
@@ -108,7 +110,8 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
   currentPrice,
   lockedSetups,
   onSelectSymbol,
-  onOpenTrade
+  onOpenTrade,
+  onUnlockSetup
 }) => {
   const [setups, setSetups] = useState<ValidSetupItem[]>([])
   const [isTelegramModalOpen, setIsTelegramModalOpen] = useState(false)
@@ -724,40 +727,57 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
                     </span>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onSelectSymbol(item.symbol)
-                      onOpenTrade?.(item)
-                    }}
-                    className={`px-2 py-1 rounded text-[10px] font-bold flex items-center space-x-1 transition-all shadow-sm ${
-                      hasPosition
-                        ? 'bg-[#1b2536] hover:bg-[#223147] text-[#00c087] border border-emerald-600/70'
-                        : isLocked
-                        ? 'bg-amber-950/80 hover:bg-amber-900/80 text-[#f0b90b] border border-amber-700/70'
-                        : isLong
-                        ? 'bg-emerald-500/90 hover:bg-emerald-400 text-black shadow-emerald-950/40'
-                        : 'bg-rose-500/90 hover:bg-rose-400 text-white shadow-rose-950/40'
-                    }`}
-                  >
-                    {hasPosition ? (
-                      <>
-                        <CheckCircle2 className="w-3 h-3 text-[#00c087]" />
-                        <span>Kelola Posisi</span>
-                      </>
-                    ) : isLocked ? (
-                      <>
-                        <Lock className="w-3 h-3 text-[#f0b90b]" />
-                        <span>Order Terkunci</span>
-                      </>
-                    ) : (
-                      <>
-                        <Zap className="w-3 h-3" />
-                        <span>Open Posisi</span>
-                      </>
+                  <div className="flex items-center space-x-1.5">
+                    {isLocked && onUnlockSetup && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onUnlockSetup(item.symbol)
+                        }}
+                        title={`Lepas Kunci Setup ${item.symbol} (kembalikan ke analisa dinamis)`}
+                        className="px-2 py-1 rounded text-[9.5px] font-bold flex items-center space-x-1 bg-rose-950/70 hover:bg-rose-900 active:bg-rose-800 text-rose-300 hover:text-white border border-rose-800/80 transition-all shadow-sm cursor-pointer"
+                      >
+                        <Unlock className="w-2.5 h-2.5 text-rose-400 shrink-0" />
+                        <span>Lepas Kunci</span>
+                      </button>
                     )}
-                  </button>
+
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onSelectSymbol(item.symbol)
+                        onOpenTrade?.(item)
+                      }}
+                      className={`px-2 py-1 rounded text-[10px] font-bold flex items-center space-x-1 transition-all shadow-sm ${
+                        hasPosition
+                          ? 'bg-[#1b2536] hover:bg-[#223147] text-[#00c087] border border-emerald-600/70'
+                          : isLocked
+                          ? 'bg-amber-950/80 hover:bg-amber-900/80 text-[#f0b90b] border border-amber-700/70'
+                          : isLong
+                          ? 'bg-emerald-500/90 hover:bg-emerald-400 text-black shadow-emerald-950/40'
+                          : 'bg-rose-500/90 hover:bg-rose-400 text-white shadow-rose-950/40'
+                      }`}
+                    >
+                      {hasPosition ? (
+                        <>
+                          <CheckCircle2 className="w-3 h-3 text-[#00c087]" />
+                          <span>Kelola Posisi</span>
+                        </>
+                      ) : isLocked ? (
+                        <>
+                          <Lock className="w-3 h-3 text-[#f0b90b]" />
+                          <span>Order Terkunci</span>
+                        </>
+                      ) : (
+                        <>
+                          <Zap className="w-3 h-3" />
+                          <span>Open Posisi</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
             )

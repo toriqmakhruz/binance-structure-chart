@@ -39,6 +39,7 @@ interface RightSidebarProps {
   onSelectSymbol: (symbol: string) => void
   onOpenTrade?: (setup: any) => void
   onPositionClosed?: (symbol: string) => void
+  onUnlockSetup?: (symbol?: string) => void
 }
 
 export const RightSidebar: React.FC<RightSidebarProps> = ({
@@ -55,7 +56,8 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   lockedSetups,
   onSelectSymbol,
   onOpenTrade,
-  onPositionClosed
+  onPositionClosed,
+  onUnlockSetup
 }) => {
   const [isOpen, setIsOpen] = useState<boolean>(() => {
     try {
@@ -328,6 +330,8 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
             forecast={forecast}
             patterns={patterns}
             currentPrice={currentPrice}
+            isLocked={Boolean(lockedSetups && lockedSetups[symbol.toUpperCase()])}
+            onUnlockSetup={() => onUnlockSetup?.(symbol)}
           />
         </div>
       )}
@@ -344,6 +348,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
             lockedSetups={lockedSetups}
             onSelectSymbol={onSelectSymbol}
             onOpenTrade={onOpenTrade}
+            onUnlockSetup={onUnlockSetup}
           />
         </div>
       )}

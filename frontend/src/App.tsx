@@ -164,22 +164,32 @@ export function App() {
     writeStorage('cp_locked_trade_setups', lockedSetups)
   }, [lockedSetups])
 
+  const manuallyUnlockedRef = useRef<Set<string>>(new Set())
+
   const lockSetup = useCallback((setup: LockedTradeSetup) => {
     const symKey = setup.symbol.toUpperCase()
+    manuallyUnlockedRef.current.delete(symKey)
     setLockedSetups((prev) => {
       const next = { ...prev, [symKey]: setup }
       writeStorage('cp_locked_trade_setups', next)
+      try {
+        window.dispatchEvent(new CustomEvent('cp_locked_setups_reconciled', { detail: next }))
+      } catch {}
       return next
     })
   }, [])
 
   const unlockSetup = useCallback((sym: string, notifyReason?: string) => {
     const symKey = sym.toUpperCase()
+    manuallyUnlockedRef.current.add(symKey)
     setLockedSetups((prev) => {
       if (!prev[symKey]) return prev
       const next = { ...prev }
       delete next[symKey]
       writeStorage('cp_locked_trade_setups', next)
+      try {
+        window.dispatchEvent(new CustomEvent('cp_locked_setups_reconciled', { detail: next }))
+      } catch {}
       return next
     })
     if (notifyReason) {
@@ -409,15 +419,22 @@ export function App() {
               .map((p: any) => (p.symbol || '').toUpperCase())
           )
 
+          // Clean up manually unlocked set for symbols that no longer have positions
+          for (const s of manuallyUnlockedRef.current) {
+            if (!activeSyms.has(s)) {
+              manuallyUnlockedRef.current.delete(s)
+            }
+          }
+
           setLockedSetups((prev) => {
             let changed = false
             const next = { ...prev }
 
-            // A. Auto-sync active position into locked setup if not yet present
+            // A. Auto-sync active position into locked setup if not yet present and not manually unlocked
             for (const pos of res.positions) {
               const symUpper = (pos.symbol || '').toUpperCase()
               const amt = Number(pos.positionAmt || 0)
-              if (symUpper && amt !== 0 && !next[symUpper]) {
+              if (symUpper && amt !== 0 && !next[symUpper] && !manuallyUnlockedRef.current.has(symUpper)) {
                 const isLong = amt > 0 || pos.side === 'LONG'
                 const entryP = Number(pos.entryPrice || 0)
                 const rawSl = Number(pos.stopLoss || 0)
@@ -712,6 +729,7 @@ export function App() {
               setTradeRefreshSeq((prev) => prev + 1)
               loadAnalysis(symbol, timeframe, market, settings)
             }}
+            onUnlockSetup={(symToUnlock) => unlockSetup(symToUnlock || symbol, 'Kunci box setup chart dilepas manual.')}
           />
         </ErrorBoundary>
       </div>

@@ -17,7 +17,9 @@ import {
   TrendingDown,
   TrendingUp,
   SlidersHorizontal,
-  ChevronRight
+  ChevronRight,
+  Lock,
+  Unlock
 } from 'lucide-react'
 
 interface ConfluenceSidebarProps {
@@ -26,6 +28,8 @@ interface ConfluenceSidebarProps {
   forecast?: ForecastResult
   patterns?: ChartPattern[]
   currentPrice?: number
+  isLocked?: boolean
+  onUnlockSetup?: () => void
 }
 
 export const ConfluenceSidebar: React.FC<ConfluenceSidebarProps> = ({
@@ -33,7 +37,9 @@ export const ConfluenceSidebar: React.FC<ConfluenceSidebarProps> = ({
   smc,
   forecast,
   patterns = [],
-  currentPrice
+  currentPrice,
+  isLocked = false,
+  onUnlockSetup
 }) => {
   if (!movement) {
     return (
@@ -212,6 +218,27 @@ export const ConfluenceSidebar: React.FC<ConfluenceSidebarProps> = ({
               <span>Skenario Forecast ({forecast.horizon_candles} Candle)</span>
             </div>
           </div>
+
+          {/* Banner jika setup sedang terkunci */}
+          {isLocked && (
+            <div className="bg-amber-500/10 p-2.5 rounded-lg border border-amber-500/30 flex items-center justify-between text-xs">
+              <div className="flex items-center space-x-1.5 text-amber-300 font-semibold">
+                <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <span>Box Setup Chart Terkunci</span>
+              </div>
+              {onUnlockSetup && (
+                <button
+                  type="button"
+                  onClick={onUnlockSetup}
+                  title="Lepas Kunci Setup Manual (Kembalikan ke Analisa Dinamis)"
+                  className="px-2 py-1 rounded text-[10px] font-bold flex items-center space-x-1 bg-rose-950/80 hover:bg-rose-900 active:bg-rose-800 text-rose-300 hover:text-white border border-rose-800/80 transition-all shadow-sm cursor-pointer"
+                >
+                  <Unlock className="w-2.5 h-2.5 text-rose-400 shrink-0" />
+                  <span>Lepas Kunci</span>
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Banner jika belum ada setup valid */}
           {!forecast.scenarios.some(s => s.is_valid === true && (s.risk_reward_ratio || 0) >= 1.5 && s.status === 'VALID_ENTRY') && (

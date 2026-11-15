@@ -12,7 +12,9 @@ import {
   Wifi,
   WifiOff,
   Zap,
-  Activity
+  Activity,
+  Lock,
+  Unlock
 } from 'lucide-react'
 import { formatPrice } from '../../utils/formatters'
 
@@ -181,18 +183,22 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
 
         {/* Quick Open Position Button or Locked Active Setup Indicator */}
         {isSetupLocked ? (
-          <div className="flex items-center space-x-1 px-1.5 md:px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] md:text-xs font-semibold shrink-0">
-            <span className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-amber-400 animate-ping shrink-0" />
-            <span className="hidden sm:inline">Box Terkunci</span>
-            <span className="sm:hidden font-mono text-[9px]">LOCKED</span>
+          <div className="flex items-center space-x-1.5 px-2 md:px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/40 text-amber-300 text-[10px] md:text-xs font-semibold shrink-0">
+            <span className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
+            <span className="font-bold flex items-center space-x-1">
+              <Lock className="w-3 h-3 text-amber-400 shrink-0" />
+              <span className="hidden sm:inline">Setup Terkunci</span>
+              <span className="sm:hidden font-mono text-[9px]">TERKUNCI</span>
+            </span>
             {onUnlockSetup && (
               <button
                 type="button"
                 onClick={onUnlockSetup}
-                title="Lepas Kunci Setup (Kembali ke Analisa Dinamis)"
-                className="ml-0.5 px-1 py-0.5 hover:bg-amber-400/20 rounded text-amber-400 text-[9px] font-bold transition-colors"
+                title="Lepas Kunci Setup Manual (Kembalikan ke Analisa Dinamis)"
+                className="flex items-center space-x-1 px-1.5 md:px-2 py-0.5 bg-rose-500/20 hover:bg-rose-500/30 active:bg-rose-500/40 border border-rose-500/40 rounded text-rose-300 hover:text-white text-[9px] md:text-[10px] font-bold transition-all shadow-sm cursor-pointer ml-1"
               >
-                ✕
+                <Unlock className="w-2.5 h-2.5 md:w-3 md:h-3 text-rose-300 shrink-0" />
+                <span>Lepas Kunci</span>
               </button>
             )}
           </div>

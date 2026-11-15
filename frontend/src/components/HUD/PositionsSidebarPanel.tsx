@@ -157,6 +157,7 @@ export const PositionsSidebarPanel: React.FC<PositionsSidebarPanelProps> = ({
     try {
       const res = await cancelTradeOrder(sym, orderId, market, mode, apiKey, apiSecret)
       if (res.success) {
+        onPositionClosed?.(sym)
         loadData(true)
       } else {
         alert(res.message || 'Gagal membatalkan order')
