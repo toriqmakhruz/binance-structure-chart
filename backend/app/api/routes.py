@@ -3,7 +3,7 @@ import time
 import logging
 from typing import Optional, Dict, Any, List, Tuple
 from fastapi import APIRouter, Query, HTTPException, status
-from ..models.schemas import FullAnalysisResponse, Candle, AnalysisMetadata
+from ..models.schemas import FullAnalysisResponse, Candle, AnalysisMetadata, OpenInterestData
 from ..services.binance_service import (
     binance_service, DataUnavailableException, DataMalformedException
 )
@@ -157,6 +157,14 @@ async def get_full_analysis(
             except Exception as htf_err:
                 logger.warning(f"Failed to fetch HTF data: {htf_err}")
 
+        # Fetch Open Interest if market is futures (purely informational indicator)
+        oi_data = None
+        if market.lower() == "futures":
+            try:
+                oi_data = await binance_service.get_open_interest(symbol=symbol)
+            except Exception as oi_err:
+                logger.debug(f"OI fetch error: {oi_err}")
+
         return FullAnalysisResponse(
             symbol=symbol.upper(),
             market=market,
@@ -167,7 +175,8 @@ async def get_full_analysis(
             movement=movement_res,
             forecast=forecast_res,
             htf_overlay=htf_data,
-            metadata=metadata
+            metadata=metadata,
+            open_interest=oi_data
         )
 
     except DataUnavailableException as e:
@@ -398,3 +407,14 @@ async def get_valid_setups(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail={"code": "SETUPS_SCAN_FAILED", "message": str(e)}
             )
+
+
+@router.get("/open-interest", response_model=Optional[OpenInterestData])
+async def get_open_interest(
+    symbol: str = Query("BTCUSDT", pattern=r"^[A-Za-z0-9]{3,16}$")
+):
+    """
+    Get real-time Open Interest statistics for Binance USD-M Futures.
+    Purely informational indicator for traders - not used in automated entry scoring.
+    """
+    return await binance_service.get_open_interest(symbol=symbol)

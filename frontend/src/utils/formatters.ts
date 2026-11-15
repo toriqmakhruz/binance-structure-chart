@@ -43,3 +43,34 @@ export function getPricePrecision(candles: Candle[]): { precision: number; minMo
   if (abs >= 0.0001) return { precision: 6, minMove: 0.000001 }
   return { precision: 8, minMove: 0.00000001 }
 }
+
+/**
+ * Format Open Interest USD value into clean compact notation ($6.24B, $850.5M, $120.4K).
+ */
+export function formatOpenInterestValue(val?: number | null): string {
+  if (val === undefined || val === null || isNaN(val) || val <= 0) return '$0.00'
+  if (val >= 1e9) {
+    return `$${(val / 1e9).toFixed(2)}B`
+  }
+  if (val >= 1e6) {
+    return `$${(val / 1e6).toFixed(2)}M`
+  }
+  if (val >= 1e3) {
+    return `$${(val / 1e3).toFixed(1)}K`
+  }
+  return `$${val.toFixed(2)}`
+}
+
+/**
+ * Format Open Interest contract/coin quantity (e.g. 95.35K, 1.2M).
+ */
+export function formatOpenInterest(qty?: number | null): string {
+  if (qty === undefined || qty === null || isNaN(qty) || qty <= 0) return '0'
+  if (qty >= 1e6) {
+    return `${(qty / 1e6).toFixed(2)}M`
+  }
+  if (qty >= 1e3) {
+    return `${(qty / 1e3).toFixed(2)}K`
+  }
+  return qty.toLocaleString('en-US', { maximumFractionDigits: 2 })
+}

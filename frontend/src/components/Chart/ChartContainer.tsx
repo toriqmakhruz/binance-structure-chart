@@ -10,7 +10,8 @@ import {
   LayerVisibility,
   DrawingToolType,
   DrawingItem,
-  AppSettings
+  AppSettings,
+  OpenInterestData
 } from '../../types/analysis'
 
 interface SubChartProps {
@@ -23,6 +24,7 @@ interface SubChartProps {
   drawings: DrawingItem[]
   onAddDrawing: (d: DrawingItem) => void
   onRemoveDrawing: (id: string) => void
+  openInterest?: OpenInterestData | null
 }
 
 const SubTimeframeChart: React.FC<SubChartProps> = ({
@@ -34,7 +36,8 @@ const SubTimeframeChart: React.FC<SubChartProps> = ({
   activeTool,
   drawings,
   onAddDrawing,
-  onRemoveDrawing
+  onRemoveDrawing,
+  openInterest
 }) => {
   const [data, setData] = useState<FullAnalysisResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -83,6 +86,8 @@ const SubTimeframeChart: React.FC<SubChartProps> = ({
       drawings={drawings}
       onAddDrawing={onAddDrawing}
       onRemoveDrawing={onRemoveDrawing}
+      openInterest={data?.open_interest || openInterest}
+      market={market}
     />
   )
 }
@@ -103,6 +108,7 @@ interface ChartContainerProps {
   drawings: DrawingItem[]
   onAddDrawing: (d: DrawingItem) => void
   onRemoveDrawing: (id: string) => void
+  openInterest?: OpenInterestData | null
 }
 
 export const ChartContainer: React.FC<ChartContainerProps> = ({
@@ -120,7 +126,8 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
   activeTool,
   drawings,
   onAddDrawing,
-  onRemoveDrawing
+  onRemoveDrawing,
+  openInterest
 }) => {
   const renderChart = (chartId: string, subTf?: string) => {
     const isSub = Boolean(subTf && subTf.toLowerCase() !== timeframe.toLowerCase())
@@ -148,6 +155,7 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
               drawings={drawings}
               onAddDrawing={onAddDrawing}
               onRemoveDrawing={onRemoveDrawing}
+              openInterest={openInterest}
             />
           ) : (
             <LightweightChart
@@ -164,6 +172,7 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
               drawings={drawings}
               onAddDrawing={onAddDrawing}
               onRemoveDrawing={onRemoveDrawing}
+              openInterest={openInterest}
             />
           )}
         </div>

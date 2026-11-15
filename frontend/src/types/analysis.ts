@@ -164,6 +164,22 @@ export interface AnalysisMetadata {
   is_stale?: boolean
 }
 
+export interface OpenInterestPoint {
+  timestamp: number
+  open_interest: number
+  open_interest_value: number
+}
+
+export interface OpenInterestData {
+  symbol: string
+  open_interest: number
+  open_interest_value: number
+  change_pct_1h: number
+  change_pct_24h: number
+  timestamp: number
+  history?: OpenInterestPoint[]
+}
+
 export interface FullAnalysisResponse {
   symbol: string
   market: string
@@ -175,6 +191,7 @@ export interface FullAnalysisResponse {
   forecast: ForecastResult
   htf_overlay?: any
   metadata?: AnalysisMetadata
+  open_interest?: OpenInterestData
 }
 
 export interface LayerVisibility {
@@ -189,6 +206,7 @@ export interface LayerVisibility {
   entryBoxes: boolean
   htfOverlay: boolean
   volume: boolean
+  openInterest: boolean
 }
 
 export type DrawingToolType = 

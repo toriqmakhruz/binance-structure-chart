@@ -151,6 +151,20 @@ class AnalysisMetadata(BaseModel):
     total_candles: int
     is_stale: bool = False
 
+class OpenInterestPoint(BaseModel):
+    timestamp: int
+    open_interest: float
+    open_interest_value: float
+
+class OpenInterestData(BaseModel):
+    symbol: str
+    open_interest: float
+    open_interest_value: float
+    change_pct_1h: float = 0.0
+    change_pct_24h: float = 0.0
+    timestamp: int
+    history: List[OpenInterestPoint] = []
+
 class FullAnalysisResponse(BaseModel):
     symbol: str
     market: str
@@ -162,3 +176,4 @@ class FullAnalysisResponse(BaseModel):
     forecast: ForecastResult
     htf_overlay: Optional[Dict[str, Any]] = None
     metadata: Optional[AnalysisMetadata] = None
+    open_interest: Optional[OpenInterestData] = None

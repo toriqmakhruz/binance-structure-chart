@@ -5,7 +5,8 @@ import {
   SmcAnalysisResult,
   ForecastResult,
   ChartPattern,
-  AppSettings
+  AppSettings,
+  OpenInterestData
 } from '../../types/analysis'
 import { ConfluenceSidebar } from './ConfluenceSidebar'
 import { PositionCalculator } from './PositionCalculator'
@@ -40,6 +41,7 @@ interface RightSidebarProps {
   onOpenTrade?: (setup: any) => void
   onPositionClosed?: (symbol: string) => void
   onUnlockSetup?: (symbol?: string) => void
+  openInterest?: OpenInterestData | null
 }
 
 export const RightSidebar: React.FC<RightSidebarProps> = ({
@@ -57,7 +59,8 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   onSelectSymbol,
   onOpenTrade,
   onPositionClosed,
-  onUnlockSetup
+  onUnlockSetup,
+  openInterest
 }) => {
   const [isOpen, setIsOpen] = useState<boolean>(() => {
     try {
@@ -332,6 +335,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
             currentPrice={currentPrice}
             isLocked={Boolean(lockedSetups && lockedSetups[symbol.toUpperCase()])}
             onUnlockSetup={() => onUnlockSetup?.(symbol)}
+            openInterest={openInterest}
           />
         </div>
       )}

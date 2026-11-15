@@ -14,9 +14,10 @@ import {
   ForecastResult,
   LayerVisibility,
   DrawingToolType,
-  DrawingItem
+  DrawingItem,
+  OpenInterestData
 } from '../../types/analysis'
-import { formatPrice, getPricePrecision } from '../../utils/formatters'
+import { formatPrice, getPricePrecision, formatOpenInterestValue, formatOpenInterest } from '../../utils/formatters'
 import { Crosshair } from 'lucide-react'
 
 interface LightweightChartProps {
@@ -32,6 +33,8 @@ interface LightweightChartProps {
   drawings: DrawingItem[]
   onAddDrawing: (item: DrawingItem) => void
   onRemoveDrawing: (id: string) => void
+  openInterest?: OpenInterestData | null
+  market?: 'spot' | 'futures'
 }
 
 export const LightweightChart: React.FC<LightweightChartProps> = ({
@@ -46,7 +49,9 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
   activeTool,
   drawings,
   onAddDrawing,
-  onRemoveDrawing
+  onRemoveDrawing,
+  openInterest,
+  market = 'futures'
 }) => {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -1269,6 +1274,31 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
           activeTool !== 'cursor' ? 'cursor-crosshair pointer-events-auto' : 'pointer-events-none'
         }`}
       />
+
+      {/* Floating TradingView-style Open Interest Indicator Legend */}
+      {visibility.openInterest && openInterest && market === 'futures' && (
+        <div 
+          className="absolute top-2 left-3 z-20 flex items-center space-x-2 px-2.5 py-1 rounded-md bg-[#0d1117]/85 border border-[#21262d] backdrop-blur-sm shadow-md font-mono text-[11px] select-none pointer-events-auto"
+          title={`Open Interest (OI) Binance Futures: Total nilai posisi terbuka saat ini. Indikator murni, tidak mempengaruhi rumus sinyal.`}
+        >
+          <span className="font-bold text-sky-400 flex items-center space-x-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse" />
+            <span>OI:</span>
+          </span>
+          <span className="text-white font-semibold">
+            {formatOpenInterestValue(openInterest.open_interest_value)}
+          </span>
+          <span className="text-slate-400 text-[10px] hidden sm:inline">
+            ({formatOpenInterest(openInterest.open_interest)} {symbol.replace('USDT', '')})
+          </span>
+          <span className={`text-[10px] font-bold ${openInterest.change_pct_1h >= 0 ? 'text-[#00c087]' : 'text-[#f6465d]'}`}>
+            1h: {openInterest.change_pct_1h >= 0 ? '+' : ''}{openInterest.change_pct_1h}%
+          </span>
+          <span className={`text-[10px] font-bold hidden md:inline ${openInterest.change_pct_24h >= 0 ? 'text-[#00c087]' : 'text-[#f6465d]'}`}>
+            24h: {openInterest.change_pct_24h >= 0 ? '+' : ''}{openInterest.change_pct_24h}%
+          </span>
+        </div>
+      )}
 
       {/* Loading state indicator when candles are empty */}
       {candles.length === 0 && (

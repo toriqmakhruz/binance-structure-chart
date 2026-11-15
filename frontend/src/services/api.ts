@@ -4,7 +4,8 @@ import {
   ValidSetupsResponse,
   TradeBalanceResponse,
   TradeOrderRequest,
-  TradeOrderResponse
+  TradeOrderResponse,
+  OpenInterestData
 } from '../types/analysis'
 
 const API_BASE = '/api'
@@ -52,6 +53,17 @@ export async function fetchAnalysis(
   }
 
   return await resp.json()
+}
+
+export async function fetchOpenInterest(symbol: string): Promise<OpenInterestData | null> {
+  try {
+    const resp = await fetch(`${API_BASE}/open-interest?symbol=${encodeURIComponent(symbol.toUpperCase())}`)
+    if (!resp.ok) return null
+    return await resp.json()
+  } catch (err) {
+    console.debug('Failed to fetch open interest:', err)
+    return null
+  }
 }
 
 export async function fetchValidSetups(

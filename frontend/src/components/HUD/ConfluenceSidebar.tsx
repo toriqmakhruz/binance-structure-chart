@@ -3,9 +3,10 @@ import {
   MovementMetrics,
   SmcAnalysisResult,
   ForecastResult,
-  ChartPattern
+  ChartPattern,
+  OpenInterestData
 } from '../../types/analysis'
-import { formatPrice } from '../../utils/formatters'
+import { formatPrice, formatOpenInterestValue, formatOpenInterest } from '../../utils/formatters'
 import {
   Gauge,
   Activity,
@@ -30,6 +31,7 @@ interface ConfluenceSidebarProps {
   currentPrice?: number
   isLocked?: boolean
   onUnlockSetup?: () => void
+  openInterest?: OpenInterestData | null
 }
 
 export const ConfluenceSidebar: React.FC<ConfluenceSidebarProps> = ({
@@ -39,7 +41,8 @@ export const ConfluenceSidebar: React.FC<ConfluenceSidebarProps> = ({
   patterns = [],
   currentPrice,
   isLocked = false,
-  onUnlockSetup
+  onUnlockSetup,
+  openInterest
 }) => {
   if (!movement) {
     return (
@@ -164,6 +167,34 @@ export const ConfluenceSidebar: React.FC<ConfluenceSidebarProps> = ({
             </div>
           </div>
         </div>
+
+        {/* Open Interest Indicator (Khusus Futures - Pure Indikator Visual) */}
+        {openInterest && (
+          <div className="bg-[#0d1117] p-2.5 rounded-lg border border-[#21262d] space-y-1">
+            <div className="flex items-center justify-between text-[10px]">
+              <span className="text-slate-400 font-medium flex items-center space-x-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse" />
+                <span className="font-bold">Open Interest (OI)</span>
+              </span>
+              <span className="font-mono text-[9px] px-1.5 py-0.5 bg-[#1b2230] rounded text-sky-400 font-semibold" title="Indikator murni, tidak mempengaruhi rumus sinyal atau skenario entry">
+                Indikator Murni
+              </span>
+            </div>
+            <div className="flex items-baseline justify-between font-mono pt-0.5">
+              <span className="font-bold text-white text-xs">
+                {formatOpenInterestValue(openInterest.open_interest_value)}
+              </span>
+              <div className="flex items-center space-x-2 text-[10px]">
+                <span className={openInterest.change_pct_1h >= 0 ? 'text-[#00c087] font-bold' : 'text-[#f6465d] font-bold'}>
+                  1h: {openInterest.change_pct_1h >= 0 ? '+' : ''}{openInterest.change_pct_1h}%
+                </span>
+                <span className={openInterest.change_pct_24h >= 0 ? 'text-[#00c087] font-bold' : 'text-[#f6465d] font-bold'}>
+                  24h: {openInterest.change_pct_24h >= 0 ? '+' : ''}{openInterest.change_pct_24h}%
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 3. Market Structure (SMC) */}

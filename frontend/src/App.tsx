@@ -37,7 +37,8 @@ const DEFAULT_VISIBILITY: LayerVisibility = {
   forecastScenarios: true,
   entryBoxes: true,
   htfOverlay: true,
-  volume: true
+  volume: true,
+  openInterest: true
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -322,6 +323,23 @@ export function App() {
 
   const handleToggleLayer = (key: keyof LayerVisibility) => {
     setVisibility((prev) => ({ ...prev, [key]: !prev[key] }))
+  }
+
+  const handleSetAllLayers = (enabled: boolean) => {
+    setVisibility({
+      smcSwings: enabled,
+      smcEvents: enabled,
+      orderBlocks: enabled,
+      fvgs: enabled,
+      patterns: enabled,
+      srLevels: enabled,
+      forecastCone: enabled,
+      forecastScenarios: enabled,
+      entryBoxes: enabled,
+      htfOverlay: enabled,
+      volume: enabled,
+      openInterest: enabled
+    })
   }
 
   // Per-symbol drawings
@@ -651,11 +669,14 @@ export function App() {
         onUnlockSetup={() => unlockSetup(symbol, 'Kunci box setup chart dilepas manual.')}
       />
 
-      {/* 2. Layer Toggles Bar */}
+      {/* 2. Layer Toggles Bar (TradingView Dropdown Style) */}
       <LayerToggles
         visibility={visibility}
         onToggle={handleToggleLayer}
         hasHtf={Boolean(analysis?.htf_overlay)}
+        market={market}
+        openInterest={analysis?.open_interest}
+        onSetAll={handleSetAllLayers}
       />
 
       {/* 3. Main Workspace */}
@@ -687,6 +708,7 @@ export function App() {
               drawings={currentDrawings}
               onAddDrawing={handleAddDrawing}
               onRemoveDrawing={handleRemoveDrawing}
+              openInterest={analysis?.open_interest}
             />
           </div>
 
@@ -722,6 +744,7 @@ export function App() {
             patterns={analysis?.patterns?.patterns}
             currentPrice={lastCandle?.close}
             lockedSetups={lockedSetups}
+            openInterest={analysis?.open_interest}
             onSelectSymbol={handleSelectSymbol}
             onOpenTrade={handleOpenTrade}
             onPositionClosed={(closedSym) => {

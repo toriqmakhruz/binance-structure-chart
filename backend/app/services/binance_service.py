@@ -6,7 +6,7 @@ import logging
 import re
 from typing import List, Dict, Any, Optional, Tuple
 from ..config import settings
-from ..models.schemas import Candle, AnalysisMetadata
+from ..models.schemas import Candle, AnalysisMetadata, OpenInterestData, OpenInterestPoint
 
 logger = logging.getLogger("binance_service")
 
@@ -43,6 +43,7 @@ class BinanceService:
         self._tickers_cache_ttl = 15.0
         self._klines_cache: Dict[Tuple[str, str, str], Tuple[float, List[Candle], AnalysisMetadata]] = {}
         self._klines_cache_ttl = 10.0
+        self._oi_cache: Dict[str, Tuple[float, OpenInterestData]] = {}
         self._ban_until: float = 0.0
 
     def _get_candidate_urls(self, path: str, market: str) -> List[str]:
@@ -532,5 +533,86 @@ class BinanceService:
 
         symbols_list.sort(key=lambda x: x["quoteVolume"], reverse=True)
         return symbols_list
+
+    async def get_open_interest(self, symbol: str) -> Optional[OpenInterestData]:
+        """
+        Fetch real-time Open Interest and 15m statistics from Binance Futures.
+        Purely an informational indicator - never passed into forecasting or entry formulas.
+        """
+        sym_upper = symbol.upper().strip()
+        now = time.time()
+        
+        # Check cache (15s TTL)
+        if sym_upper in self._oi_cache:
+            cache_time, cached_data = self._oi_cache[sym_upper]
+            if now - cache_time < 15.0:
+                return cached_data
+
+        try:
+            async with httpx.AsyncClient(timeout=6.0, headers=HEADERS, verify=settings.TLS_VERIFY) as client:
+                oi_url = f"https://fapi.binance.com/fapi/v1/openInterest?symbol={sym_upper}"
+                hist_url = f"https://fapi.binance.com/futures/data/openInterestHist?symbol={sym_upper}&period=15m&limit=30"
+
+                res_oi, res_hist = await asyncio.gather(
+                    client.get(oi_url),
+                    client.get(hist_url),
+                    return_exceptions=True
+                )
+
+                if isinstance(res_oi, Exception) or res_oi.status_code != 200:
+                    logger.debug(f"Current OI unavailable for {sym_upper}: {res_oi}")
+                    return None
+
+                oi_json = res_oi.json()
+                current_oi = float(oi_json.get("openInterest", 0))
+                oi_time = int(oi_json.get("time", int(now * 1000)))
+
+                history_points: List[OpenInterestPoint] = []
+                current_oi_value = 0.0
+                change_1h = 0.0
+                change_24h = 0.0
+
+                if not isinstance(res_hist, Exception) and res_hist.status_code == 200:
+                    hist_data = res_hist.json()
+                    if isinstance(hist_data, list) and len(hist_data) > 0:
+                        for item in hist_data:
+                            try:
+                                history_points.append(OpenInterestPoint(
+                                    timestamp=int(item.get("timestamp", 0)),
+                                    open_interest=float(item.get("sumOpenInterest", 0)),
+                                    open_interest_value=float(item.get("sumOpenInterestValue", 0))
+                                ))
+                            except (ValueError, TypeError):
+                                continue
+
+                        if history_points:
+                            latest_hist = history_points[-1]
+                            current_oi_value = latest_hist.open_interest_value
+                            if len(history_points) >= 4:
+                                base_1h = history_points[-4].open_interest
+                                if base_1h > 0:
+                                    change_1h = round(((current_oi - base_1h) / base_1h) * 100, 2)
+                            base_24h = history_points[0].open_interest
+                            if base_24h > 0:
+                                change_24h = round(((current_oi - base_24h) / base_24h) * 100, 2)
+
+                if current_oi_value <= 0:
+                    current_oi_value = current_oi
+
+                oi_result = OpenInterestData(
+                    symbol=sym_upper,
+                    open_interest=current_oi,
+                    open_interest_value=current_oi_value,
+                    change_pct_1h=change_1h,
+                    change_pct_24h=change_24h,
+                    timestamp=oi_time,
+                    history=history_points
+                )
+
+                self._oi_cache[sym_upper] = (now, oi_result)
+                return oi_result
+        except Exception as e:
+            logger.warning(f"Failed to fetch Open Interest for {sym_upper}: {e}")
+            return None
 
 binance_service = BinanceService()
