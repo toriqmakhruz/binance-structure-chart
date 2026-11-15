@@ -344,20 +344,22 @@ export function App() {
   // Current symbol active locked trade setup (if any)
   const currentLockedSetup = lockedSetups[symbol.toUpperCase()]
 
-  // Effective Forecast: When trade is active/open, setup box is LOCKED and immune to background recalculation
+  // Effective Forecast: When trade is active/open (baik limit order maupun market order), setup box is LOCKED and immune to background recalculation
   const effectiveForecast: ForecastResult | undefined = useMemo(() => {
     if (!currentLockedSetup) return analysis?.forecast || undefined
 
     const lockedScenario: ForecastScenario = {
       id: `locked_${currentLockedSetup.symbol}`,
-      name: `${currentLockedSetup.name || 'Setup Posisi Aktif'} [POSISI AKTIF]`,
+      name: `${currentLockedSetup.name || 'Setup Posisi Terkunci'} [TERKUNCI]`,
       direction: currentLockedSetup.direction,
       status: 'VALID_ENTRY',
       is_valid: true,
       probability: 0.99,
-      confluence_weight: currentLockedSetup.confluence_score || 90,
+      confluence_weight: currentLockedSetup.confluence_score || 95,
       risk_reward_ratio: currentLockedSetup.risk_reward_ratio || 2.0,
       entry_price: currentLockedSetup.entry_price,
+      entry_zone_high: currentLockedSetup.entry_price,
+      entry_zone_low: currentLockedSetup.entry_price,
       invalidation_price: currentLockedSetup.invalidation_price,
       target_price: currentLockedSetup.target_price,
       entry_time: currentLockedSetup.entry_time,
@@ -367,6 +369,7 @@ export function App() {
     if (analysis?.forecast) {
       return {
         ...analysis.forecast,
+        predicted_trend: currentLockedSetup.direction === 'LONG' ? 'BULLISH' : 'BEARISH',
         scenarios: [lockedScenario]
       }
     }
@@ -374,7 +377,7 @@ export function App() {
     return {
       horizon_candles: 25,
       predicted_trend: currentLockedSetup.direction === 'LONG' ? 'BULLISH' : 'BEARISH',
-      confluence_score: currentLockedSetup.confluence_score || 90,
+      confluence_score: currentLockedSetup.confluence_score || 95,
       cone_points: [],
       scenarios: [lockedScenario]
     }
@@ -500,6 +503,10 @@ export function App() {
     if (!currentLockedSetup || !lastCandle) return
     const price = lastCandle.close
     if (price <= 0) return
+
+    // Grace period 10 detik: cegah auto-unlock instan saat baru klik Open Posisi
+    if (Date.now() - (currentLockedSetup.created_at || 0) < 10000) return
+
     const isLong = currentLockedSetup.direction === 'LONG'
 
     // 1. Take Profit hit

@@ -923,7 +923,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
       // If no valid setup exists, DRAW NOTHING! (Do not force an entry box!)
       if (validSetups.length > 0) {
         validSetups.slice(0, 1).forEach((sc) => {
-        const isLocked = Boolean(sc.id?.startsWith('locked_') || sc.name?.includes('[POSISI AKTIF]'))
+        const isLocked = Boolean(sc.id?.startsWith('locked_') || sc.name?.includes('[POSISI AKTIF]') || sc.name?.includes('[TERKUNCI]'))
         const isLong = sc.direction === 'LONG' || sc.name.toLowerCase().includes('bullish')
         const currentCandle = candles.length > 0 ? candles[candles.length - 1] : null
         const entryPrice = Number(sc.entry_price || (currentCandle ? currentCandle.close : 0))

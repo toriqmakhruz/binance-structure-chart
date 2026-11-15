@@ -20,7 +20,8 @@ import {
   Zap,
   CheckCircle2,
   Activity,
-  Send
+  Send,
+  Lock
 } from 'lucide-react'
 
 import { TelegramAlertModal } from '../Settings/TelegramAlertModal'
@@ -161,32 +162,10 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
           }
         }
 
-        // Clean up stale locked setups from localStorage if the position is no longer active
-        try {
-          const rawLocked = localStorage.getItem('cp_locked_trade_setups')
-          if (rawLocked) {
-            const parsed = JSON.parse(rawLocked)
-            let changed = false
-            for (const symKey of Object.keys(parsed)) {
-              if (!activeSymbolsSet.has(symKey.toUpperCase())) {
-                delete parsed[symKey]
-                changed = true
-              }
-            }
-            if (changed) {
-              localStorage.setItem('cp_locked_trade_setups', JSON.stringify(parsed))
-              window.dispatchEvent(new CustomEvent('cp_locked_setups_reconciled', { detail: parsed }))
-            }
-          }
-        } catch {}
-
+        // Simpan posisi aktif ke state (tanpa menghapus locked setups!)
         setActivePositions(freshPosMap)
       } else if (res && res.success && Array.isArray(res.positions) && res.positions.length === 0) {
         setActivePositions(new Map())
-        try {
-          localStorage.removeItem('cp_locked_trade_setups')
-          window.dispatchEvent(new CustomEvent('cp_locked_setups_reconciled', { detail: {} }))
-        } catch {}
       }
     } catch {
       // ignore network errors gracefully
@@ -353,14 +332,45 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
     })
   }, [symbol, market, timeframe, forecast, currentPrice])
 
-  // Inject any live Binance active positions into setups list so they NEVER disappear
+  // Combine setups, prioritizing lockedSetups (Entry/SL/TP tetap BEKU & tidak berubah)
+  // serta posisi aktif Binance agar tidak pernah hilang / berubah oleh scanner dinamis
   const combinedSetups = useMemo(() => {
-    const existingSymbols = new Set(setups.map((s) => s.symbol.toUpperCase()))
-    const syntheticActiveSetups: ValidSetupItem[] = []
+    const lockedMap = lockedSetups || {}
+    const existingSymbols = new Set<string>()
+    const finalItems: ValidSetupItem[] = []
 
+    // 1. Prioritas Utama: Setup yang sedang TERKUNCI (baik itu LIMIT ORDER maupun posisi aktif)
+    for (const [symKey, locked] of Object.entries(lockedMap)) {
+      const symUpper = symKey.toUpperCase()
+      existingSymbols.add(symUpper)
+      const posInfo = activePositions.get(symUpper)
+      finalItems.push({
+        symbol: symUpper,
+        baseAsset: symUpper.replace(/USDT$|BUSD$|USDC$/i, ''),
+        market: (locked.market as any) || market,
+        timeframe,
+        direction: locked.direction,
+        name: locked.name || (posInfo ? `Posisi Aktif (${locked.direction})` : `Order Terkunci (${locked.direction})`),
+        entry_price: locked.entry_price,
+        entry_time: locked.entry_time || Math.floor(Date.now() / 1000),
+        entry_zone_high: locked.entry_price,
+        entry_zone_low: locked.entry_price,
+        invalidation_price: locked.invalidation_price,
+        target_price: locked.target_price,
+        risk_reward_ratio: locked.risk_reward_ratio,
+        confluence_weight: 999999, // Selalu di urutan paling atas!
+        confluence_score: locked.confluence_score || 95,
+        current_price: posInfo?.markPrice || locked.entry_price,
+        price_change_pct: 0,
+        quote_volume: 0
+      })
+    }
+
+    // 2. Prioritas Kedua: Posisi Aktif Binance yang belum ada di lockedSetups
     for (const [symUpper, posInfo] of activePositions.entries()) {
       if (!existingSymbols.has(symUpper)) {
-        syntheticActiveSetups.push({
+        existingSymbols.add(symUpper)
+        finalItems.push({
           symbol: symUpper,
           baseAsset: symUpper.replace(/USDT$|BUSD$|USDC$/i, ''),
           market,
@@ -374,7 +384,7 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
           invalidation_price: 0,
           target_price: 0,
           risk_reward_ratio: 0,
-          confluence_weight: 999999, // Sorts right to the top!
+          confluence_weight: 999999,
           confluence_score: 100,
           current_price: posInfo.markPrice || posInfo.entryPrice || 0,
           price_change_pct: 0,
@@ -383,20 +393,38 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
       }
     }
 
-    return [...syntheticActiveSetups, ...setups]
-  }, [setups, activePositions, market, timeframe])
+    // 3. Setup reguler dari scanner background (hanya jika pair belum terkunci)
+    for (const s of setups) {
+      const symUpper = s.symbol.toUpperCase()
+      if (!existingSymbols.has(symUpper)) {
+        existingSymbols.add(symUpper)
+        finalItems.push(s)
+      }
+    }
+
+    return finalItems
+  }, [setups, lockedSetups, activePositions, market, timeframe])
+
+  const lockedOrInPositionSet = useMemo(() => {
+    const set = new Set<string>()
+    if (lockedSetups) {
+      for (const k of Object.keys(lockedSetups)) set.add(k.toUpperCase())
+    }
+    for (const k of activePositions.keys()) set.add(k.toUpperCase())
+    return set
+  }, [lockedSetups, activePositions])
 
   const freshSetups = useMemo(() => {
-    return combinedSetups.filter((s) => !activePositions.has(s.symbol.toUpperCase()))
-  }, [combinedSetups, activePositions])
+    return combinedSetups.filter((s) => !lockedOrInPositionSet.has(s.symbol.toUpperCase()))
+  }, [combinedSetups, lockedOrInPositionSet])
 
   const inPositionSetups = useMemo(() => {
-    return combinedSetups.filter((s) => activePositions.has(s.symbol.toUpperCase()))
-  }, [combinedSetups, activePositions])
+    return combinedSetups.filter((s) => lockedOrInPositionSet.has(s.symbol.toUpperCase()))
+  }, [combinedSetups, lockedOrInPositionSet])
 
   const freshLongCount = useMemo(() => freshSetups.filter((s) => s.direction === 'LONG').length, [freshSetups])
   const freshShortCount = useMemo(() => freshSetups.filter((s) => s.direction === 'SHORT').length, [freshSetups])
-  const inPositionCount = activePositions.size
+  const inPositionCount = inPositionSetups.length
 
   const displayedSetups = useMemo(() => {
     if (dirFilter === 'LONG') {
@@ -408,14 +436,14 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
     if (dirFilter === 'IN_POSITION') {
       return inPositionSetups
     }
-    // 'ALL' default: show all valid setups, sorting active positions to the very top!
+    // 'ALL' default: urutkan setup terkunci & posisi aktif ke paling atas
     return [...combinedSetups].sort((a, b) => {
-      const aPos = activePositions.has(a.symbol.toUpperCase()) ? 1 : 0
-      const bPos = activePositions.has(b.symbol.toUpperCase()) ? 1 : 0
-      if (bPos !== aPos) return bPos - aPos
+      const aLock = lockedOrInPositionSet.has(a.symbol.toUpperCase()) ? 1 : 0
+      const bLock = lockedOrInPositionSet.has(b.symbol.toUpperCase()) ? 1 : 0
+      if (bLock !== aLock) return bLock - aLock
       return (b.entry_time - a.entry_time) || (b.confluence_weight - a.confluence_weight)
     })
-  }, [dirFilter, combinedSetups, inPositionSetups, activePositions])
+  }, [dirFilter, combinedSetups, inPositionSetups, lockedOrInPositionSet])
 
   return (
     <div className="w-full flex-1 min-h-0 flex flex-col overflow-hidden select-none text-xs">
@@ -561,6 +589,7 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
             const symUpper = item.symbol.toUpperCase()
             const posInfo = activePositions.get(symUpper)
             const hasPosition = Boolean(posInfo)
+            const isLocked = Boolean(lockedSetups && lockedSetups[symUpper])
             const isLong = item.direction === 'LONG'
             const isSelected = symUpper === symbol.toUpperCase()
 
@@ -571,6 +600,8 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
                 className={`p-2.5 rounded-lg border cursor-pointer transition-all space-y-2 relative ${
                   hasPosition
                     ? 'bg-[#101722] border-emerald-800/60 hover:border-emerald-600/70'
+                    : isLocked
+                    ? 'bg-[#181e2b] border-[#f0b90b]/60 shadow-sm'
                     : isSelected
                     ? 'bg-[#1a2232] border-[#f0b90b]/70 shadow-sm'
                     : 'bg-[#0d1117] border-[#21262d] hover:border-[#374151] hover:bg-[#131823]'
@@ -594,8 +625,8 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
                       {item.symbol}
                     </span>
 
-                    {/* Lencana Kecil Posisi Aktif */}
-                    {hasPosition && (
+                    {/* Lencana Posisi Aktif / Order Terkunci */}
+                    {hasPosition ? (
                       <span
                         title={`Pair memiliki posisi aktif ${posInfo?.side || ''} (ROE: ${posInfo?.roePct !== undefined ? `${posInfo.roePct.toFixed(1)}%` : '0%'})`}
                         className={`inline-flex items-center space-x-0.5 px-1.5 py-0.5 rounded text-[8.5px] font-black uppercase tracking-wider shrink-0 ${
@@ -607,7 +638,15 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
                         <Shield className="w-2.5 h-2.5 shrink-0" />
                         <span>POSISI</span>
                       </span>
-                    )}
+                    ) : isLocked ? (
+                      <span
+                        title="Setup & Order sedang terkunci pada chart dan radar sampai invalid/selesai"
+                        className="inline-flex items-center space-x-0.5 px-1.5 py-0.5 rounded text-[8.5px] font-black uppercase tracking-wider bg-amber-950/80 text-[#f0b90b] border border-amber-700/60 shadow-sm shrink-0"
+                      >
+                        <Lock className="w-2.5 h-2.5 shrink-0" />
+                        <span>TERKUNCI</span>
+                      </span>
+                    ) : null}
                   </div>
 
                   <div className="flex items-center space-x-1.5 shrink-0">
@@ -695,6 +734,8 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
                     className={`px-2 py-1 rounded text-[10px] font-bold flex items-center space-x-1 transition-all shadow-sm ${
                       hasPosition
                         ? 'bg-[#1b2536] hover:bg-[#223147] text-[#00c087] border border-emerald-600/70'
+                        : isLocked
+                        ? 'bg-amber-950/80 hover:bg-amber-900/80 text-[#f0b90b] border border-amber-700/70'
                         : isLong
                         ? 'bg-emerald-500/90 hover:bg-emerald-400 text-black shadow-emerald-950/40'
                         : 'bg-rose-500/90 hover:bg-rose-400 text-white shadow-rose-950/40'
@@ -704,6 +745,11 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
                       <>
                         <CheckCircle2 className="w-3 h-3 text-[#00c087]" />
                         <span>Kelola Posisi</span>
+                      </>
+                    ) : isLocked ? (
+                      <>
+                        <Lock className="w-3 h-3 text-[#f0b90b]" />
+                        <span>Order Terkunci</span>
                       </>
                     ) : (
                       <>
