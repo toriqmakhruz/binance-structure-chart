@@ -74,3 +74,25 @@ export function formatOpenInterest(qty?: number | null): string {
   }
   return qty.toLocaleString('en-US', { maximumFractionDigits: 2 })
 }
+
+/**
+ * Format Funding Rate percentage with 4 decimals (e.g. +0.0100%, -0.0050%).
+ */
+export function formatFundingRate(ratePct?: number | null): string {
+  if (ratePct === undefined || ratePct === null || isNaN(ratePct)) return '0.0000%'
+  const sign = ratePct > 0 ? '+' : ''
+  return `${sign}${ratePct.toFixed(4)}%`
+}
+
+/**
+ * Format settlement countdown remaining time (e.g. 02:45:10).
+ */
+export function formatFundingCountdown(nextFundingMs?: number | null): string {
+  if (!nextFundingMs || nextFundingMs <= 0) return '--:--:--'
+  const diffSec = Math.max(0, Math.floor((nextFundingMs - Date.now()) / 1000))
+  const hours = Math.floor(diffSec / 3600)
+  const minutes = Math.floor((diffSec % 3600) / 60)
+  const seconds = diffSec % 60
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`
+}

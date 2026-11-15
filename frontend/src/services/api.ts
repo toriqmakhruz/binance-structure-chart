@@ -5,7 +5,8 @@ import {
   TradeBalanceResponse,
   TradeOrderRequest,
   TradeOrderResponse,
-  OpenInterestData
+  OpenInterestData,
+  FundingRateData
 } from '../types/analysis'
 
 const API_BASE = '/api'
@@ -62,6 +63,17 @@ export async function fetchOpenInterest(symbol: string, timeframe: string = '15m
     return await resp.json()
   } catch (err) {
     console.debug('Failed to fetch open interest:', err)
+    return null
+  }
+}
+
+export async function fetchFundingRate(symbol: string): Promise<FundingRateData | null> {
+  try {
+    const resp = await fetch(`${API_BASE}/funding-rate?symbol=${encodeURIComponent(symbol.toUpperCase())}`)
+    if (!resp.ok) return null
+    return await resp.json()
+  } catch (err) {
+    console.debug('Failed to fetch funding rate:', err)
     return null
   }
 }

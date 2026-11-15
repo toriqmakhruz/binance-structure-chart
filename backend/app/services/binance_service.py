@@ -6,7 +6,14 @@ import logging
 import re
 from typing import List, Dict, Any, Optional, Tuple
 from ..config import settings
-from ..models.schemas import Candle, AnalysisMetadata, OpenInterestData, OpenInterestPoint
+from ..models.schemas import (
+    Candle, 
+    AnalysisMetadata, 
+    OpenInterestData, 
+    OpenInterestPoint,
+    FundingRateData,
+    FundingRatePoint
+)
 
 logger = logging.getLogger("binance_service")
 
@@ -44,6 +51,7 @@ class BinanceService:
         self._klines_cache: Dict[Tuple[str, str, str], Tuple[float, List[Candle], AnalysisMetadata]] = {}
         self._klines_cache_ttl = 10.0
         self._oi_cache: Dict[str, Tuple[float, OpenInterestData]] = {}
+        self._funding_cache: Dict[str, Tuple[float, FundingRateData]] = {}
         self._ban_until: float = 0.0
 
     def _get_candidate_urls(self, path: str, market: str) -> List[str]:
@@ -640,6 +648,75 @@ class BinanceService:
                 return oi_result
         except Exception as e:
             logger.warning(f"Failed to fetch Open Interest for {sym_upper}: {e}")
+            return None
+
+    async def get_funding_rate(self, symbol: str) -> Optional[FundingRateData]:
+        """
+        Fetch real-time Funding Rate & settlement countdown from Binance USD-M Futures.
+        Purely an informational indicator - never passed into forecasting or entry formulas.
+        """
+        sym_upper = symbol.upper().strip()
+        now = time.time()
+
+        if sym_upper in self._funding_cache:
+            cache_time, cached_data = self._funding_cache[sym_upper]
+            if now - cache_time < 15.0:
+                return cached_data
+
+        try:
+            async with httpx.AsyncClient(timeout=6.0, headers=HEADERS, verify=settings.TLS_VERIFY) as client:
+                prem_url = f"https://fapi.binance.com/fapi/v1/premiumIndex?symbol={sym_upper}"
+                hist_url = f"https://fapi.binance.com/fapi/v1/fundingRate?symbol={sym_upper}&limit=100"
+
+                res_prem, res_hist = await asyncio.gather(
+                    client.get(prem_url),
+                    client.get(hist_url),
+                    return_exceptions=True
+                )
+
+                if isinstance(res_prem, Exception) or res_prem.status_code != 200:
+                    logger.debug(f"Funding rate unavailable for {sym_upper}: {res_prem}")
+                    return None
+
+                prem_json = res_prem.json()
+                current_rate = float(prem_json.get("lastFundingRate", 0.0))
+                current_rate_pct = round(current_rate * 100, 4)
+                next_funding_time = int(prem_json.get("nextFundingTime", 0))
+                time_now = int(prem_json.get("time", int(now * 1000)))
+                # Annualized APR = rate_pct * 3 funding intervals per day * 365 days
+                annualized_apr = round(current_rate_pct * 3 * 365, 2)
+
+                history_points: List[FundingRatePoint] = []
+                if not isinstance(res_hist, Exception) and res_hist.status_code == 200:
+                    hist_data = res_hist.json()
+                    if isinstance(hist_data, list):
+                        for item in hist_data:
+                            try:
+                                r = float(item.get("fundingRate", 0.0))
+                                mp = float(item.get("markPrice", 0.0)) if item.get("markPrice") else None
+                                history_points.append(FundingRatePoint(
+                                    timestamp=int(item.get("fundingTime", 0)),
+                                    funding_rate=r,
+                                    funding_rate_pct=round(r * 100, 4),
+                                    mark_price=mp
+                                ))
+                            except (ValueError, TypeError):
+                                continue
+
+                funding_result = FundingRateData(
+                    symbol=sym_upper,
+                    current_rate=current_rate,
+                    current_rate_pct=current_rate_pct,
+                    next_funding_time=next_funding_time,
+                    annualized_rate_pct=annualized_apr,
+                    timestamp=time_now,
+                    history=history_points
+                )
+
+                self._funding_cache[sym_upper] = (now, funding_result)
+                return funding_result
+        except Exception as e:
+            logger.warning(f"Failed to fetch Funding Rate for {sym_upper}: {e}")
             return None
 
 binance_service = BinanceService()

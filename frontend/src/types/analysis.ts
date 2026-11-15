@@ -180,6 +180,23 @@ export interface OpenInterestData {
   history?: OpenInterestPoint[]
 }
 
+export interface FundingRatePoint {
+  timestamp: number
+  funding_rate: number
+  funding_rate_pct: number
+  mark_price?: number
+}
+
+export interface FundingRateData {
+  symbol: string
+  current_rate: number
+  current_rate_pct: number
+  next_funding_time: number
+  annualized_rate_pct: number
+  timestamp: number
+  history?: FundingRatePoint[]
+}
+
 export interface FullAnalysisResponse {
   symbol: string
   market: string
@@ -192,6 +209,7 @@ export interface FullAnalysisResponse {
   htf_overlay?: any
   metadata?: AnalysisMetadata
   open_interest?: OpenInterestData
+  funding_rate?: FundingRateData
 }
 
 export interface LayerVisibility {
@@ -208,6 +226,7 @@ export interface LayerVisibility {
   htfOverlay: boolean
   volume: boolean
   openInterest: boolean
+  fundingRate: boolean
 }
 
 export type DrawingToolType = 

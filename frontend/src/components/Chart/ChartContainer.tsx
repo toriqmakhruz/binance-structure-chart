@@ -11,7 +11,8 @@ import {
   DrawingToolType,
   DrawingItem,
   AppSettings,
-  OpenInterestData
+  OpenInterestData,
+  FundingRateData
 } from '../../types/analysis'
 
 interface SubChartProps {
@@ -25,6 +26,7 @@ interface SubChartProps {
   onAddDrawing: (d: DrawingItem) => void
   onRemoveDrawing: (id: string) => void
   openInterest?: OpenInterestData | null
+  fundingRate?: FundingRateData | null
   onToggleLayer?: (key: keyof LayerVisibility) => void
 }
 
@@ -39,6 +41,7 @@ const SubTimeframeChart: React.FC<SubChartProps> = ({
   onAddDrawing,
   onRemoveDrawing,
   openInterest,
+  fundingRate,
   onToggleLayer
 }) => {
   const [data, setData] = useState<FullAnalysisResponse | null>(null)
@@ -89,6 +92,7 @@ const SubTimeframeChart: React.FC<SubChartProps> = ({
       onAddDrawing={onAddDrawing}
       onRemoveDrawing={onRemoveDrawing}
       openInterest={data?.open_interest || openInterest}
+      fundingRate={data?.funding_rate || fundingRate}
       market={market}
       onToggleLayer={onToggleLayer}
     />
@@ -112,6 +116,7 @@ interface ChartContainerProps {
   onAddDrawing: (d: DrawingItem) => void
   onRemoveDrawing: (id: string) => void
   openInterest?: OpenInterestData | null
+  fundingRate?: FundingRateData | null
   onToggleLayer?: (key: keyof LayerVisibility) => void
 }
 
@@ -132,6 +137,7 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
   onAddDrawing,
   onRemoveDrawing,
   openInterest,
+  fundingRate,
   onToggleLayer
 }) => {
   const renderChart = (chartId: string, subTf?: string) => {
@@ -161,6 +167,7 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
               onAddDrawing={onAddDrawing}
               onRemoveDrawing={onRemoveDrawing}
               openInterest={openInterest}
+              fundingRate={fundingRate}
               onToggleLayer={onToggleLayer}
             />
           ) : (
@@ -179,6 +186,7 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
               onAddDrawing={onAddDrawing}
               onRemoveDrawing={onRemoveDrawing}
               openInterest={openInterest}
+              fundingRate={fundingRate}
               market={market}
               onToggleLayer={onToggleLayer}
             />

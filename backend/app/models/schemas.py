@@ -165,6 +165,21 @@ class OpenInterestData(BaseModel):
     timestamp: int
     history: List[OpenInterestPoint] = []
 
+class FundingRatePoint(BaseModel):
+    timestamp: int
+    funding_rate: float
+    funding_rate_pct: float
+    mark_price: Optional[float] = None
+
+class FundingRateData(BaseModel):
+    symbol: str
+    current_rate: float
+    current_rate_pct: float
+    next_funding_time: int
+    annualized_rate_pct: float = 0.0
+    timestamp: int
+    history: List[FundingRatePoint] = []
+
 class FullAnalysisResponse(BaseModel):
     symbol: str
     market: str
@@ -177,3 +192,4 @@ class FullAnalysisResponse(BaseModel):
     htf_overlay: Optional[Dict[str, Any]] = None
     metadata: Optional[AnalysisMetadata] = None
     open_interest: Optional[OpenInterestData] = None
+    funding_rate: Optional[FundingRateData] = None

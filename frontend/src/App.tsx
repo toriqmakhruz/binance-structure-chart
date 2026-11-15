@@ -39,7 +39,8 @@ const DEFAULT_VISIBILITY: LayerVisibility = {
   entryBoxes: true,
   htfOverlay: true,
   volume: true,
-  openInterest: true
+  openInterest: true,
+  fundingRate: true
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -340,7 +341,8 @@ export function App() {
       entryBoxes: enabled,
       htfOverlay: enabled,
       volume: enabled,
-      openInterest: enabled
+      openInterest: enabled,
+      fundingRate: enabled
     })
   }
 
@@ -711,6 +713,7 @@ export function App() {
               onAddDrawing={handleAddDrawing}
               onRemoveDrawing={handleRemoveDrawing}
               openInterest={analysis?.open_interest}
+              fundingRate={analysis?.funding_rate}
               onToggleLayer={handleToggleLayer}
             />
           </div>
@@ -748,6 +751,7 @@ export function App() {
             currentPrice={lastCandle?.close}
             lockedSetups={lockedSetups}
             openInterest={analysis?.open_interest}
+            fundingRate={analysis?.funding_rate}
             onSelectSymbol={handleSelectSymbol}
             onOpenTrade={handleOpenTrade}
             onPositionClosed={(closedSym) => {

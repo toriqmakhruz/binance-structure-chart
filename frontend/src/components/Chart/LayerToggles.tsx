@@ -18,7 +18,8 @@ import {
   EyeOff,
   Activity,
   Check,
-  X
+  X,
+  Percent
 } from 'lucide-react'
 
 interface LayerTogglesProps {
@@ -108,6 +109,7 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
       items: [
         { key: 'volume', label: 'Volume Delta', desc: 'Tekanan Taker Buy vs Sell bar', icon: <BarChart2 className="w-3.5 h-3.5" />, color: 'text-blue-400', bgHover: 'hover:bg-blue-950/30' },
         { key: 'openInterest', label: 'Open Interest (OI)', desc: 'Total kontrak aktif pasar Futures (Indikator Murni)', icon: <Activity className="w-3.5 h-3.5" />, color: 'text-sky-400', bgHover: 'hover:bg-sky-950/30' },
+        { key: 'fundingRate', label: 'Funding Rate [Futures]', desc: 'Tarif pendanaan posisi Long vs Short (Indikator Murni)', icon: <Percent className="w-3.5 h-3.5" />, color: 'text-purple-400', bgHover: 'hover:bg-purple-950/30' },
         ...(hasHtf ? [{ key: 'htfOverlay' as keyof LayerVisibility, label: 'MTF Overlay (HTF)', desc: 'Konfirmasi tren Higher Timeframe', icon: <Clock className="w-3.5 h-3.5" />, color: 'text-amber-400', bgHover: 'hover:bg-amber-950/30' }] : [])
       ]
     }
@@ -117,7 +119,7 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
   const allKeys: (keyof LayerVisibility)[] = [
     'smcEvents', 'orderBlocks', 'fvgs', 'smcSwings',
     'patterns', 'srLevels', 'marketSessions', 'forecastCone', 'forecastScenarios',
-    'entryBoxes', 'volume', 'openInterest', ...(hasHtf ? ['htfOverlay' as keyof LayerVisibility] : [])
+    'entryBoxes', 'volume', 'openInterest', 'fundingRate', ...(hasHtf ? ['htfOverlay' as keyof LayerVisibility] : [])
   ]
   const activeCount = allKeys.filter((k) => visibility[k]).length
   const totalCount = allKeys.length

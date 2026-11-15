@@ -3,7 +3,7 @@ import time
 import logging
 from typing import Optional, Dict, Any, List, Tuple
 from fastapi import APIRouter, Query, HTTPException, status
-from ..models.schemas import FullAnalysisResponse, Candle, AnalysisMetadata, OpenInterestData
+from ..models.schemas import FullAnalysisResponse, Candle, AnalysisMetadata, OpenInterestData, FundingRateData
 from ..services.binance_service import (
     binance_service, DataUnavailableException, DataMalformedException
 )
@@ -157,13 +157,24 @@ async def get_full_analysis(
             except Exception as htf_err:
                 logger.warning(f"Failed to fetch HTF data: {htf_err}")
 
-        # Fetch Open Interest if market is futures (purely informational indicator)
+        # Fetch Open Interest & Funding Rate if market is futures (purely informational indicators)
         oi_data = None
+        funding_data = None
         if market.lower() == "futures":
             try:
-                oi_data = await binance_service.get_open_interest(symbol=symbol, timeframe=tf_clean)
-            except Exception as oi_err:
-                logger.debug(f"OI fetch error: {oi_err}")
+                oi_data, funding_data = await asyncio.gather(
+                    binance_service.get_open_interest(symbol=symbol, timeframe=tf_clean),
+                    binance_service.get_funding_rate(symbol=symbol),
+                    return_exceptions=True
+                )
+                if isinstance(oi_data, Exception):
+                    logger.debug(f"OI fetch error: {oi_data}")
+                    oi_data = None
+                if isinstance(funding_data, Exception):
+                    logger.debug(f"Funding rate fetch error: {funding_data}")
+                    funding_data = None
+            except Exception as feat_err:
+                logger.debug(f"Futures features fetch error: {feat_err}")
 
         return FullAnalysisResponse(
             symbol=symbol.upper(),
@@ -176,7 +187,8 @@ async def get_full_analysis(
             forecast=forecast_res,
             htf_overlay=htf_data,
             metadata=metadata,
-            open_interest=oi_data
+            open_interest=oi_data,
+            funding_rate=funding_data
         )
 
     except DataUnavailableException as e:
@@ -419,3 +431,14 @@ async def get_open_interest(
     Purely informational indicator for traders - not used in automated entry scoring.
     """
     return await binance_service.get_open_interest(symbol=symbol, timeframe=timeframe)
+
+
+@router.get("/funding-rate", response_model=Optional[FundingRateData])
+async def get_funding_rate(
+    symbol: str = Query("BTCUSDT", pattern=r"^[A-Za-z0-9]{3,16}$")
+):
+    """
+    Get real-time Funding Rate & settlement countdown for Binance USD-M Futures.
+    Purely an informational indicator for traders - not used in automated entry scoring.
+    """
+    return await binance_service.get_funding_rate(symbol=symbol)

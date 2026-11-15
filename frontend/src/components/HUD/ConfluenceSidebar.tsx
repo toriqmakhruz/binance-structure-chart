@@ -4,9 +4,10 @@ import {
   SmcAnalysisResult,
   ForecastResult,
   ChartPattern,
-  OpenInterestData
+  OpenInterestData,
+  FundingRateData
 } from '../../types/analysis'
-import { formatPrice, formatOpenInterestValue, formatOpenInterest } from '../../utils/formatters'
+import { formatPrice, formatOpenInterestValue, formatOpenInterest, formatFundingRate } from '../../utils/formatters'
 import {
   Gauge,
   Activity,
@@ -32,6 +33,7 @@ interface ConfluenceSidebarProps {
   isLocked?: boolean
   onUnlockSetup?: () => void
   openInterest?: OpenInterestData | null
+  fundingRate?: FundingRateData | null
 }
 
 export const ConfluenceSidebar: React.FC<ConfluenceSidebarProps> = ({
@@ -42,7 +44,8 @@ export const ConfluenceSidebar: React.FC<ConfluenceSidebarProps> = ({
   currentPrice,
   isLocked = false,
   onUnlockSetup,
-  openInterest
+  openInterest,
+  fundingRate
 }) => {
   if (!movement) {
     return (
@@ -191,6 +194,29 @@ export const ConfluenceSidebar: React.FC<ConfluenceSidebarProps> = ({
                 <span className={openInterest.change_pct_24h >= 0 ? 'text-[#00c087] font-bold' : 'text-[#f6465d] font-bold'}>
                   24h: {openInterest.change_pct_24h >= 0 ? '+' : ''}{openInterest.change_pct_24h}%
                 </span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Funding Rate Indicator (Khusus Futures - Pure Indikator Visual) */}
+        {fundingRate && (
+          <div className="bg-[#0d1117] p-2.5 rounded-lg border border-[#21262d] space-y-1">
+            <div className="flex items-center justify-between text-[10px]">
+              <span className="text-slate-400 font-medium flex items-center space-x-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
+                <span className="font-bold">Funding Rate</span>
+              </span>
+              <span className="font-mono text-[9px] px-1.5 py-0.5 bg-[#1b2230] rounded text-purple-400 font-semibold" title="Indikator murni, tidak mempengaruhi rumus sinyal atau skenario entry">
+                Indikator Murni
+              </span>
+            </div>
+            <div className="flex items-baseline justify-between font-mono pt-0.5">
+              <span className={`font-bold text-xs ${fundingRate.current_rate_pct > 0 ? 'text-[#00c087]' : fundingRate.current_rate_pct < 0 ? 'text-[#f6465d]' : 'text-white'}`}>
+                {formatFundingRate(fundingRate.current_rate_pct)}
+              </span>
+              <div className="flex items-center space-x-2 text-[10px] text-slate-400">
+                <span>APR: <span className="text-slate-200 font-semibold">{fundingRate.annualized_rate_pct}%</span></span>
               </div>
             </div>
           </div>

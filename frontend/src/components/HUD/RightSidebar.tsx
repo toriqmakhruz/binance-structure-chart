@@ -6,7 +6,8 @@ import {
   ForecastResult,
   ChartPattern,
   AppSettings,
-  OpenInterestData
+  OpenInterestData,
+  FundingRateData
 } from '../../types/analysis'
 import { ConfluenceSidebar } from './ConfluenceSidebar'
 import { PositionCalculator } from './PositionCalculator'
@@ -42,6 +43,7 @@ interface RightSidebarProps {
   onPositionClosed?: (symbol: string) => void
   onUnlockSetup?: (symbol?: string) => void
   openInterest?: OpenInterestData | null
+  fundingRate?: FundingRateData | null
 }
 
 export const RightSidebar: React.FC<RightSidebarProps> = ({
@@ -60,7 +62,8 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   onOpenTrade,
   onPositionClosed,
   onUnlockSetup,
-  openInterest
+  openInterest,
+  fundingRate
 }) => {
   const [isOpen, setIsOpen] = useState<boolean>(() => {
     try {
@@ -336,6 +339,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
             isLocked={Boolean(lockedSetups && lockedSetups[symbol.toUpperCase()])}
             onUnlockSetup={() => onUnlockSetup?.(symbol)}
             openInterest={openInterest}
+            fundingRate={fundingRate}
           />
         </div>
       )}

@@ -15,11 +15,13 @@ import {
   LayerVisibility,
   DrawingToolType,
   DrawingItem,
-  OpenInterestData
+  OpenInterestData,
+  FundingRateData
 } from '../../types/analysis'
 import { formatPrice, getPricePrecision, formatOpenInterestValue, formatOpenInterest } from '../../utils/formatters'
 import { Crosshair, Clock } from 'lucide-react'
 import { OpenInterestPane } from './OpenInterestPane'
+import { FundingRatePane } from './FundingRatePane'
 import { extractSessionBlocks, getCurrentActiveSessions, SessionBlock } from '../../utils/marketSessions'
 
 interface LightweightChartProps {
@@ -36,6 +38,7 @@ interface LightweightChartProps {
   onAddDrawing: (item: DrawingItem) => void
   onRemoveDrawing: (id: string) => void
   openInterest?: OpenInterestData | null
+  fundingRate?: FundingRateData | null
   market?: 'spot' | 'futures'
   onToggleLayer?: (key: keyof LayerVisibility) => void
 }
@@ -54,6 +57,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
   onAddDrawing,
   onRemoveDrawing,
   openInterest,
+  fundingRate,
   market = 'futures',
   onToggleLayer
 }) => {
@@ -1452,6 +1456,18 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
           openInterest={openInterest}
           mainChart={chartRef.current}
           onClose={() => onToggleLayer?.('openInterest')}
+        />
+      )}
+
+      {/* Sub-Chart Pane: Funding Rate Indicator Graph at the bottom */}
+      {visibility.fundingRate && market === 'futures' && (
+        <FundingRatePane
+          symbol={symbol}
+          timeframe={timeframe}
+          candles={candles}
+          fundingRate={fundingRate}
+          mainChart={chartRef.current}
+          onClose={() => onToggleLayer?.('fundingRate')}
         />
       )}
     </div>
