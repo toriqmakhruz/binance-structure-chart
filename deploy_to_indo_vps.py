@@ -17,13 +17,13 @@ ARCHIVE_NAME = "binance_chart_indo_deploy.tar.gz"
 
 def create_archive():
     print(f"[1/6] Membuat paket deploy {ARCHIVE_NAME}...")
-    exclude_dirs = {"venv", "node_modules", "dist", "__pycache__", ".git", ".pytest_cache", "data", "graphify-out", ".gemini"}
+    exclude_dirs = {"venv", "node_modules", "dist", "__pycache__", ".git", ".pytest_cache", "data", "graphify-out", ".gemini", "VIDEO", "extracted_frames"}
     
     with tarfile.open(ARCHIVE_NAME, "w:gz") as tar:
         for root, dirs, files in os.walk("."):
             dirs[:] = [d for d in dirs if d not in exclude_dirs]
             for file in files:
-                if file.endswith((".tar.gz", ".log", ".pyc", ".bak")):
+                if file.endswith((".tar.gz", ".log", ".pyc", ".bak", ".mp4")):
                     continue
                 if file in ("deploy_to_vps.py", "deploy_update.py", "test_vps.py", "indo_diagnose.py", "deploy_to_indo_vps.py"):
                     continue

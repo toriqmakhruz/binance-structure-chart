@@ -53,5 +53,8 @@ data/
 VIDEO/
 VIDEO/*
 
+# Scratch directory
+scratch/
+
 graphify-out/
 

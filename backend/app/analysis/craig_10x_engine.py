@@ -441,3 +441,4 @@ class Craig10xEngine:
 
         active_candidates.sort(key=lambda x: (x["entry_time"], x["rr"]), reverse=True)
         return active_candidates
+
