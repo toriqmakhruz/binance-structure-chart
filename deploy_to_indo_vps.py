@@ -104,15 +104,16 @@ if ! command -v docker &> /dev/null; then
     apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 fi
 
-# 4. Konfigurasi DNS di Docker Daemon agar container selalu memakai DNS 1.1.1.1 & 8.8.8.8
-mkdir -p /etc/docker
-cat << 'EOF' > /etc/docker/daemon.json
+# 4. Konfigurasi DNS di Docker Daemon jika belum ada
+if [ ! -f /etc/docker/daemon.json ]; then
+    mkdir -p /etc/docker
+    cat << 'EOF' > /etc/docker/daemon.json
 {
   "dns": ["1.1.1.1", "1.0.0.1", "8.8.8.8"]
 }
 EOF
-systemctl enable docker
-systemctl restart docker
+    systemctl restart docker
+fi
 
 echo "Sistem siap dan Docker berjalan!"
 """
