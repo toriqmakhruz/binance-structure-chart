@@ -23,7 +23,8 @@ import {
   AppSettings,
   LockedTradeSetup,
   ForecastScenario,
-  ForecastResult
+  ForecastResult,
+  SetupMode
 } from './types/analysis'
 
 const DEFAULT_VISIBILITY: LayerVisibility = {
@@ -47,7 +48,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   swingLength: 5,
   fvgMinPct: 0.05,
   forecastHorizon: 20,
-  htf: '4h'
+  htf: '4h',
+  setupMode: 'standard'
 }
 
 function readStoredJson<T>(key: string, fallback: T, mergeWithDefaults = false): T {
@@ -94,6 +96,9 @@ export function App() {
   const [layout, setLayout] = useState<'single' | 'split-vertical' | 'split-horizontal' | 'grid-4'>(() =>
     readStoredString('cp_layout', 'single', ['single', 'split-vertical', 'split-horizontal', 'grid-4'])
   )
+  const [setupMode, setSetupMode] = useState<SetupMode>(() =>
+    readStoredString('cp_setup_mode', 'standard', ['standard', 'pro_shield']) as SetupMode
+  )
 
   // Analysis & Candle Data
   const [analysis, setAnalysis] = useState<FullAnalysisResponse | null>(null)
@@ -114,15 +119,18 @@ export function App() {
   )
 
   // Settings (Global persistent across all pairs)
-  const [settings, setSettings] = useState<AppSettings>(() =>
-    readStoredJson<AppSettings>('cp_app_settings', DEFAULT_SETTINGS, true)
-  )
+  const [settings, setSettings] = useState<AppSettings>(() => {
+    const saved = readStoredJson<AppSettings>('cp_app_settings', DEFAULT_SETTINGS, true)
+    const mode = readStoredString('cp_setup_mode', 'standard', ['standard', 'pro_shield']) as SetupMode
+    return { ...saved, setupMode: mode }
+  })
 
   // Persist global preferences & tools automatically
   useEffect(() => { writeStorage('cp_active_symbol', symbol) }, [symbol])
   useEffect(() => { writeStorage('cp_timeframe', timeframe) }, [timeframe])
   useEffect(() => { writeStorage('cp_market', market) }, [market])
   useEffect(() => { writeStorage('cp_layout', layout) }, [layout])
+  useEffect(() => { writeStorage('cp_setup_mode', setupMode) }, [setupMode])
   useEffect(() => { writeStorage('cp_layer_visibility', visibility) }, [visibility])
   useEffect(() => { writeStorage('cp_app_settings', settings) }, [settings])
   useEffect(() => { writeStorage('cp_drawings_by_symbol', drawingsBySymbol) }, [drawingsBySymbol])
@@ -157,6 +165,23 @@ export function App() {
   const removeToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id))
   }, [])
+
+  const handleSetupModeChange = useCallback((mode: SetupMode) => {
+    setSetupMode(mode)
+    setSettings((prev) => {
+      const next = { ...prev, setupMode: mode }
+      writeStorage('cp_app_settings', next)
+      return next
+    })
+    addToast({
+      type: 'info',
+      title: mode === 'pro_shield' ? '🛡️ Mode Pro Shield Aktif' : '⚡ Mode Standar Aktif',
+      message: mode === 'pro_shield'
+        ? 'Engine proteksi aktif: Buffer SL diperlebar (0.8 ATR) dan validasi candle penolakan diaktifkan.'
+        : 'Engine standar aktif: Setup agresif momentum dan breakout langsung dievaluasi.',
+      duration: 3500
+    })
+  }, [addToast])
 
   // Locked Trade Setups: Box Setup terkunci untuk posisi aktif / open order (tidak boleh berubah sampai close/TP/SL)
   const [lockedSetups, setLockedSetups] = useState<Record<string, LockedTradeSetup>>(() =>
@@ -640,10 +665,11 @@ export function App() {
       confluence_score: targetConf,
       planned_risk: setup.planned_risk,
       planned_risk_mode: setup.planned_risk_mode,
-      planned_leverage: setup.planned_leverage
+      planned_leverage: setup.planned_leverage,
+      setup_mode: setup.setup_mode || setupMode
     })
     setIsTradeModalOpen(true)
-  }, [symbol, market, lastCandle?.close, lastCandle?.time, lockSetup])
+  }, [symbol, market, lastCandle?.close, lastCandle?.time, lockSetup, setupMode])
 
   return (
     <div className="flex flex-col h-full h-[100dvh] max-h-[100dvh] w-full overflow-hidden bg-[#0b0e14] text-slate-100 select-none">
@@ -671,6 +697,8 @@ export function App() {
         onOpenTrade={handleOpenTrade}
         isSetupLocked={Boolean(currentLockedSetup)}
         onUnlockSetup={() => unlockSetup(symbol, 'Kunci box setup chart dilepas manual.')}
+        setupMode={setupMode}
+        onModeChange={handleSetupModeChange}
       />
 
       {/* 2. Layer Toggles Bar (TradingView Dropdown Style) */}

@@ -197,6 +197,8 @@ export interface FundingRateData {
   history?: FundingRatePoint[]
 }
 
+export type SetupMode = 'standard' | 'pro_shield'
+
 export interface FullAnalysisResponse {
   symbol: string
   market: string
@@ -210,6 +212,7 @@ export interface FullAnalysisResponse {
   metadata?: AnalysisMetadata
   open_interest?: OpenInterestData
   funding_rate?: FundingRateData
+  setup_mode?: SetupMode
 }
 
 export interface LayerVisibility {
@@ -251,6 +254,7 @@ export interface AppSettings {
   fvgMinPct: number
   forecastHorizon: number
   htf: string
+  setupMode?: SetupMode
 }
 
 export interface ValidSetupItem {
@@ -272,6 +276,7 @@ export interface ValidSetupItem {
   current_price: number
   price_change_pct: number
   quote_volume: number
+  setup_mode?: SetupMode
 }
 
 export interface ValidSetupsResponse {
@@ -281,6 +286,7 @@ export interface ValidSetupsResponse {
   valid_count: number
   updated_at: number
   setups: ValidSetupItem[]
+  setup_mode?: SetupMode
 }
 
 export type TradeAccountMode = 'demo' | 'live'

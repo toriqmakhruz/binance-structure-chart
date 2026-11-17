@@ -15,7 +15,8 @@ export const defaultAppSettings: AppSettings = {
   swingLength: 5,
   fvgMinPct: 0.05,
   forecastHorizon: 20,
-  htf: '4h'
+  htf: '4h',
+  setupMode: 'standard'
 }
 
 export async function fetchSymbols(market: 'spot' | 'futures' = 'futures') {
@@ -45,6 +46,10 @@ export async function fetchAnalysis(
 
   if (activeSettings.htf && activeSettings.htf !== 'none') {
     params.append('htf', activeSettings.htf)
+  }
+
+  if (activeSettings.setupMode) {
+    params.append('setup_mode', activeSettings.setupMode)
   }
 
   const resp = await fetch(`${API_BASE}/analysis?${params.toString()}`)
@@ -94,6 +99,10 @@ export async function fetchValidSetups(
     scan_limit: '24',
     force_refresh: forceRefresh ? 'true' : 'false'
   })
+
+  if (activeSettings.setupMode) {
+    params.append('setup_mode', activeSettings.setupMode)
+  }
 
   const resp = await fetch(`${API_BASE}/setups?${params.toString()}`)
   if (!resp.ok) {

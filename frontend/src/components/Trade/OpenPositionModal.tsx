@@ -45,6 +45,7 @@ export interface SetupTradeTarget {
   planned_risk?: number
   planned_risk_mode?: 'USDT' | 'PERCENT'
   planned_leverage?: number
+  setup_mode?: 'standard' | 'pro_shield'
 }
 
 interface OpenPositionModalProps {
@@ -305,15 +306,17 @@ export const OpenPositionModal: React.FC<OpenPositionModalProps> = ({
     }
   }, [credentials, mode])
 
-  // Auto-persist credentials whenever modified
-  useEffect(() => {
-    if (credentials.liveApiKey || credentials.demoApiKey) {
-      try {
-        localStorage.setItem(STORAGE_KEYS.credentials, JSON.stringify(credentials))
-        window.dispatchEvent(new CustomEvent('cp_credentials_updated', { detail: { mode, credentials } }))
-      } catch {}
+  // Price Chasing / Drift Detection:
+  const priceDriftPct = useMemo(() => {
+    if (!target?.entry_price || !currentPrice || target.entry_price <= 0 || currentPrice <= 0) return 0
+    if (target.direction === 'LONG') {
+      return ((currentPrice - target.entry_price) / target.entry_price) * 100
+    } else {
+      return ((target.entry_price - currentPrice) / target.entry_price) * 100
     }
-  }, [credentials, mode])
+  }, [target?.entry_price, target?.direction, currentPrice])
+
+  const isPriceChasing = priceDriftPct >= 0.35
 
   // Save Credentials
   const handleSaveCredentials = () => {
@@ -515,6 +518,18 @@ export const OpenPositionModal: React.FC<OpenPositionModalProps> = ({
                 R:R 1:{target.risk_reward_ratio}
               </span>
             )}
+
+            {target.setup_mode === 'pro_shield' ? (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-950/80 text-indigo-300 font-bold border border-indigo-700/60 flex items-center space-x-1">
+                <ShieldCheck className="w-3 h-3 text-indigo-400" />
+                <span>Pro Shield (0.8 ATR)</span>
+              </span>
+            ) : (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-950/80 text-amber-300 font-bold border border-amber-700/60 flex items-center space-x-1">
+                <Zap className="w-3 h-3 text-amber-400" />
+                <span>Standar</span>
+              </span>
+            )}
           </div>
 
           <button
@@ -712,6 +727,31 @@ export const OpenPositionModal: React.FC<OpenPositionModalProps> = ({
               </button>
             </div>
           </div>
+
+          {/* Price Chasing Warning Banner */}
+          {isPriceChasing && (
+            <div className="p-2.5 rounded-lg bg-amber-950/60 border border-amber-600/60 text-amber-200 text-[11px] flex items-start space-x-2">
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <span className="font-bold text-amber-300">Peringatan Price Chasing (+{priceDriftPct.toFixed(2)}%):</span>
+                <p className="mt-0.5 text-slate-300">
+                  Harga saat ini (${formatPrice(currentPrice || 0)}) sudah bergerak menjauhi area entry setup (${formatPrice(target.entry_price)}). Market Order berisiko memperburuk Risk:Reward. Disarankan gunakan order <strong>LIMIT</strong> di area entry.
+                </p>
+                {orderType === 'MARKET' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOrderType('LIMIT')
+                      setEntryInput(String(target.entry_price))
+                    }}
+                    className="mt-1.5 px-2 py-0.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded text-[10px] font-bold transition-all cursor-pointer"
+                  >
+                    Beralih ke Limit Order (${formatPrice(target.entry_price)})
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* D. Order Type, Leverage & Entry Grid */}
           <div className="grid grid-cols-2 gap-2.5">

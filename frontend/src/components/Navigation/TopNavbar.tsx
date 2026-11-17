@@ -12,11 +12,13 @@ import {
   Wifi,
   WifiOff,
   Zap,
+  Shield,
   Activity,
   Lock,
   Unlock
 } from 'lucide-react'
 import { formatPrice } from '../../utils/formatters'
+import { SetupMode } from '../../types/analysis'
 
 export type StreamStatusType = 'LIVE' | 'CONNECTING' | 'RECONNECTING' | 'STALE' | 'OFFLINE'
 
@@ -43,6 +45,8 @@ interface TopNavbarProps {
   onOpenTrade?: (setup: any) => void
   isSetupLocked?: boolean
   onUnlockSetup?: () => void
+  setupMode?: SetupMode
+  onModeChange?: (mode: SetupMode) => void
 }
 
 const TIMEFRAMES = ['1m', '3m', '5m', '15m', '30m', '1h', '4h', '1d']
@@ -69,7 +73,9 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
   isTelegramActive = false,
   onOpenTrade,
   isSetupLocked = false,
-  onUnlockSetup
+  onUnlockSetup,
+  setupMode = 'standard',
+  onModeChange
 }) => {
   const getBadgeConfig = () => {
     switch (streamStatus) {
@@ -150,6 +156,41 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
             SPOT
           </button>
         </div>
+
+        {/* Setup Engine Mode Toggle: Standar vs Pro Shield */}
+        {onModeChange && (
+          <div
+            className="flex bg-[#0b0e14] rounded-md p-0.5 border border-[#21262d] text-[10px] md:text-xs shrink-0"
+            title="Pilih Engine Setup: Standar (Agresif Scalping) vs Pro Shield (Proteksi Anti-Stop Hunt & Expanded SL Buffer)"
+          >
+            <button
+              type="button"
+              onClick={() => onModeChange('standard')}
+              className={`flex items-center space-x-1 px-1.5 md:px-2.5 py-0.5 md:py-1 rounded font-medium transition-all ${
+                setupMode === 'standard'
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Zap className="w-2.5 h-2.5 md:w-3 md:h-3 text-amber-400" />
+              <span className="hidden sm:inline">Standar</span>
+              <span className="sm:hidden">STD</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onModeChange('pro_shield')}
+              className={`flex items-center space-x-1 px-1.5 md:px-2.5 py-0.5 md:py-1 rounded font-medium transition-all ${
+                setupMode === 'pro_shield'
+                  ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/50 font-bold shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Shield className="w-2.5 h-2.5 md:w-3 md:h-3 text-indigo-400" />
+              <span className="hidden sm:inline">Pro Shield</span>
+              <span className="sm:hidden">SHIELD</span>
+            </button>
+          </div>
+        )}
 
         {/* Symbol Button */}
         <button

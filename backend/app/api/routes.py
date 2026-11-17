@@ -20,7 +20,9 @@ def _run_analysis_engines(
     candles: List[Candle],
     swing_length: int,
     fvg_min_pct: float,
-    forecast_horizon: int
+    forecast_horizon: int,
+    setup_mode: str = "standard",
+    htf_trend: Optional[str] = None
 ):
     """Run SMC, pattern, movement, and forecast engines uniformly."""
     smc_engine = SmcEngine(swing_length=swing_length, fvg_min_pct=fvg_min_pct)
@@ -38,13 +40,15 @@ def _run_analysis_engines(
         smc=smc_res,
         patterns=pattern_res,
         movement=movement_res,
-        horizon=forecast_horizon
+        horizon=forecast_horizon,
+        setup_mode=setup_mode,
+        htf_trend=htf_trend
     )
     return smc_engine, smc_res, pattern_res, movement_res, forecast_res
 
 
-_SETUPS_SCAN_CACHE: Dict[Tuple[str, str, int, float, int, int], Tuple[float, List[Dict[str, Any]]]] = {}
-_SETUPS_SCAN_LOCKS: Dict[Tuple[str, str, int, float, int, int], asyncio.Lock] = {}
+_SETUPS_SCAN_CACHE: Dict[Tuple[str, str, int, float, int, int, str], Tuple[float, List[Dict[str, Any]]]] = {}
+_SETUPS_SCAN_LOCKS: Dict[Tuple[str, str, int, float, int, int, str], asyncio.Lock] = {}
 _SETUPS_CACHE_TTL_SECONDS = 60.0
 router = APIRouter(prefix="/api")
 
@@ -86,7 +90,8 @@ async def get_full_analysis(
     htf: Optional[str] = Query(None),
     swing_length: int = Query(5, ge=2, le=20),
     fvg_min_pct: float = Query(0.05, ge=0.01, le=1.0),
-    forecast_horizon: int = Query(20, ge=5, le=50)
+    forecast_horizon: int = Query(20, ge=5, le=50),
+    setup_mode: str = Query("standard", pattern="^(standard|pro_shield)$")
 ):
     """
     Execute full analysis: SMC + Classic Patterns + Movement Dynamics + Hybrid Forecasting.
@@ -128,16 +133,9 @@ async def get_full_analysis(
                 detail={"code": "NO_CANDLES", "message": "No candle data returned for the requested symbol/market."}
             )
 
-        # 2. Run analysis engines
-        smc_engine, smc_res, pattern_res, movement_res, forecast_res = _run_analysis_engines(
-            candles=candles,
-            swing_length=swing_length,
-            fvg_min_pct=fvg_min_pct,
-            forecast_horizon=forecast_horizon
-        )
-
-        # 3. Optional Multi-Timeframe (HTF) Analysis
+        # 2. Optional Multi-Timeframe (HTF) Analysis
         htf_data = None
+        htf_trend_val = None
         if htf and htf_clean != tf_clean:
             try:
                 htf_candles, _ = await binance_service.get_klines(
@@ -147,7 +145,9 @@ async def get_full_analysis(
                     market=market
                 )
                 if htf_candles:
-                    htf_smc = smc_engine.analyze(htf_candles)
+                    temp_smc = SmcEngine(swing_length=swing_length, fvg_min_pct=fvg_min_pct)
+                    htf_smc = temp_smc.analyze(htf_candles)
+                    htf_trend_val = htf_smc.current_trend
                     htf_data = {
                         "timeframe": htf_clean,
                         "current_trend": htf_smc.current_trend,
@@ -156,6 +156,16 @@ async def get_full_analysis(
                     }
             except Exception as htf_err:
                 logger.warning(f"Failed to fetch HTF data: {htf_err}")
+
+        # 3. Run analysis engines (with setup_mode and optional htf_trend)
+        smc_engine, smc_res, pattern_res, movement_res, forecast_res = _run_analysis_engines(
+            candles=candles,
+            swing_length=swing_length,
+            fvg_min_pct=fvg_min_pct,
+            forecast_horizon=forecast_horizon,
+            setup_mode=setup_mode,
+            htf_trend=htf_trend_val
+        )
 
         # Fetch Open Interest & Funding Rate if market is futures (purely informational indicators)
         oi_data = None
@@ -188,7 +198,8 @@ async def get_full_analysis(
             htf_overlay=htf_data,
             metadata=metadata,
             open_interest=oi_data,
-            funding_rate=funding_data
+            funding_rate=funding_data,
+            setup_mode=setup_mode
         )
 
     except DataUnavailableException as e:
@@ -257,7 +268,8 @@ async def _scan_symbol_valid_setup(
     timeframe: str,
     swing_length: int,
     fvg_min_pct: float,
-    forecast_horizon: int
+    forecast_horizon: int,
+    setup_mode: str = "standard"
 ) -> Optional[Dict[str, Any]]:
     """Scan one symbol and return only if a genuinely VALID_ENTRY setup is active."""
     sym = sym_info["symbol"]
@@ -277,7 +289,8 @@ async def _scan_symbol_valid_setup(
                 candles=candles,
                 swing_length=swing_length,
                 fvg_min_pct=fvg_min_pct,
-                forecast_horizon=forecast_horizon
+                forecast_horizon=forecast_horizon,
+                setup_mode=setup_mode
             )
 
             valid_sc = next(
@@ -311,6 +324,7 @@ async def _scan_symbol_valid_setup(
                 "baseAsset": sym_info.get("baseAsset") or sym[:-4],
                 "market": market,
                 "timeframe": timeframe,
+                "setup_mode": setup_mode,
                 "direction": valid_sc.direction,
                 "name": valid_sc.name,
                 "entry_price": float(valid_sc.entry_price),
@@ -339,7 +353,8 @@ async def get_valid_setups(
     fvg_min_pct: float = Query(0.05, ge=0.01, le=1.0),
     forecast_horizon: int = Query(20, ge=5, le=50),
     scan_limit: int = Query(24, ge=5, le=40),
-    force_refresh: bool = Query(False)
+    force_refresh: bool = Query(False),
+    setup_mode: str = Query("standard", pattern="^(standard|pro_shield)$")
 ):
     """
     Scan top traded Binance crypto pairs and return ONLY currently VALID A+ setups,
@@ -355,7 +370,7 @@ async def get_valid_setups(
             }
         )
 
-    cache_key = (market, tf_clean, swing_length, round(fvg_min_pct, 4), forecast_horizon, scan_limit)
+    cache_key = (market, tf_clean, swing_length, round(fvg_min_pct, 4), forecast_horizon, scan_limit, setup_mode)
     lock = _SETUPS_SCAN_LOCKS.setdefault(cache_key, asyncio.Lock())
 
     async with lock:
@@ -366,6 +381,7 @@ async def get_valid_setups(
             return {
                 "market": market,
                 "timeframe": tf_clean,
+                "setup_mode": setup_mode,
                 "scanned_count": scan_limit,
                 "valid_count": len(cached[1]),
                 "updated_at": int(cached[0] - _SETUPS_CACHE_TTL_SECONDS),
@@ -384,7 +400,8 @@ async def get_valid_setups(
                     timeframe=tf_clean,
                     swing_length=swing_length,
                     fvg_min_pct=fvg_min_pct,
-                    forecast_horizon=forecast_horizon
+                    forecast_horizon=forecast_horizon,
+                    setup_mode=setup_mode
                 )
                 for sym_info in candidates
             ])
@@ -403,6 +420,7 @@ async def get_valid_setups(
             return {
                 "market": market,
                 "timeframe": tf_clean,
+                "setup_mode": setup_mode,
                 "scanned_count": len(candidates),
                 "valid_count": len(valid_setups),
                 "updated_at": int(time.time()),

@@ -189,11 +189,14 @@ class TelegramService:
 
         timestamp_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
+        mode_badge = "🛡️ <b>Protection:</b> Pro Shield (Anti-Stop Hunt)\n" if setup.get("setup_mode") == "pro_shield" else ""
+
         msg = (
             f"🎯 <b>NEW SETUP RADAR DETECTED!</b>\n\n"
             f"💎 <b>Pair:</b> <code>{symbol}</code> ({market})\n"
             f"📊 <b>Timeframe:</b> <code>{timeframe}</code>\n"
             f"🧭 <b>Signal:</b> <b>{dir_emoji}</b>\n"
+            f"{mode_badge}"
             f"📋 <b>Setup:</b> {pattern_name}\n\n"
             f"💵 <b>Entry Price:</b> <code>${fmt_p(entry_price)}</code>\n"
             f"🛡️ <b>Stop Loss:</b> <code>${fmt_p(sl_price)}</code>\n"

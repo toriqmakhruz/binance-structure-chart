@@ -193,3 +193,4 @@ class FullAnalysisResponse(BaseModel):
     metadata: Optional[AnalysisMetadata] = None
     open_interest: Optional[OpenInterestData] = None
     funding_rate: Optional[FundingRateData] = None
+    setup_mode: Optional[str] = "standard"

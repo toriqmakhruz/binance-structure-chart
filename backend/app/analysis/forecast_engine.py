@@ -25,7 +25,9 @@ class ForecastEngine:
         smc: Optional[SmcAnalysisResult] = None,
         patterns: Optional[PatternAnalysisResult] = None,
         movement: Optional[MovementMetrics] = None,
-        horizon: Optional[int] = None
+        horizon: Optional[int] = None,
+        setup_mode: str = "standard",
+        htf_trend: Optional[str] = None
     ) -> ForecastResult:
         h = horizon or self.default_horizon
         if len(candles) < 10:
@@ -113,7 +115,9 @@ class ForecastEngine:
             confluence_score=confluence_score,
             smc=smc,
             patterns=patterns,
-            atr=atr
+            atr=atr,
+            setup_mode=setup_mode,
+            htf_trend=htf_trend
         )
 
         predicted_trend = "BULLISH" if bias_factor > 0.15 else ("BEARISH" if bias_factor < -0.15 else "NEUTRAL")
@@ -133,33 +137,19 @@ class ForecastEngine:
             structural_target=structural_target
         )
 
-    def _generate_scenarios(
+    def _evaluate_standard_candidates(
         self,
         candles: List[Candle],
         current_price: float,
         last_time: int,
-        time_step: int,
-        horizon: int,
         confluence_score: float,
         smc: Optional[SmcAnalysisResult],
         patterns: Optional[PatternAnalysisResult],
-        atr: float
-    ) -> Tuple[List[ForecastScenario], Optional[float]]:
-        scenarios: List[ForecastScenario] = []
-        structural_target = None
-
-        # Determine Market Structure & Trend Bias
-        current_trend = smc.current_trend if smc else ("BULLISH" if confluence_score >= 50 else "BEARISH")
-        last_event = smc.events[-1] if (smc and smc.events) else None
-        is_bearish_bos = bool(last_event and last_event.type == "BOS" and last_event.direction == "BEARISH")
-        is_bullish_bos = bool(last_event and last_event.type == "BOS" and last_event.direction == "BULLISH")
-
-        # -------------------------------------------------------------
-        # STATE-AWARE SETUP TRACKER:
-        # Cari setup aktif yang sedang berjalan di market (in-flight setup).
-        # Aturan trader mutlak: Setup yang sudah aktif TIDAK BOLEH BERGANTI
-        # sampai harga menyentuh Stop Loss (Terinvalidasi) atau Take Profit.
-        # -------------------------------------------------------------
+        atr: float,
+        current_trend: str,
+        is_bearish_bos: bool,
+        is_bullish_bos: bool
+    ) -> List[Dict[str, Any]]:
         active_candidates: List[Dict[str, Any]] = []
         lookback_candles = 40
         lookback_start = max(0, len(candles) - lookback_candles)
@@ -338,7 +328,7 @@ class ForecastEngine:
                                 })
 
                 elif fvg.direction == "BEARISH":
-                    if is_bullish_bos or current_trend == "BULLISH":
+                    if is_bullish_bos or current_trend == "BEARISH":
                         continue
                     tap_idx = None
                     for i in range(lookback_start, len(candles)):
@@ -435,6 +425,66 @@ class ForecastEngine:
                                         "name": "A+ Setup: Turtle Soup (Sapuan Likuiditas EQH)",
                                         "weight": 65.0
                                     })
+
+        return active_candidates
+
+    def _generate_scenarios(
+        self,
+        candles: List[Candle],
+        current_price: float,
+        last_time: int,
+        time_step: int,
+        horizon: int,
+        confluence_score: float,
+        smc: Optional[SmcAnalysisResult],
+        patterns: Optional[PatternAnalysisResult],
+        atr: float,
+        setup_mode: str = "standard",
+        htf_trend: Optional[str] = None
+    ) -> Tuple[List[ForecastScenario], Optional[float]]:
+        scenarios: List[ForecastScenario] = []
+        structural_target = None
+
+        # Determine Market Structure & Trend Bias
+        current_trend = smc.current_trend if smc else ("BULLISH" if confluence_score >= 50 else "BEARISH")
+        last_event = smc.events[-1] if (smc and smc.events) else None
+        is_bearish_bos = bool(last_event and last_event.type == "BOS" and last_event.direction == "BEARISH")
+        is_bullish_bos = bool(last_event and last_event.type == "BOS" and last_event.direction == "BULLISH")
+
+        # -------------------------------------------------------------
+        # STATE-AWARE SETUP TRACKER:
+        # Cari setup aktif yang sedang berjalan di market (in-flight setup).
+        # Aturan trader mutlak: Setup yang sudah aktif TIDAK BOLEH BERGANTI
+        # sampai harga menyentuh Stop Loss (Terinvalidasi) atau Take Profit.
+        # -------------------------------------------------------------
+        active_candidates: List[Dict[str, Any]] = []
+
+        if setup_mode == "pro_shield":
+            from .pro_shield_engine import ProShieldEngine
+            active_candidates = ProShieldEngine.evaluate_candidates(
+                candles=candles,
+                current_price=current_price,
+                last_time=last_time,
+                horizon=horizon,
+                confluence_score=confluence_score,
+                smc=smc,
+                patterns=patterns,
+                atr=atr,
+                htf_trend=htf_trend
+            )
+        else:
+            active_candidates = self._evaluate_standard_candidates(
+                candles=candles,
+                current_price=current_price,
+                last_time=last_time,
+                confluence_score=confluence_score,
+                smc=smc,
+                patterns=patterns,
+                atr=atr,
+                current_trend=current_trend,
+                is_bearish_bos=is_bearish_bos,
+                is_bullish_bos=is_bullish_bos
+            )
 
         # Urutkan berdasarkan entry_time paling baru (setup teranyar yang sedang aktif)
         active_candidates.sort(key=lambda x: x["entry_time"], reverse=True)
