@@ -45,7 +45,7 @@ export interface SetupTradeTarget {
   planned_risk?: number
   planned_risk_mode?: 'USDT' | 'PERCENT'
   planned_leverage?: number
-  setup_mode?: 'standard' | 'pro_shield'
+  setup_mode?: 'standard' | 'pro_shield' | 'craig_10x'
 }
 
 interface OpenPositionModalProps {
@@ -519,7 +519,12 @@ export const OpenPositionModal: React.FC<OpenPositionModalProps> = ({
               </span>
             )}
 
-            {target.setup_mode === 'pro_shield' ? (
+            {target.setup_mode === 'craig_10x' ? (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-950/80 text-emerald-300 font-bold border border-emerald-700/60 flex items-center space-x-1">
+                <Target className="w-3 h-3 text-emerald-400" />
+                <span>Craig 10x (Asymmetric R:R)</span>
+              </span>
+            ) : target.setup_mode === 'pro_shield' ? (
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-950/80 text-indigo-300 font-bold border border-indigo-700/60 flex items-center space-x-1">
                 <ShieldCheck className="w-3 h-3 text-indigo-400" />
                 <span>Pro Shield (0.8 ATR)</span>

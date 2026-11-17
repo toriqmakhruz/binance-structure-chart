@@ -98,7 +98,7 @@ export function App() {
     readStoredString('cp_layout', 'single', ['single', 'split-vertical', 'split-horizontal', 'grid-4'])
   )
   const [setupMode, setSetupMode] = useState<SetupMode>(() =>
-    readStoredString('cp_setup_mode', 'standard', ['standard', 'pro_shield']) as SetupMode
+    readStoredString('cp_setup_mode', 'standard', ['standard', 'pro_shield', 'craig_10x']) as SetupMode
   )
 
   // Analysis & Candle Data
@@ -122,7 +122,7 @@ export function App() {
   // Settings (Global persistent across all pairs)
   const [settings, setSettings] = useState<AppSettings>(() => {
     const saved = readStoredJson<AppSettings>('cp_app_settings', DEFAULT_SETTINGS, true)
-    const mode = readStoredString('cp_setup_mode', 'standard', ['standard', 'pro_shield']) as SetupMode
+    const mode = readStoredString('cp_setup_mode', 'standard', ['standard', 'pro_shield', 'craig_10x']) as SetupMode
     return { ...saved, setupMode: mode }
   })
 
@@ -175,12 +175,22 @@ export function App() {
       writeStorage('cp_app_settings', next)
       return next
     })
+    const title =
+      mode === 'craig_10x'
+        ? '🎯 Mode Craig 10x Aktif'
+        : mode === 'pro_shield'
+          ? '🛡️ Mode Pro Shield Aktif'
+          : '⚡ Mode Standar Aktif'
+    const message =
+      mode === 'craig_10x'
+        ? 'Engine Craig 10x aktif: Asymmetric R:R (min 3R - 10R), Liquidity Sweep, FVG 50% Retest, Micro-SL & Auto-BE.'
+        : mode === 'pro_shield'
+          ? 'Engine proteksi aktif: Buffer SL diperlebar (0.8 ATR) dan validasi candle penolakan diaktifkan.'
+          : 'Engine standar aktif: Setup agresif momentum dan breakout langsung dievaluasi.'
     addToast({
       type: 'info',
-      title: mode === 'pro_shield' ? '🛡️ Mode Pro Shield Aktif' : '⚡ Mode Standar Aktif',
-      message: mode === 'pro_shield'
-        ? 'Engine proteksi aktif: Buffer SL diperlebar (0.8 ATR) dan validasi candle penolakan diaktifkan.'
-        : 'Engine standar aktif: Setup agresif momentum dan breakout langsung dievaluasi.',
+      title,
+      message,
       duration: 3500
     })
   }, [addToast])

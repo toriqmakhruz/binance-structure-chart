@@ -49,5 +49,9 @@ binance_chart_deploy.tar.gz
 data/
 *.json.bak
 
+# Video analysis assets
+VIDEO/
+VIDEO/*
+
 graphify-out/
 

@@ -197,7 +197,7 @@ export interface FundingRateData {
   history?: FundingRatePoint[]
 }
 
-export type SetupMode = 'standard' | 'pro_shield'
+export type SetupMode = 'standard' | 'pro_shield' | 'craig_10x'
 
 export interface FullAnalysisResponse {
   symbol: string

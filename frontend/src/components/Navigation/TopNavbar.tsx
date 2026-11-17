@@ -13,6 +13,7 @@ import {
   WifiOff,
   Zap,
   Shield,
+  Target,
   Activity,
   Lock,
   Unlock
@@ -157,11 +158,11 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
           </button>
         </div>
 
-        {/* Setup Engine Mode Toggle: Standar vs Pro Shield */}
+        {/* Setup Engine Mode Toggle: Standar vs Pro Shield vs Craig 10x */}
         {onModeChange && (
           <div
             className="flex bg-[#0b0e14] rounded-md p-0.5 border border-[#21262d] text-[10px] md:text-xs shrink-0"
-            title="Pilih Engine Setup: Standar (Agresif Scalping) vs Pro Shield (Proteksi Anti-Stop Hunt & Expanded SL Buffer)"
+            title="Pilih Engine Setup: Standar (Agresif Scalping) vs Pro Shield (Proteksi SL Buffer) vs Craig 10x (Asymmetric R:R 3R-10R)"
           >
             <button
               type="button"
@@ -188,6 +189,19 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
               <Shield className="w-2.5 h-2.5 md:w-3 md:h-3 text-indigo-400" />
               <span className="hidden sm:inline">Pro Shield</span>
               <span className="sm:hidden">SHIELD</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onModeChange('craig_10x')}
+              className={`flex items-center space-x-1 px-1.5 md:px-2.5 py-0.5 md:py-1 rounded font-medium transition-all ${
+                setupMode === 'craig_10x'
+                  ? 'bg-emerald-600/30 text-emerald-300 border border-emerald-500/50 font-bold shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Target className="w-2.5 h-2.5 md:w-3 md:h-3 text-emerald-400" />
+              <span className="hidden sm:inline">Craig 10x</span>
+              <span className="sm:hidden">10X</span>
             </button>
           </div>
         )}

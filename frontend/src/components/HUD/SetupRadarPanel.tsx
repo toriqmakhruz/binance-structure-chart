@@ -461,14 +461,26 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
             <Target className="w-3.5 h-3.5 text-[#00c087]" />
             <span>Setup Valid ({timeframe.toUpperCase()})</span>
             <span
-              title={settings.setupMode === 'pro_shield' ? 'Mode Pro Shield: Proteksi Anti-Stop Hunt & Expanded Buffer 0.8 ATR' : 'Mode Standar'}
+              title={
+                settings.setupMode === 'craig_10x'
+                  ? 'Mode Craig 10x: Asymmetric R:R (min 3R - 10R), Liquidity Sweep, FVG 50% Retest & Auto-BE'
+                  : settings.setupMode === 'pro_shield'
+                    ? 'Mode Pro Shield: Proteksi Anti-Stop Hunt & Expanded Buffer 0.8 ATR'
+                    : 'Mode Standar'
+              }
               className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
-                settings.setupMode === 'pro_shield'
-                  ? 'bg-indigo-950/80 text-indigo-300 border border-indigo-700/60'
-                  : 'bg-amber-950/80 text-amber-300 border border-amber-700/60'
+                settings.setupMode === 'craig_10x'
+                  ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-700/60'
+                  : settings.setupMode === 'pro_shield'
+                    ? 'bg-indigo-950/80 text-indigo-300 border border-indigo-700/60'
+                    : 'bg-amber-950/80 text-amber-300 border border-amber-700/60'
               }`}
             >
-              {settings.setupMode === 'pro_shield' ? '🛡️ PRO' : '⚡ STD'}
+              {settings.setupMode === 'craig_10x'
+                ? '🎯 10X'
+                : settings.setupMode === 'pro_shield'
+                  ? '🛡️ PRO'
+                  : '⚡ STD'}
             </span>
             <span
               title={isWsConnected ? 'Validasi SL/TP Real-Time Aktif' : 'Menyinkronkan Ticker...'}
