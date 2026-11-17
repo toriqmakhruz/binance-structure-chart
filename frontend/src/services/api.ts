@@ -100,6 +100,10 @@ export async function fetchValidSetups(
     force_refresh: forceRefresh ? 'true' : 'false'
   })
 
+  if (activeSettings.htf && activeSettings.htf !== 'none') {
+    params.append('htf', activeSettings.htf)
+  }
+
   if (activeSettings.setupMode) {
     params.append('setup_mode', activeSettings.setupMode)
   }

@@ -38,7 +38,7 @@ interface RightSidebarProps {
   patterns?: ChartPattern[]
   currentPrice?: number
   lockedSetups?: Record<string, any>
-  onSelectSymbol: (symbol: string) => void
+  onSelectSymbol: (symbol: string, setup?: any) => void
   onOpenTrade?: (setup: any) => void
   onPositionClosed?: (symbol: string) => void
   onUnlockSetup?: (symbol?: string) => void

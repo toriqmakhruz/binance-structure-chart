@@ -1071,10 +1071,10 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         const startTime = sc.entry_time || (currentCandle ? currentCandle.time : 0)
 
         // Live Invalidation Check for uncommitted setup forecasts:
-        // (Jika bukan posisi aktif terkunci, candle yang menembus SL akan menghapus box)
+        // (Jika bukan posisi aktif terkunci, candle yang close menembus SL akan menghapus box)
         if (!isLocked && currentCandle) {
-          if (isLong && currentCandle.low <= invalidationPrice) return
-          if (!isLong && currentCandle.high >= invalidationPrice) return
+          if (isLong && currentCandle.close <= invalidationPrice) return
+          if (!isLong && currentCandle.close >= invalidationPrice) return
         }
 
         // End time diproyeksikan dari candle saat ini ke masa depan (agar box membentang mulus dari entry ke horizon)

@@ -70,7 +70,7 @@ interface SetupRadarPanelProps {
   forecast?: ForecastResult
   currentPrice?: number
   lockedSetups?: Record<string, LockedTradeSetup>
-  onSelectSymbol: (symbol: string) => void
+  onSelectSymbol: (symbol: string, setup?: ValidSetupItem) => void
   onOpenTrade?: (setup: ValidSetupItem) => void
   onUnlockSetup?: (symbol: string) => void
 }
@@ -250,8 +250,10 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
               next.push(item)
               continue
             }
-            if (!isPriceStillValid(u.c, item.direction, item.invalidation_price, item.target_price)) {
-              // Discard immediately because SL or TP was reached
+            const isCurrentSymbol = item.symbol.toUpperCase() === symbol.toUpperCase()
+            const isItemLocked = Boolean(lockedSetups && lockedSetups[item.symbol.toUpperCase()])
+            if (!isCurrentSymbol && !isItemLocked && !isPriceStillValid(u.c, item.direction, item.invalidation_price, item.target_price)) {
+              // Discard background unselected setup when SL or TP is reached
               changed = true
               continue
             }
@@ -278,7 +280,7 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
       wsClient.disconnect()
       setIsWsConnected(false)
     }
-  }, [market])
+  }, [market, symbol, lockedSetups])
 
   // Sync with the currently opened chart analysis & live candle price
   useEffect(() => {
@@ -294,9 +296,10 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
     )
 
     setSetups((prev) => {
-      const others = prev.filter((item) => item.symbol.toUpperCase() !== activeUpper)
+      // PENTING: Jangan hapus setup dari daftar jika analisa dinamis sementara tidak mendeteksi setup!
+      // Setup yang sudah dipindai tetap dipertahankan agar tidak lenyap saat diklik oleh user.
       if (!validSc || !validSc.direction || validSc.entry_price === undefined) {
-        return others.length === prev.length ? prev : others
+        return prev
       }
 
       const livePrice = currentPrice && currentPrice > 0
@@ -304,9 +307,10 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
         : (prev.find((x) => x.symbol.toUpperCase() === activeUpper)?.current_price || validSc.entry_price)
 
       if (!isPriceStillValid(livePrice, validSc.direction, validSc.invalidation_price, validSc.target_price)) {
-        return others.length === prev.length ? prev : others
+        return prev
       }
 
+      const others = prev.filter((item) => item.symbol.toUpperCase() !== activeUpper)
       const existing = prev.find((x) => x.symbol.toUpperCase() === activeUpper)
       const upserted: ValidSetupItem = {
         symbol: activeUpper,
@@ -609,7 +613,7 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
             return (
               <div
                 key={`${item.symbol}-${item.direction}-${item.entry_time}`}
-                onClick={() => onSelectSymbol(item.symbol)}
+                onClick={() => onSelectSymbol(item.symbol, item)}
                 className={`p-2.5 rounded-lg border cursor-pointer transition-all space-y-2 relative ${
                   hasPosition
                     ? 'bg-[#101722] border-emerald-800/60 hover:border-emerald-600/70'
@@ -757,7 +761,7 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation()
-                        onSelectSymbol(item.symbol)
+                        onSelectSymbol(item.symbol, item)
                         onOpenTrade?.(item)
                       }}
                       className={`px-2 py-1 rounded text-[10px] font-bold flex items-center space-x-1 transition-all shadow-sm ${

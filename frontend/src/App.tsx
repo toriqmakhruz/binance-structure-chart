@@ -24,7 +24,8 @@ import {
   LockedTradeSetup,
   ForecastScenario,
   ForecastResult,
-  SetupMode
+  SetupMode,
+  ValidSetupItem
 } from './types/analysis'
 
 const DEFAULT_VISIBILITY: LayerVisibility = {
@@ -153,6 +154,7 @@ export function App() {
 
   const [isTradeModalOpen, setIsTradeModalOpen] = useState(false)
   const [selectedTradeTarget, setSelectedTradeTarget] = useState<SetupTradeTarget | null>(null)
+  const [selectedRadarSetup, setSelectedRadarSetup] = useState<ValidSetupItem | null>(null)
   const [isDashboardDrawerOpen, setIsDashboardDrawerOpen] = useState(false)
   const [tradeRefreshSeq, setTradeRefreshSeq] = useState(0)
 
@@ -325,8 +327,14 @@ export function App() {
   }, [symbol, timeframe, market, settings, loadAnalysis])
 
   // Pair & Config Switchers (clean slate to avoid artifact collision)
-  const handleSelectSymbol = (newSymbol: string) => {
+  const handleSelectSymbol = (newSymbol: string, setupItem?: ValidSetupItem) => {
     const cleanSym = newSymbol.toUpperCase()
+    if (setupItem) {
+      setSelectedRadarSetup(setupItem)
+    } else if (cleanSym !== symbol) {
+      setSelectedRadarSetup(null)
+    }
+
     if (cleanSym === symbol) return
     activeSymbolRef.current = cleanSym
     setCandles([])
@@ -403,42 +411,86 @@ export function App() {
 
   // Effective Forecast: When trade is active/open (baik limit order maupun market order), setup box is LOCKED and immune to background recalculation
   const effectiveForecast: ForecastResult | undefined = useMemo(() => {
-    if (!currentLockedSetup) return analysis?.forecast || undefined
+    if (currentLockedSetup) {
+      const lockedScenario: ForecastScenario = {
+        id: `locked_${currentLockedSetup.symbol}`,
+        name: `${currentLockedSetup.name || 'Setup Posisi Terkunci'} [TERKUNCI]`,
+        direction: currentLockedSetup.direction,
+        status: 'VALID_ENTRY',
+        is_valid: true,
+        probability: 0.99,
+        confluence_weight: currentLockedSetup.confluence_score || 95,
+        risk_reward_ratio: currentLockedSetup.risk_reward_ratio || 2.0,
+        entry_price: currentLockedSetup.entry_price,
+        entry_zone_high: currentLockedSetup.entry_price,
+        entry_zone_low: currentLockedSetup.entry_price,
+        invalidation_price: currentLockedSetup.invalidation_price,
+        target_price: currentLockedSetup.target_price,
+        entry_time: currentLockedSetup.entry_time,
+        path: []
+      }
 
-    const lockedScenario: ForecastScenario = {
-      id: `locked_${currentLockedSetup.symbol}`,
-      name: `${currentLockedSetup.name || 'Setup Posisi Terkunci'} [TERKUNCI]`,
-      direction: currentLockedSetup.direction,
-      status: 'VALID_ENTRY',
-      is_valid: true,
-      probability: 0.99,
-      confluence_weight: currentLockedSetup.confluence_score || 95,
-      risk_reward_ratio: currentLockedSetup.risk_reward_ratio || 2.0,
-      entry_price: currentLockedSetup.entry_price,
-      entry_zone_high: currentLockedSetup.entry_price,
-      entry_zone_low: currentLockedSetup.entry_price,
-      invalidation_price: currentLockedSetup.invalidation_price,
-      target_price: currentLockedSetup.target_price,
-      entry_time: currentLockedSetup.entry_time,
-      path: []
-    }
+      if (analysis?.forecast) {
+        return {
+          ...analysis.forecast,
+          predicted_trend: currentLockedSetup.direction === 'LONG' ? 'BULLISH' : 'BEARISH',
+          scenarios: [lockedScenario]
+        }
+      }
 
-    if (analysis?.forecast) {
       return {
-        ...analysis.forecast,
+        horizon_candles: 25,
         predicted_trend: currentLockedSetup.direction === 'LONG' ? 'BULLISH' : 'BEARISH',
+        confluence_score: currentLockedSetup.confluence_score || 95,
+        cone_points: [],
         scenarios: [lockedScenario]
       }
     }
 
-    return {
-      horizon_candles: 25,
-      predicted_trend: currentLockedSetup.direction === 'LONG' ? 'BULLISH' : 'BEARISH',
-      confluence_score: currentLockedSetup.confluence_score || 95,
-      cone_points: [],
-      scenarios: [lockedScenario]
+    // Jika user memilih setup dari panel Radar, pastikan box setup SELALU muncul di chart
+    if (selectedRadarSetup && selectedRadarSetup.symbol.toUpperCase() === symbol.toUpperCase()) {
+      const radarScenario: ForecastScenario = {
+        id: `radar_${selectedRadarSetup.symbol}`,
+        name: selectedRadarSetup.name,
+        direction: selectedRadarSetup.direction,
+        status: 'VALID_ENTRY',
+        is_valid: true,
+        probability: 0.95,
+        confluence_weight: selectedRadarSetup.confluence_weight || 75,
+        risk_reward_ratio: selectedRadarSetup.risk_reward_ratio || 2.0,
+        entry_price: selectedRadarSetup.entry_price,
+        entry_zone_high: selectedRadarSetup.entry_zone_high ?? selectedRadarSetup.entry_price,
+        entry_zone_low: selectedRadarSetup.entry_zone_low ?? selectedRadarSetup.entry_price,
+        invalidation_price: selectedRadarSetup.invalidation_price,
+        target_price: selectedRadarSetup.target_price,
+        entry_time: selectedRadarSetup.entry_time,
+        path: []
+      }
+
+      if (analysis?.forecast) {
+        const hasValidInAnalysis = analysis.forecast.scenarios?.some(
+          (s) => s.is_valid && s.status === 'VALID_ENTRY' && (s.risk_reward_ratio || 0) >= 1.5
+        )
+        if (hasValidInAnalysis) {
+          return analysis.forecast
+        }
+        return {
+          ...analysis.forecast,
+          scenarios: [radarScenario, ...(analysis.forecast.scenarios || [])]
+        }
+      }
+
+      return {
+        horizon_candles: 25,
+        predicted_trend: selectedRadarSetup.direction === 'LONG' ? 'BULLISH' : 'BEARISH',
+        confluence_score: selectedRadarSetup.confluence_score || 80,
+        cone_points: [],
+        scenarios: [radarScenario]
+      }
     }
-  }, [analysis?.forecast, currentLockedSetup])
+
+    return analysis?.forecast || undefined
+  }, [analysis?.forecast, currentLockedSetup, selectedRadarSetup, symbol])
 
   // Reconcile and synchronize locked setups with active positions
   useEffect(() => {
@@ -733,7 +785,11 @@ export function App() {
               candles={candles}
               smc={analysis?.smc}
               patterns={analysis?.patterns}
-              forecast={effectiveForecast}
+              forecast={
+              (analysis?.symbol?.toUpperCase() === symbol.toUpperCase() || Boolean(currentLockedSetup) || Boolean(selectedRadarSetup))
+                ? effectiveForecast
+                : undefined
+            }
               htfOverlay={analysis?.htf_overlay}
               visibility={visibility}
               activeTool={activeTool}
@@ -774,7 +830,11 @@ export function App() {
             candles={candles}
             movement={analysis?.movement}
             smc={analysis?.smc}
-            forecast={effectiveForecast}
+            forecast={
+              (analysis?.symbol?.toUpperCase() === symbol.toUpperCase() || Boolean(currentLockedSetup) || Boolean(selectedRadarSetup))
+                ? effectiveForecast
+                : undefined
+            }
             patterns={analysis?.patterns?.patterns}
             currentPrice={lastCandle?.close}
             lockedSetups={lockedSetups}
