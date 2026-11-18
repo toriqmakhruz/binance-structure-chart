@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { Crosshair } from 'lucide-react'
 import { LightweightChart } from './LightweightChart'
 import { fetchAnalysis, defaultAppSettings } from '../../services/api'
 import {
@@ -18,6 +19,8 @@ import {
 interface SubChartProps {
   symbol: string
   timeframe: string
+  chartId?: string
+  syncCrosshair?: boolean
   market: 'spot' | 'futures'
   settings?: AppSettings
   visibility: LayerVisibility
@@ -33,6 +36,8 @@ interface SubChartProps {
 const SubTimeframeChart: React.FC<SubChartProps> = ({
   symbol,
   timeframe,
+  chartId,
+  syncCrosshair,
   market,
   settings,
   visibility,
@@ -81,6 +86,8 @@ const SubTimeframeChart: React.FC<SubChartProps> = ({
     <LightweightChart
       symbol={symbol}
       timeframe={timeframe}
+      chartId={chartId}
+      syncCrosshair={syncCrosshair}
       candles={data.candles}
       smc={data.smc}
       patterns={data.patterns}
@@ -105,6 +112,8 @@ interface ChartContainerProps {
   market?: 'spot' | 'futures'
   settings?: AppSettings
   layout: 'single' | 'split-vertical' | 'split-horizontal' | 'grid-4'
+  syncCrosshair?: boolean
+  onToggleSyncCrosshair?: () => void
   candles: Candle[]
   smc?: SmcAnalysisResult
   patterns?: PatternAnalysisResult
@@ -136,6 +145,8 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
   market = 'futures',
   settings,
   layout,
+  syncCrosshair = true,
+  onToggleSyncCrosshair,
   candles,
   smc,
   patterns,
@@ -198,8 +209,28 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
               <span className="text-[#00c087] font-bold hidden sm:inline">[{effectiveTf.toUpperCase()}]</span>
             </div>
 
-            {/* Timeframe selector for THIS pane */}
-            <div className="flex items-center space-x-1">
+            {/* Timeframe selector & Crosshair Sync toggle for THIS pane */}
+            <div className="flex items-center space-x-1 sm:space-x-1.5">
+              {onToggleSyncCrosshair && (
+                <button
+                  type="button"
+                  onClick={onToggleSyncCrosshair}
+                  title={
+                    syncCrosshair
+                      ? 'Sinkronisasi Kursor: AKTIF (Kursor bergerak serempak di semua chart. Klik untuk mematikan)'
+                      : 'Sinkronisasi Kursor: NONAKTIF (Klik untuk mengaktifkan)'
+                  }
+                  className={`flex items-center space-x-1 px-1.5 py-0.5 rounded border text-[10px] font-bold transition-all ${
+                    syncCrosshair
+                      ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/40 shadow-sm'
+                      : 'bg-[#0b0e14] text-slate-500 hover:text-slate-300 border-[#21262d]'
+                  }`}
+                >
+                  <Crosshair className={`w-3 h-3 ${syncCrosshair ? 'text-cyan-400' : 'text-slate-500'}`} />
+                  <span className="hidden xl:inline">{syncCrosshair ? 'Sync ON' : 'Sync OFF'}</span>
+                </button>
+              )}
+
               <div className="flex items-center space-x-0.5 bg-[#0b0e14] p-0.5 rounded border border-[#21262d]">
                 {['1m', '5m', '15m', '1h', '4h'].map((tf) => (
                   <button
@@ -237,6 +268,8 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
           {isPrimary ? (
             <LightweightChart
               key={`${symbol}_${timeframe}_primary`}
+              chartId={chartId}
+              syncCrosshair={syncCrosshair}
               symbol={symbol}
               timeframe={timeframe}
               candles={candles}
@@ -257,6 +290,8 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
           ) : (
             <SubTimeframeChart
               key={`${symbol}_${effectiveTf}_${chartId}`}
+              chartId={chartId}
+              syncCrosshair={syncCrosshair}
               symbol={symbol}
               timeframe={effectiveTf}
               market={market}

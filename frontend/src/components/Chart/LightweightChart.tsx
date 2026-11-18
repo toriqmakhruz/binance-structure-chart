@@ -5,7 +5,8 @@ import {
   ISeriesApi,
   Time,
   SeriesMarker,
-  ColorType
+  ColorType,
+  MouseEventParams
 } from 'lightweight-charts'
 import {
   Candle,
@@ -27,6 +28,8 @@ import { extractSessionBlocks, getCurrentActiveSessions, SessionBlock } from '..
 interface LightweightChartProps {
   symbol: string
   timeframe: string
+  chartId?: string
+  syncCrosshair?: boolean
   candles: Candle[]
   smc?: SmcAnalysisResult
   patterns?: PatternAnalysisResult
@@ -46,6 +49,8 @@ interface LightweightChartProps {
 export const LightweightChart: React.FC<LightweightChartProps> = ({
   symbol,
   timeframe,
+  chartId = 'chart-main',
+  syncCrosshair = true,
   candles,
   smc,
   patterns,
@@ -67,6 +72,23 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
   const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null)
   const prevVolumeVisibleRef = useRef<boolean>(Boolean(visibility.volume))
+
+  const syncCrosshairRef = useRef<boolean>(Boolean(syncCrosshair))
+  const isExternalCrosshairRef = useRef<boolean>(false)
+  const chartIdRef = useRef<string>(chartId)
+
+  useEffect(() => {
+    chartIdRef.current = chartId
+  }, [chartId])
+
+  useEffect(() => {
+    syncCrosshairRef.current = Boolean(syncCrosshair)
+    if (!syncCrosshair && chartRef.current) {
+      try {
+        chartRef.current.clearCrosshairPosition()
+      } catch {}
+    }
+  }, [syncCrosshair])
 
   // Ref to always hold the latest redrawCanvas function (avoids stale closures during pan/scroll)
   const redrawCanvasRef = useRef<() => void>(() => {})
@@ -189,10 +211,80 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
       requestAnimationFrame(() => redrawCanvasRef.current())
     })
 
+    // Crosshair Sync Subscriptions (Bidirectional sync across split charts)
+    const handleLocalCrosshairMove = (param: MouseEventParams) => {
+      if (!syncCrosshairRef.current || isExternalCrosshairRef.current) return
+
+      if (
+        !param.point ||
+        param.point.x < 0 ||
+        param.point.y < 0 ||
+        param.time === undefined
+      ) {
+        window.dispatchEvent(
+          new CustomEvent('cp_sync_crosshair_clear', {
+            detail: { sourceId: chartIdRef.current }
+          })
+        )
+        return
+      }
+
+      const price = candleSeries.coordinateToPrice(param.point.y)
+      if (price !== null && price !== undefined) {
+        window.dispatchEvent(
+          new CustomEvent('cp_sync_crosshair_move', {
+            detail: {
+              sourceId: chartIdRef.current,
+              time: param.time,
+              price: price
+            }
+          })
+        )
+      }
+    }
+
+    chart.subscribeCrosshairMove(handleLocalCrosshairMove)
+
+    const handleRemoteCrosshairMove = (e: Event) => {
+      const customEvent = e as CustomEvent<{ sourceId: string; time: Time; price: number }>
+      if (!syncCrosshairRef.current || !chartRef.current || !candleSeriesRef.current) return
+      if (customEvent.detail.sourceId === chartIdRef.current) return
+
+      const { time, price } = customEvent.detail
+      if (time === undefined || price === undefined) return
+
+      try {
+        isExternalCrosshairRef.current = true
+        chartRef.current.setCrosshairPosition(price, time, candleSeriesRef.current)
+      } catch {
+        // Gracefully ignore if the timestamp is out of range for this chart
+      } finally {
+        queueMicrotask(() => {
+          isExternalCrosshairRef.current = false
+        })
+      }
+    }
+
+    const handleRemoteCrosshairClear = (e: Event) => {
+      const customEvent = e as CustomEvent<{ sourceId: string }>
+      if (!chartRef.current) return
+      if (customEvent.detail.sourceId === chartIdRef.current) return
+
+      try {
+        chartRef.current.clearCrosshairPosition()
+      } catch {}
+    }
+
+    window.addEventListener('cp_sync_crosshair_move', handleRemoteCrosshairMove)
+    window.addEventListener('cp_sync_crosshair_clear', handleRemoteCrosshairClear)
+
     handleResize()
 
     return () => {
       window.removeEventListener('resize', handleResize)
+      window.removeEventListener('cp_sync_crosshair_move', handleRemoteCrosshairMove)
+      window.removeEventListener('cp_sync_crosshair_clear', handleRemoteCrosshairClear)
+      chart.unsubscribeCrosshairMove(handleLocalCrosshairMove)
       resizeObserver?.disconnect()
       chart.remove()
       chartRef.current = null
@@ -1360,6 +1452,18 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     if (time && price) {
       setCurrentMouse({ x, y, time: Number(time), price })
       if (isDrawing) redrawCanvas()
+
+      if (syncCrosshairRef.current) {
+        window.dispatchEvent(
+          new CustomEvent('cp_sync_crosshair_move', {
+            detail: {
+              sourceId: chartIdRef.current,
+              time: Number(time) as Time,
+              price: price
+            }
+          })
+        )
+      }
     }
   }
 
@@ -1384,11 +1488,22 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     requestAnimationFrame(() => redrawCanvasRef.current())
   }
 
+  const handleContainerMouseLeave = () => {
+    if (syncCrosshairRef.current) {
+      window.dispatchEvent(
+        new CustomEvent('cp_sync_crosshair_clear', {
+          detail: { sourceId: chartIdRef.current }
+        })
+      )
+    }
+  }
+
   return (
     <div 
       className="relative w-full h-full flex flex-col overflow-hidden select-none"
       onWheel={handleInteraction}
       onMouseMove={handleInteraction}
+      onMouseLeave={handleContainerMouseLeave}
     >
       {/* Main Candlestick Chart Area */}
       <div className="relative flex-1 w-full min-h-0 overflow-hidden">

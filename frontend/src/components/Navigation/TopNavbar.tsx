@@ -16,7 +16,8 @@ import {
   Target,
   Activity,
   Lock,
-  Unlock
+  Unlock,
+  Crosshair
 } from 'lucide-react'
 import { formatPrice } from '../../utils/formatters'
 import { SetupMode } from '../../types/analysis'
@@ -48,6 +49,8 @@ interface TopNavbarProps {
   onUnlockSetup?: () => void
   setupMode?: SetupMode
   onModeChange?: (mode: SetupMode) => void
+  syncCrosshair?: boolean
+  onToggleSyncCrosshair?: () => void
 }
 
 const TIMEFRAMES = ['1m', '3m', '5m', '15m', '30m', '1h', '4h', '1d']
@@ -76,7 +79,9 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
   isSetupLocked = false,
   onUnlockSetup,
   setupMode = 'standard',
-  onModeChange
+  onModeChange,
+  syncCrosshair = true,
+  onToggleSyncCrosshair
 }) => {
   const getBadgeConfig = () => {
     switch (streamStatus) {
@@ -326,6 +331,34 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
             <LayoutGrid className="w-3.5 h-3.5" />
           </button>
         </div>
+
+        {/* Crosshair Sync Toggle (Visible when split or grid layout is active) */}
+        {layout !== 'single' && onToggleSyncCrosshair && (
+          <button
+            type="button"
+            onClick={onToggleSyncCrosshair}
+            title={
+              syncCrosshair
+                ? 'Sinkronisasi Kursor Antar Chart: AKTIF (Kursor mengikuti di semua split chart. Klik untuk mematikan)'
+                : 'Sinkronisasi Kursor Antar Chart: NONAKTIF (Klik untuk mengaktifkan)'
+            }
+            className={`flex items-center space-x-1.5 px-2 py-1 md:py-1.5 rounded-lg border text-xs font-semibold transition-all ${
+              syncCrosshair
+                ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/40 shadow-sm shadow-cyan-950/40'
+                : 'bg-[#1a202c] hover:bg-[#252d3d] text-slate-400 hover:text-slate-200 border-[#2d3748]'
+            }`}
+          >
+            <Crosshair className={`w-3.5 h-3.5 ${syncCrosshair ? 'text-cyan-400' : 'text-slate-400'}`} />
+            <span className="hidden md:inline text-[11px] font-medium">Sync Kursor</span>
+            <span
+              className={`text-[9px] px-1 py-0.5 rounded font-mono font-bold ${
+                syncCrosshair ? 'bg-cyan-500/25 text-cyan-200' : 'bg-slate-800 text-slate-400'
+              }`}
+            >
+              {syncCrosshair ? 'ON' : 'OFF'}
+            </span>
+          </button>
+        )}
 
         {/* Live WS Status Badge */}
         <div 

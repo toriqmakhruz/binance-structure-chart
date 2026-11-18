@@ -100,6 +100,9 @@ export function App() {
   const [setupMode, setSetupMode] = useState<SetupMode>(() =>
     readStoredString('cp_setup_mode', 'standard', ['standard', 'pro_shield', 'craig_10x']) as SetupMode
   )
+  const [syncCrosshair, setSyncCrosshair] = useState<boolean>(() =>
+    readStoredJson<boolean>('cp_sync_crosshair', true)
+  )
 
   // Analysis & Candle Data
   const [analysis, setAnalysis] = useState<FullAnalysisResponse | null>(null)
@@ -132,6 +135,7 @@ export function App() {
   useEffect(() => { writeStorage('cp_market', market) }, [market])
   useEffect(() => { writeStorage('cp_layout', layout) }, [layout])
   useEffect(() => { writeStorage('cp_setup_mode', setupMode) }, [setupMode])
+  useEffect(() => { writeStorage('cp_sync_crosshair', syncCrosshair) }, [syncCrosshair])
   useEffect(() => { writeStorage('cp_layer_visibility', visibility) }, [visibility])
   useEffect(() => { writeStorage('cp_app_settings', settings) }, [settings])
   useEffect(() => { writeStorage('cp_drawings_by_symbol', drawingsBySymbol) }, [drawingsBySymbol])
@@ -761,6 +765,8 @@ export function App() {
         onUnlockSetup={() => unlockSetup(symbol, 'Kunci box setup chart dilepas manual.')}
         setupMode={setupMode}
         onModeChange={handleSetupModeChange}
+        syncCrosshair={syncCrosshair}
+        onToggleSyncCrosshair={() => setSyncCrosshair((prev) => !prev)}
       />
 
       {/* 2. Layer Toggles Bar (TradingView Dropdown Style) */}
@@ -792,6 +798,8 @@ export function App() {
               market={market}
               settings={settings}
               layout={layout}
+              syncCrosshair={syncCrosshair}
+              onToggleSyncCrosshair={() => setSyncCrosshair((prev) => !prev)}
               candles={candles}
               smc={analysis?.smc}
               patterns={analysis?.patterns}
