@@ -103,6 +103,9 @@ export function App() {
   const [syncCrosshair, setSyncCrosshair] = useState<boolean>(() =>
     readStoredJson<boolean>('cp_sync_crosshair', true)
   )
+  const [syncSetup, setSyncSetup] = useState<boolean>(() =>
+    readStoredJson<boolean>('cp_sync_setup_box', true)
+  )
 
   // Analysis & Candle Data
   const [analysis, setAnalysis] = useState<FullAnalysisResponse | null>(null)
@@ -136,6 +139,7 @@ export function App() {
   useEffect(() => { writeStorage('cp_layout', layout) }, [layout])
   useEffect(() => { writeStorage('cp_setup_mode', setupMode) }, [setupMode])
   useEffect(() => { writeStorage('cp_sync_crosshair', syncCrosshair) }, [syncCrosshair])
+  useEffect(() => { writeStorage('cp_sync_setup_box', syncSetup) }, [syncSetup])
   useEffect(() => { writeStorage('cp_layer_visibility', visibility) }, [visibility])
   useEffect(() => { writeStorage('cp_app_settings', settings) }, [settings])
   useEffect(() => { writeStorage('cp_drawings_by_symbol', drawingsBySymbol) }, [drawingsBySymbol])
@@ -767,6 +771,8 @@ export function App() {
         onModeChange={handleSetupModeChange}
         syncCrosshair={syncCrosshair}
         onToggleSyncCrosshair={() => setSyncCrosshair((prev) => !prev)}
+        syncSetup={syncSetup}
+        onToggleSyncSetup={() => setSyncSetup((prev) => !prev)}
       />
 
       {/* 2. Layer Toggles Bar (TradingView Dropdown Style) */}
@@ -800,6 +806,8 @@ export function App() {
               layout={layout}
               syncCrosshair={syncCrosshair}
               onToggleSyncCrosshair={() => setSyncCrosshair((prev) => !prev)}
+              syncSetup={syncSetup}
+              onToggleSyncSetup={() => setSyncSetup((prev) => !prev)}
               candles={candles}
               smc={analysis?.smc}
               patterns={analysis?.patterns}

@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react'
-import { Crosshair } from 'lucide-react'
+import React, { useState, useEffect, useMemo } from 'react'
+import { Crosshair, Layers } from 'lucide-react'
 import { LightweightChart } from './LightweightChart'
 import { fetchAnalysis, defaultAppSettings } from '../../services/api'
 import {
@@ -21,6 +21,8 @@ interface SubChartProps {
   timeframe: string
   chartId?: string
   syncCrosshair?: boolean
+  primaryForecast?: ForecastResult
+  syncSetup?: boolean
   market: 'spot' | 'futures'
   settings?: AppSettings
   visibility: LayerVisibility
@@ -38,6 +40,8 @@ const SubTimeframeChart: React.FC<SubChartProps> = ({
   timeframe,
   chartId,
   syncCrosshair,
+  primaryForecast,
+  syncSetup = true,
   market,
   settings,
   visibility,
@@ -73,6 +77,34 @@ const SubTimeframeChart: React.FC<SubChartProps> = ({
     }
   }, [symbol, timeframe, market, settings])
 
+  // Synchronize trade setup box: Avoid conflicting signals (e.g. 5m SHORT vs 15m LONG) on the same coin
+  const effectiveForecast = useMemo(() => {
+    if (syncSetup && primaryForecast && primaryForecast.scenarios) {
+      const validPrimaryScenarios = primaryForecast.scenarios.filter(
+        (s) =>
+          (s.is_valid === true && (s.risk_reward_ratio || 0) >= 1.5 && s.status === 'VALID_ENTRY') ||
+          s.name?.includes('[TERKUNCI]') ||
+          s.id?.startsWith('locked_')
+      )
+
+      if (validPrimaryScenarios.length > 0) {
+        return {
+          ...(data?.forecast || primaryForecast),
+          scenarios: validPrimaryScenarios,
+          predicted_trend: primaryForecast.predicted_trend,
+          confluence_score: primaryForecast.confluence_score,
+          structural_target: primaryForecast.structural_target
+        }
+      }
+
+      // If primary chart has no valid active setup, do not show contradictory local setup
+      return undefined
+    }
+
+    // If syncSetup is turned off, show local timeframe's independent scan
+    return data?.forecast
+  }, [syncSetup, primaryForecast, data?.forecast])
+
   if (loading || !data) {
     return (
       <div className="flex-1 w-full h-full flex flex-col items-center justify-center bg-[#0b0e14] text-slate-500 font-mono text-xs space-y-2">
@@ -91,7 +123,7 @@ const SubTimeframeChart: React.FC<SubChartProps> = ({
       candles={data.candles}
       smc={data.smc}
       patterns={data.patterns}
-      forecast={data.forecast}
+      forecast={effectiveForecast}
       htfOverlay={data.htf_overlay}
       visibility={visibility}
       activeTool={activeTool}
@@ -114,6 +146,8 @@ interface ChartContainerProps {
   layout: 'single' | 'split-vertical' | 'split-horizontal' | 'grid-4'
   syncCrosshair?: boolean
   onToggleSyncCrosshair?: () => void
+  syncSetup?: boolean
+  onToggleSyncSetup?: () => void
   candles: Candle[]
   smc?: SmcAnalysisResult
   patterns?: PatternAnalysisResult
@@ -147,6 +181,8 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
   layout,
   syncCrosshair = true,
   onToggleSyncCrosshair,
+  syncSetup = true,
+  onToggleSyncSetup,
   candles,
   smc,
   patterns,
@@ -209,7 +245,7 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
               <span className="text-[#00c087] font-bold hidden sm:inline">[{effectiveTf.toUpperCase()}]</span>
             </div>
 
-            {/* Timeframe selector & Crosshair Sync toggle for THIS pane */}
+            {/* Timeframe selector & Crosshair/Setup Sync toggles for THIS pane */}
             <div className="flex items-center space-x-1 sm:space-x-1.5">
               {onToggleSyncCrosshair && (
                 <button
@@ -228,6 +264,26 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
                 >
                   <Crosshair className={`w-3 h-3 ${syncCrosshair ? 'text-cyan-400' : 'text-slate-500'}`} />
                   <span className="hidden xl:inline">{syncCrosshair ? 'Sync ON' : 'Sync OFF'}</span>
+                </button>
+              )}
+
+              {onToggleSyncSetup && (
+                <button
+                  type="button"
+                  onClick={onToggleSyncSetup}
+                  title={
+                    syncSetup
+                      ? 'Sinkronisasi Setup Box: AKTIF (Semua chart mengikuti setup yang sama dari Pane 1. Klik untuk mode independen)'
+                      : 'Sinkronisasi Setup Box: NONAKTIF (Tiap chart mencari setup sendiri. Klik untuk sinkronkan)'
+                  }
+                  className={`flex items-center space-x-1 px-1.5 py-0.5 rounded border text-[10px] font-bold transition-all ${
+                    syncSetup
+                      ? 'bg-amber-500/15 text-amber-300 border-amber-500/40 shadow-sm'
+                      : 'bg-[#0b0e14] text-slate-500 hover:text-slate-300 border-[#21262d]'
+                  }`}
+                >
+                  <Layers className={`w-3 h-3 ${syncSetup ? 'text-amber-400' : 'text-slate-500'}`} />
+                  <span className="hidden xl:inline">{syncSetup ? 'Setup Sync ON' : 'Setup Sync OFF'}</span>
                 </button>
               )}
 
@@ -292,6 +348,8 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
               key={`${symbol}_${effectiveTf}_${chartId}`}
               chartId={chartId}
               syncCrosshair={syncCrosshair}
+              primaryForecast={forecast}
+              syncSetup={syncSetup}
               symbol={symbol}
               timeframe={effectiveTf}
               market={market}

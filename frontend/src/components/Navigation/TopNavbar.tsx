@@ -17,7 +17,8 @@ import {
   Activity,
   Lock,
   Unlock,
-  Crosshair
+  Crosshair,
+  Layers
 } from 'lucide-react'
 import { formatPrice } from '../../utils/formatters'
 import { SetupMode } from '../../types/analysis'
@@ -51,6 +52,8 @@ interface TopNavbarProps {
   onModeChange?: (mode: SetupMode) => void
   syncCrosshair?: boolean
   onToggleSyncCrosshair?: () => void
+  syncSetup?: boolean
+  onToggleSyncSetup?: () => void
 }
 
 const TIMEFRAMES = ['1m', '3m', '5m', '15m', '30m', '1h', '4h', '1d']
@@ -81,7 +84,9 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
   setupMode = 'standard',
   onModeChange,
   syncCrosshair = true,
-  onToggleSyncCrosshair
+  onToggleSyncCrosshair,
+  syncSetup = true,
+  onToggleSyncSetup
 }) => {
   const getBadgeConfig = () => {
     switch (streamStatus) {
@@ -356,6 +361,34 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
               }`}
             >
               {syncCrosshair ? 'ON' : 'OFF'}
+            </span>
+          </button>
+        )}
+
+        {/* Setup Box Sync Toggle (Visible when split or grid layout is active) */}
+        {layout !== 'single' && onToggleSyncSetup && (
+          <button
+            type="button"
+            onClick={onToggleSyncSetup}
+            title={
+              syncSetup
+                ? 'Sinkronisasi Setup Box: AKTIF (Semua split chart menampilkan setup yang sama dari Pane 1. Klik untuk mode independen)'
+                : 'Sinkronisasi Setup Box: NONAKTIF (Tiap chart mencari setup sendiri. Klik untuk sinkronkan)'
+            }
+            className={`flex items-center space-x-1.5 px-2 py-1 md:py-1.5 rounded-lg border text-xs font-semibold transition-all ${
+              syncSetup
+                ? 'bg-amber-500/15 text-amber-300 border-amber-500/40 shadow-sm shadow-amber-950/40'
+                : 'bg-[#1a202c] hover:bg-[#252d3d] text-slate-400 hover:text-slate-200 border-[#2d3748]'
+            }`}
+          >
+            <Layers className={`w-3.5 h-3.5 ${syncSetup ? 'text-amber-400' : 'text-slate-400'}`} />
+            <span className="hidden md:inline text-[11px] font-medium">Sync Setup</span>
+            <span
+              className={`text-[9px] px-1 py-0.5 rounded font-mono font-bold ${
+                syncSetup ? 'bg-amber-500/25 text-amber-200' : 'bg-slate-800 text-slate-400'
+              }`}
+            >
+              {syncSetup ? 'ON' : 'OFF'}
             </span>
           </button>
         )}
