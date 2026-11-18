@@ -73,6 +73,11 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
   const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null)
   const prevVolumeVisibleRef = useRef<boolean>(Boolean(visibility.volume))
+  const candlesRef = useRef<Candle[]>(candles)
+
+  useEffect(() => {
+    candlesRef.current = candles
+  }, [candles])
 
   const syncCrosshairRef = useRef<boolean>(Boolean(syncCrosshair))
   const isExternalCrosshairRef = useRef<boolean>(false)
@@ -240,7 +245,18 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
       const price = candleSeries.coordinateToPrice(param.point.y)
       let time = param.time
       if (time === undefined && chart.timeScale()) {
-        time = (chart.timeScale().coordinateToTime(param.point.x) ?? undefined) as Time | undefined
+        const direct = chart.timeScale().coordinateToTime(param.point.x)
+        if (direct !== null && direct !== undefined) {
+          time = direct as Time
+        } else {
+          const logical = chart.timeScale().coordinateToLogical(param.point.x)
+          if (logical !== null && candlesRef.current && candlesRef.current.length > 0) {
+            const lastCandle = candlesRef.current[candlesRef.current.length - 1]
+            const timeStep = candlesRef.current.length > 1 ? (candlesRef.current[1].time - candlesRef.current[0].time) : 900
+            const futureBars = logical - (candlesRef.current.length - 1)
+            time = Math.round(lastCandle.time + futureBars * timeStep) as any as Time
+          }
+        }
       }
 
       if (price !== null && price !== undefined && time !== undefined) {
@@ -436,7 +452,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     redrawCanvasRef.current()
   }, [candles, smc, visibility.volume, symbol, timeframe, focusRecentBars])
 
-  // 4. Robust Coordinate Resolver
+  // 4. Robust Coordinate Resolvers (Supports past, future blank space, and continuous interpolation)
   const resolveCoord = useCallback((time: number, price: number): { x: number; y: number } | null => {
     if (!chartRef.current || !candleSeriesRef.current) return null
     const timeScale = chartRef.current.timeScale()
@@ -452,10 +468,29 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         const futureBars = (time - lastTime) / timeStep
         const logicalIndex = (candles.length - 1) + futureBars
         x = timeScale.logicalToCoordinate(logicalIndex as any)
+
+        // Robust pixel fallback if logicalToCoordinate returned null
+        if (x === null) {
+          const lastX = timeScale.timeToCoordinate(lastTime as Time) ?? timeScale.logicalToCoordinate((candles.length - 1) as any)
+          const prevX = candles.length > 1 ? (timeScale.timeToCoordinate(candles[candles.length - 2].time as Time) ?? timeScale.logicalToCoordinate((candles.length - 2) as any)) : null
+          const barSpacingPx = (lastX !== null && prevX !== null) ? Math.abs(lastX - prevX) : 10
+          if (lastX !== null) {
+            x = (lastX + futureBars * barSpacingPx) as any
+          }
+        }
       } else if (time <= firstTime) {
         const pastBars = (firstTime - time) / timeStep
         const logicalIndex = 0 - pastBars
         x = timeScale.logicalToCoordinate(logicalIndex as any)
+
+        if (x === null) {
+          const firstX = timeScale.timeToCoordinate(firstTime as Time) ?? timeScale.logicalToCoordinate(0 as any)
+          const nextX = candles.length > 1 ? (timeScale.timeToCoordinate(candles[1].time as Time) ?? timeScale.logicalToCoordinate(1 as any)) : null
+          const barSpacingPx = (firstX !== null && nextX !== null) ? Math.abs(nextX - firstX) : 10
+          if (firstX !== null) {
+            x = (firstX - pastBars * barSpacingPx) as any
+          }
+        }
       } else {
         let closestIdx = 0
         let minDiff = Infinity
@@ -473,6 +508,68 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     const y = candleSeriesRef.current.priceToCoordinate(price)
     if (x === null || y === null) return null
     return { x, y }
+  }, [candles])
+
+  // Bidirectional resolver: convert x screen coordinate to continuous timestamp (including future/past margins)
+  const getTimeFromCoordinate = useCallback((x: number): number | null => {
+    if (!chartRef.current || candles.length === 0) return null
+    const timeScale = chartRef.current.timeScale()
+
+    // 1. Direct bar match
+    const directTime = timeScale.coordinateToTime(x)
+    if (directTime !== null && directTime !== undefined) {
+      return Number(directTime)
+    }
+
+    // 2. Extrapolate via continuous logical index (supports future/past/blank space)
+    const logical = timeScale.coordinateToLogical(x)
+    const firstCandle = candles[0]
+    const lastCandle = candles[candles.length - 1]
+    const timeStep = candles.length > 1 ? (candles[1].time - candles[0].time) : 900
+
+    if (logical !== null && logical !== undefined) {
+      if (logical >= candles.length - 1) {
+        const futureBars = logical - (candles.length - 1)
+        return Math.round(lastCandle.time + futureBars * timeStep)
+      } else if (logical <= 0) {
+        return Math.round(firstCandle.time + logical * timeStep)
+      } else {
+        const idx = Math.min(Math.max(0, Math.floor(logical)), candles.length - 1)
+        const frac = logical - idx
+        const nextIdx = Math.min(idx + 1, candles.length - 1)
+        const baseTime = candles[idx].time
+        const nextTime = candles[nextIdx].time
+        return Math.round(baseTime + frac * (nextTime - baseTime))
+      }
+    }
+
+    // 3. Fallback pixel projection if logical was null
+    const lastX = timeScale.timeToCoordinate(lastCandle.time as Time) ?? timeScale.logicalToCoordinate((candles.length - 1) as any)
+    const prevX = candles.length > 1 ? (timeScale.timeToCoordinate(candles[candles.length - 2].time as Time) ?? timeScale.logicalToCoordinate((candles.length - 2) as any)) : null
+    const barSpacingPx = (lastX !== null && prevX !== null) ? Math.abs(lastX - prevX) : 10
+
+    if (lastX !== null && x > lastX) {
+      const futureBars = (x - lastX) / Math.max(1, barSpacingPx)
+      return Math.round(lastCandle.time + futureBars * timeStep)
+    } else if (lastX !== null && x < lastX) {
+      const pastBars = (lastX - x) / Math.max(1, barSpacingPx)
+      return Math.round(lastCandle.time - pastBars * timeStep)
+    }
+
+    return null
+  }, [candles])
+
+  // Bidirectional resolver: convert y screen coordinate to price
+  const getPriceFromCoordinate = useCallback((y: number): number | null => {
+    if (!candleSeriesRef.current) return null
+    const price = candleSeriesRef.current.coordinateToPrice(y)
+    if (price !== null && price !== undefined && !isNaN(price)) {
+      return price
+    }
+    if (candles.length > 0) {
+      return candles[candles.length - 1].close
+    }
+    return null
   }, [candles])
 
   // 5. Canvas Overlay Rendering Function
@@ -1857,8 +1954,9 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
 
     // H. Render active preview while dragging / clicking points
     if (isDrawing && (drawingStart || pendingPoints.length > 0) && currentMouse) {
-      const pStart = pendingPoints[0] || drawingStart
-      if (pStart) {
+      const pStartRaw = pendingPoints[0] || drawingStart
+      if (pStartRaw) {
+        const pStart = resolveCoord(pStartRaw.time, pStartRaw.price) || { x: pStartRaw.x, y: pStartRaw.y }
         if (
           activeTool === 'trendline' ||
           activeTool === 'ray' ||
@@ -1889,8 +1987,8 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
             ctx.stroke()
             ctx.setLineDash([])
           } else {
-            const p1 = pendingPoints[0]
-            const p2 = pendingPoints[1]
+            const p1 = resolveCoord(pendingPoints[0].time, pendingPoints[0].price) || { x: pendingPoints[0].x, y: pendingPoints[0].y }
+            const p2 = resolveCoord(pendingPoints[1].time, pendingPoints[1].price) || { x: pendingPoints[1].x, y: pendingPoints[1].y }
             const dx = p2.x - p1.x
             const dy = p2.y - p1.y
             const baseLineY = p1.y + (dx !== 0 ? (dy / dx) * (currentMouse.x - p1.x) : 0)
@@ -1927,8 +2025,8 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
             ctx.stroke()
             ctx.setLineDash([])
           } else {
-            const p1 = pendingPoints[0]
-            const p2 = pendingPoints[1]
+            const p1 = resolveCoord(pendingPoints[0].time, pendingPoints[0].price) || { x: pendingPoints[0].x, y: pendingPoints[0].y }
+            const p2 = resolveCoord(pendingPoints[1].time, pendingPoints[1].price) || { x: pendingPoints[1].x, y: pendingPoints[1].y }
             const p3 = currentMouse
             const midX = (p2.x + p3.x) / 2
             const midY = (p2.y + p3.y) / 2
@@ -1981,7 +2079,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     }
   }, [redrawCanvas])
 
-  // Mouse Handlers for Drawing Toolbar
+  // Mouse Handlers for Drawing Toolbar (Supports dragging beyond last candle into future space)
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (activeTool === 'cursor' || !chartRef.current || !candleSeriesRef.current) return
 
@@ -1990,11 +2088,11 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     const x = e.clientX - rect.left
     const y = e.clientY - rect.top
 
-    const time = chartRef.current.timeScale().coordinateToTime(x)
-    const price = candleSeriesRef.current.coordinateToPrice(y)
-    if (!time || !price) return
+    const time = getTimeFromCoordinate(x)
+    const price = getPriceFromCoordinate(y)
+    if (time === null || price === null) return
 
-    const point = { time: Number(time), price, x, y }
+    const point = { time, price, x, y }
 
     // Eraser mode: remove clicked drawing
     if (activeTool === 'eraser') {
@@ -2026,7 +2124,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
       onAddDrawing({
         id: `${activeTool}_${Date.now()}`,
         type: activeTool,
-        points: [{ time: Number(time), price }],
+        points: [{ time, price }],
         color:
           activeTool === 'crossline'
             ? '#38bdf8'
@@ -2074,7 +2172,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
       return
     }
 
-    // 2-Point Tools
+    // 2-Point Tools (Trendline, Ray, Extended line, Info line, etc.)
     if (pendingPoints.length === 0) {
       setPendingPoints([point])
       setIsDrawing(true)
@@ -2102,10 +2200,10 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     const x = e.clientX - rect.left
     const y = e.clientY - rect.top
 
-    const time = chartRef.current.timeScale().coordinateToTime(x)
-    const price = candleSeriesRef.current.coordinateToPrice(y)
-    if (time && price) {
-      setCurrentMouse({ x, y, time: Number(time), price })
+    const time = getTimeFromCoordinate(x)
+    const price = getPriceFromCoordinate(y)
+    if (time !== null && price !== null) {
+      setCurrentMouse({ x, y, time, price })
       if (isDrawing) redrawCanvas()
 
       if (syncCrosshairRef.current) {
@@ -2113,7 +2211,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
           new CustomEvent('cp_sync_crosshair_move', {
             detail: {
               sourceId: chartIdRef.current,
-              time: Number(time) as Time,
+              time: time as Time,
               price: price
             }
           })
@@ -2127,7 +2225,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
 
     // If it's a drag-to-draw (moved significantly from start)
     const dist = Math.hypot(currentMouse.x - drawingStart.x, currentMouse.y - drawingStart.y)
-    if (dist > 15) {
+    if (dist > 10) {
       const isThreePointTool = [
         'parallel_channel',
         'flat_top_bottom',
@@ -2156,7 +2254,8 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
           points: [
             { time: drawingStart.time, price: drawingStart.price },
             { time: currentMouse.time, price: currentMouse.price }
-          ]
+          ],
+          color: activeTool === 'trendline' ? '#38bdf8' : '#f0b90b'
         })
         setIsDrawing(false)
         setDrawingStart(null)
