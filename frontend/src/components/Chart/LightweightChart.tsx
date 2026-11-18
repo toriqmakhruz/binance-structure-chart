@@ -1446,11 +1446,19 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         // End time diproyeksikan dari candle saat ini ke masa depan (agar box membentang mulus dari entry ke horizon)
         const timeStep = candles.length > 1 ? (candles[1].time - candles[0].time) : 900
         const projectionHorizon = forecast.horizon_candles || 15
-        const futureTime = (currentCandle ? currentCandle.time : startTime) + (timeStep * projectionHorizon)
+
+        // Titik awal box: jika entry_time adalah candle terbaru, mundurkan 6-8 bar agar
+        // box membungkus candle pemicu entry secara rapi, tidak mengambang sendirian di area kosong sebelah kanan
+        let effectiveStartTime = sc.entry_time || (currentCandle ? currentCandle.time : 0)
+        if (currentCandle && effectiveStartTime >= currentCandle.time) {
+          effectiveStartTime = Math.max(candles[0].time, currentCandle.time - 6 * timeStep)
+        }
+
+        const futureTime = (currentCandle ? currentCandle.time : effectiveStartTime) + (timeStep * projectionHorizon)
         const pathEndTime = (sc.path && sc.path.length > 0) ? sc.path[sc.path.length - 1].time : 0
         const endTime = Math.max(futureTime, pathEndTime)
 
-        const pStart = resolveCoord(startTime, entryPrice)
+        const pStart = resolveCoord(effectiveStartTime, entryPrice)
         const pEnd = resolveCoord(endTime, entryPrice)
         const yEntry = series.priceToCoordinate(entryPrice)
         const yTarget = series.priceToCoordinate(targetPrice)

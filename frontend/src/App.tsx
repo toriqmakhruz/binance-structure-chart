@@ -373,17 +373,33 @@ export function App() {
   // Pair & Config Switchers (clean slate to avoid artifact collision)
   const handleSelectSymbol = (newSymbol: string, setupItem?: ValidSetupItem) => {
     const cleanSym = newSymbol.toUpperCase()
+    const tfChanged = Boolean(setupItem?.timeframe && setupItem.timeframe.toLowerCase() !== timeframe.toLowerCase())
+    const symChanged = cleanSym !== symbol
+    const mktChanged = Boolean(setupItem?.market && setupItem.market !== market)
+
     if (setupItem) {
       setSelectedRadarSetup(setupItem)
-    } else if (cleanSym !== symbol) {
+      if (mktChanged && setupItem.market) {
+        setMarket(setupItem.market)
+      }
+      if (tfChanged && setupItem.timeframe) {
+        setTimeframe(setupItem.timeframe.toLowerCase())
+      }
+    } else if (symChanged) {
       setSelectedRadarSetup(null)
     }
 
-    if (cleanSym === symbol) return
+    if (!symChanged && !tfChanged && !mktChanged) return
+
     activeSymbolRef.current = cleanSym
     setCandles([])
     setAnalysis(null)
-    setSymbol(cleanSym)
+    if (symChanged) {
+      setSymbol(cleanSym)
+      try {
+        localStorage.setItem('cp_symbol', cleanSym)
+      } catch {}
+    }
   }
 
   const handleTimeframeChange = (newTf: string) => {
@@ -594,15 +610,15 @@ export function App() {
       }
 
       if (analysis?.forecast) {
-        const hasValidInAnalysis = analysis.forecast.scenarios?.some(
-          (s) => s.is_valid && s.status === 'VALID_ENTRY' && (s.risk_reward_ratio || 0) >= 1.5
+        // ALWAYS put radarScenario FIRST so Pane 1 (left execution chart) prioritizes the selected setup box!
+        const existingWithoutRadar = (analysis.forecast.scenarios || []).filter(
+          (s) => s.id !== radarScenario.id && s.direction === selectedRadarSetup.direction
         )
-        if (hasValidInAnalysis) {
-          return analysis.forecast
-        }
         return {
           ...analysis.forecast,
-          scenarios: [radarScenario, ...(analysis.forecast.scenarios || [])]
+          predicted_trend: selectedRadarSetup.direction === 'LONG' ? 'BULLISH' : 'BEARISH',
+          confluence_score: selectedRadarSetup.confluence_score || analysis.forecast.confluence_score,
+          scenarios: [radarScenario, ...existingWithoutRadar]
         }
       }
 

@@ -91,7 +91,8 @@ const SubTimeframeChart: React.FC<SubChartProps> = ({
         (s) =>
           (s.is_valid === true && (s.risk_reward_ratio || 0) >= 1.5 && s.status === 'VALID_ENTRY') ||
           s.name?.includes('[TERKUNCI]') ||
-          s.id?.startsWith('locked_')
+          s.id?.startsWith('locked_') ||
+          s.id?.startsWith('radar_')
       )
 
       if (validPrimaryScenarios.length > 0) {
