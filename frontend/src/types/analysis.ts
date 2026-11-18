@@ -266,6 +266,8 @@ export interface DrawingItem {
   points: { time: number; price: number }[]
   color?: string
   text?: string
+  lineWidth?: number
+  lineStyle?: 'solid' | 'dashed' | 'dotted'
 }
 
 export interface AppSettings {

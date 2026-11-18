@@ -158,3 +158,4 @@ export const IconInsidePitchfork: React.FC<IconProps> = ({ className = 'w-4 h-4'
     <line x1="5" y1="19" x2="20" y2="16" />
   </svg>
 )
+

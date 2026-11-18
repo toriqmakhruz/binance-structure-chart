@@ -21,7 +21,7 @@ import {
   FundingRateData
 } from '../../types/analysis'
 import { formatPrice, getPricePrecision, formatOpenInterestValue, formatOpenInterest } from '../../utils/formatters'
-import { Crosshair, Clock } from 'lucide-react'
+import { Crosshair, Clock, Trash2, Move, Palette, Check, X } from 'lucide-react'
 import { OpenInterestPane } from './OpenInterestPane'
 import { FundingRatePane } from './FundingRatePane'
 import { extractSessionBlocks, getCurrentActiveSessions, SessionBlock } from '../../utils/marketSessions'
@@ -38,8 +38,11 @@ interface LightweightChartProps {
   htfOverlay?: any
   visibility: LayerVisibility
   activeTool: DrawingToolType
+  onSelectTool?: (tool: DrawingToolType) => void
   drawings: DrawingItem[]
   onAddDrawing: (item: DrawingItem) => void
+  onUpdateDrawing?: (item: DrawingItem) => void
+  onUndoDrawing?: () => void
   onRemoveDrawing: (id: string) => void
   openInterest?: OpenInterestData | null
   fundingRate?: FundingRateData | null
@@ -59,8 +62,11 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
   htfOverlay,
   visibility,
   activeTool,
+  onSelectTool,
   drawings,
   onAddDrawing,
+  onUpdateDrawing,
+  onUndoDrawing,
   onRemoveDrawing,
   openInterest,
   fundingRate,
@@ -119,11 +125,25 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     chartRef.current.priceScale('right').applyOptions({ autoScale: true })
   }, [])
 
-  // Drawing state
+  // Drawing & Selection state
   const [isDrawing, setIsDrawing] = useState(false)
   const [drawingStart, setDrawingStart] = useState<{ time: number; price: number; x: number; y: number } | null>(null)
   const [pendingPoints, setPendingPoints] = useState<{ time: number; price: number; x: number; y: number }[]>([])
   const [currentMouse, setCurrentMouse] = useState<{ x: number; y: number; time: number; price: number } | null>(null)
+
+  // Interactive Selection, Editing & Dragging
+  const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null)
+  const [hoveredDrawingId, setHoveredDrawingId] = useState<string | null>(null)
+  const [hoveredHandleIndex, setHoveredHandleIndex] = useState<number | null>(null)
+  const [isHoveringDrawing, setIsHoveringDrawing] = useState(false)
+  const [dragMode, setDragMode] = useState<'handle' | 'move' | null>(null)
+  const dragStartRef = useRef<{
+    x: number
+    y: number
+    time: number
+    price: number
+    points: { time: number; price: number }[]
+  } | null>(null)
 
   useEffect(() => {
     setIsDrawing(false)
@@ -452,125 +472,269 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     redrawCanvasRef.current()
   }, [candles, smc, visibility.volume, symbol, timeframe, focusRecentBars])
 
-  // 4. Robust Coordinate Resolvers (Supports past, future blank space, and continuous interpolation)
+  // 4. Robust Continuous Coordinate Resolvers (Supports past, future blank space, and mathematical projection)
   const resolveCoord = useCallback((time: number, price: number): { x: number; y: number } | null => {
-    if (!chartRef.current || !candleSeriesRef.current) return null
+    if (!chartRef.current || !candleSeriesRef.current || candles.length === 0) return null
     const timeScale = chartRef.current.timeScale()
+    const series = candleSeriesRef.current
+    const canvas = canvasRef.current
+    const width = canvas ? canvas.width : (containerRef.current?.clientWidth || 800)
+    const height = canvas ? canvas.height : (containerRef.current?.clientHeight || 500)
 
-    let x = timeScale.timeToCoordinate(time as Time)
+    const firstTime = candles[0].time
+    const lastTime = candles[candles.length - 1].time
+    const timeStep = candles.length > 1 ? (candles[1].time - candles[0].time) : 900
 
-    if (x === null && candles.length > 0) {
-      const firstTime = candles[0].time
-      const lastTime = candles[candles.length - 1].time
-      const timeStep = candles.length > 1 ? (candles[1].time - candles[0].time) : 900
-
-      if (time >= lastTime) {
-        const futureBars = (time - lastTime) / timeStep
-        const logicalIndex = (candles.length - 1) + futureBars
-        x = timeScale.logicalToCoordinate(logicalIndex as any)
-
-        // Robust pixel fallback if logicalToCoordinate returned null
-        if (x === null) {
-          const lastX = timeScale.timeToCoordinate(lastTime as Time) ?? timeScale.logicalToCoordinate((candles.length - 1) as any)
-          const prevX = candles.length > 1 ? (timeScale.timeToCoordinate(candles[candles.length - 2].time as Time) ?? timeScale.logicalToCoordinate((candles.length - 2) as any)) : null
-          const barSpacingPx = (lastX !== null && prevX !== null) ? Math.abs(lastX - prevX) : 10
-          if (lastX !== null) {
-            x = (lastX + futureBars * barSpacingPx) as any
-          }
+    // Compute fractional continuous logical index
+    let logicalIndex: number
+    if (time >= lastTime) {
+      const futureBars = (time - lastTime) / Math.max(1, timeStep)
+      logicalIndex = (candles.length - 1) + futureBars
+    } else if (time <= firstTime) {
+      const pastBars = (firstTime - time) / Math.max(1, timeStep)
+      logicalIndex = 0 - pastBars
+    } else {
+      let idx = 0
+      for (let i = 0; i < candles.length - 1; i++) {
+        if (time >= candles[i].time && time <= candles[i + 1].time) {
+          idx = i
+          break
         }
-      } else if (time <= firstTime) {
-        const pastBars = (firstTime - time) / timeStep
-        const logicalIndex = 0 - pastBars
-        x = timeScale.logicalToCoordinate(logicalIndex as any)
+      }
+      const span = candles[idx + 1].time - candles[idx].time
+      const frac = span > 0 ? (time - candles[idx].time) / span : 0
+      logicalIndex = idx + frac
+    }
 
-        if (x === null) {
-          const firstX = timeScale.timeToCoordinate(firstTime as Time) ?? timeScale.logicalToCoordinate(0 as any)
-          const nextX = candles.length > 1 ? (timeScale.timeToCoordinate(candles[1].time as Time) ?? timeScale.logicalToCoordinate(1 as any)) : null
-          const barSpacingPx = (firstX !== null && nextX !== null) ? Math.abs(nextX - firstX) : 10
-          if (firstX !== null) {
-            x = (firstX - pastBars * barSpacingPx) as any
-          }
-        }
+    // Convert logical index to screen coordinate X
+    let x: number | null = timeScale.logicalToCoordinate(logicalIndex as any) as any
+    if (x === null || isNaN(x)) {
+      const visibleRange = timeScale.getVisibleLogicalRange()
+      if (visibleRange && visibleRange.to !== visibleRange.from && width > 0) {
+        x = ((logicalIndex - visibleRange.from) / (visibleRange.to - visibleRange.from)) * width
       } else {
-        let closestIdx = 0
-        let minDiff = Infinity
-        for (let i = 0; i < candles.length; i++) {
-          const diff = Math.abs(candles[i].time - time)
-          if (diff < minDiff) {
-            minDiff = diff
-            closestIdx = i
-          }
+        const lastX: number | null = timeScale.timeToCoordinate(lastTime as Time) as any
+        const prevX: number | null = candles.length > 1 ? (timeScale.timeToCoordinate(candles[candles.length - 2].time as Time) as any) : null
+        const barSpacing = (lastX !== null && prevX !== null) ? Math.abs(lastX - prevX) : 10
+        if (lastX !== null) {
+          x = lastX + (logicalIndex - (candles.length - 1)) * barSpacing
+        } else {
+          x = width / 2
         }
-        x = timeScale.logicalToCoordinate(closestIdx as any)
       }
     }
 
-    const y = candleSeriesRef.current.priceToCoordinate(price)
-    if (x === null || y === null) return null
-    return { x, y }
+    // Convert price to screen coordinate Y with robust fallback
+    let y: number | null = series.priceToCoordinate(price) as any
+    if (y === null || isNaN(y)) {
+      const pTop = series.coordinateToPrice(0 as any)
+      const pBottom = series.coordinateToPrice(height as any)
+      if (pTop !== null && pBottom !== null && pTop !== pBottom) {
+        y = ((pTop - price) / (pTop - pBottom)) * height
+      } else {
+        y = height / 2
+      }
+    }
+
+    if (x === null || y === null || isNaN(x) || isNaN(y)) return null
+    return { x: Number(x), y: Number(y) }
   }, [candles])
 
   // Bidirectional resolver: convert x screen coordinate to continuous timestamp (including future/past margins)
   const getTimeFromCoordinate = useCallback((x: number): number | null => {
     if (!chartRef.current || candles.length === 0) return null
     const timeScale = chartRef.current.timeScale()
+    const canvas = canvasRef.current
+    const width = canvas ? canvas.width : (containerRef.current?.clientWidth || 800)
 
-    // 1. Direct bar match
-    const directTime = timeScale.coordinateToTime(x)
-    if (directTime !== null && directTime !== undefined) {
-      return Number(directTime)
-    }
-
-    // 2. Extrapolate via continuous logical index (supports future/past/blank space)
-    const logical = timeScale.coordinateToLogical(x)
-    const firstCandle = candles[0]
-    const lastCandle = candles[candles.length - 1]
+    const firstTime = candles[0].time
+    const lastTime = candles[candles.length - 1].time
     const timeStep = candles.length > 1 ? (candles[1].time - candles[0].time) : 900
 
-    if (logical !== null && logical !== undefined) {
+    let logical: number | null = timeScale.coordinateToLogical(x as any) as any
+    if (logical === null || logical === undefined || isNaN(logical)) {
+      const visibleRange = timeScale.getVisibleLogicalRange()
+      if (visibleRange && visibleRange.to !== visibleRange.from && width > 0) {
+        logical = visibleRange.from + (x / width) * (visibleRange.to - visibleRange.from)
+      }
+    }
+
+    if (logical !== null && logical !== undefined && !isNaN(logical)) {
       if (logical >= candles.length - 1) {
         const futureBars = logical - (candles.length - 1)
-        return Math.round(lastCandle.time + futureBars * timeStep)
+        return Math.round(lastTime + futureBars * timeStep)
       } else if (logical <= 0) {
-        return Math.round(firstCandle.time + logical * timeStep)
+        return Math.round(firstTime + logical * timeStep)
       } else {
-        const idx = Math.min(Math.max(0, Math.floor(logical)), candles.length - 1)
+        const idx = Math.min(Math.max(0, Math.floor(logical)), candles.length - 2)
         const frac = logical - idx
-        const nextIdx = Math.min(idx + 1, candles.length - 1)
         const baseTime = candles[idx].time
-        const nextTime = candles[nextIdx].time
+        const nextTime = candles[idx + 1].time
         return Math.round(baseTime + frac * (nextTime - baseTime))
       }
     }
 
-    // 3. Fallback pixel projection if logical was null
-    const lastX = timeScale.timeToCoordinate(lastCandle.time as Time) ?? timeScale.logicalToCoordinate((candles.length - 1) as any)
-    const prevX = candles.length > 1 ? (timeScale.timeToCoordinate(candles[candles.length - 2].time as Time) ?? timeScale.logicalToCoordinate((candles.length - 2) as any)) : null
-    const barSpacingPx = (lastX !== null && prevX !== null) ? Math.abs(lastX - prevX) : 10
-
-    if (lastX !== null && x > lastX) {
-      const futureBars = (x - lastX) / Math.max(1, barSpacingPx)
-      return Math.round(lastCandle.time + futureBars * timeStep)
-    } else if (lastX !== null && x < lastX) {
-      const pastBars = (lastX - x) / Math.max(1, barSpacingPx)
-      return Math.round(lastCandle.time - pastBars * timeStep)
-    }
-
-    return null
+    return Math.round(lastTime)
   }, [candles])
 
   // Bidirectional resolver: convert y screen coordinate to price
   const getPriceFromCoordinate = useCallback((y: number): number | null => {
     if (!candleSeriesRef.current) return null
-    const price = candleSeriesRef.current.coordinateToPrice(y)
+    const series = candleSeriesRef.current
+    const price = series.coordinateToPrice(y as any)
     if (price !== null && price !== undefined && !isNaN(price)) {
       return price
+    }
+    const canvas = canvasRef.current
+    const height = canvas ? canvas.height : (containerRef.current?.clientHeight || 500)
+    const pTop = series.coordinateToPrice(0 as any)
+    const pBottom = series.coordinateToPrice(height as any)
+    if (pTop !== null && pBottom !== null && pTop !== pBottom) {
+      return pTop - (y / height) * (pTop - pBottom)
     }
     if (candles.length > 0) {
       return candles[candles.length - 1].close
     }
     return null
   }, [candles])
+
+  // Geometric Hit Testing Utilities for Line Tools & Anchor Handles
+  const findDrawingAt = useCallback((px: number, py: number): { drawing: DrawingItem; handleIndex: number | null } | null => {
+    const distToSegment = (x: number, y: number, x1: number, y1: number, x2: number, y2: number) => {
+      const l2 = (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1)
+      if (l2 === 0) return Math.hypot(x - x1, y - y1)
+      let t = ((x - x1) * (x2 - x1) + (y - y1) * (y2 - y1)) / l2
+      t = Math.max(0, Math.min(1, t))
+      return Math.hypot(x - (x1 + t * (x2 - x1)), y - (y1 + t * (y2 - y1)))
+    }
+
+    const distToRay = (x: number, y: number, x1: number, y1: number, x2: number, y2: number) => {
+      const dx = x2 - x1
+      const dy = y2 - y1
+      const l2 = dx * dx + dy * dy
+      if (l2 === 0) return Math.hypot(x - x1, y - y1)
+      let t = ((x - x1) * dx + (y - y1) * dy) / l2
+      t = Math.max(0, t)
+      return Math.hypot(x - (x1 + t * dx), y - (y1 + t * dy))
+    }
+
+    const distToLine = (x: number, y: number, x1: number, y1: number, x2: number, y2: number) => {
+      const dx = x2 - x1
+      const dy = y2 - y1
+      const l2 = dx * dx + dy * dy
+      if (l2 === 0) return Math.hypot(x - x1, y - y1)
+      const t = ((x - x1) * dx + (y - y1) * dy) / l2
+      return Math.hypot(x - (x1 + t * dx), y - (y1 + t * dy))
+    }
+
+    // 1. If a drawing is currently selected, check its handles first
+    if (selectedDrawingId) {
+      const selected = drawings.find((d) => d.id === selectedDrawingId)
+      if (selected) {
+        for (let i = 0; i < selected.points.length; i++) {
+          const pt = selected.points[i]
+          const cp = resolveCoord(pt.time, pt.price)
+          if (cp && Math.hypot(px - cp.x, py - cp.y) <= 10) {
+            return { drawing: selected, handleIndex: i }
+          }
+        }
+      }
+    }
+
+    // 2. Check all drawings in reverse order (top drawings first)
+    for (let i = drawings.length - 1; i >= 0; i--) {
+      const d = drawings[i]
+      const coords = d.points.map((p) => resolveCoord(p.time, p.price))
+      if (coords.some((c) => !c)) continue
+
+      // Check anchor handles
+      for (let hIdx = 0; hIdx < coords.length; hIdx++) {
+        const cp = coords[hIdx]!
+        if (Math.hypot(px - cp.x, py - cp.y) <= 9) {
+          return { drawing: d, handleIndex: hIdx }
+        }
+      }
+
+      // Check geometries
+      if (d.type === 'horizontal_line') {
+        const y = coords[0]!.y
+        if (Math.abs(py - y) <= 8) return { drawing: d, handleIndex: null }
+      } else if (d.type === 'horizontal_ray') {
+        const p1 = coords[0]!
+        if (Math.abs(py - p1.y) <= 8 && px >= p1.x - 5) return { drawing: d, handleIndex: null }
+      } else if (d.type === 'vertical_line') {
+        const x = coords[0]!.x
+        if (Math.abs(px - x) <= 8) return { drawing: d, handleIndex: null }
+      } else if (d.type === 'crossline') {
+        const p1 = coords[0]!
+        if (Math.abs(py - p1.y) <= 8 || Math.abs(px - p1.x) <= 8) return { drawing: d, handleIndex: null }
+      } else if (d.type === 'ray') {
+        if (coords.length >= 2) {
+          if (distToRay(px, py, coords[0]!.x, coords[0]!.y, coords[1]!.x, coords[1]!.y) <= 8) {
+            return { drawing: d, handleIndex: null }
+          }
+        }
+      } else if (d.type === 'extended_line') {
+        if (coords.length >= 2) {
+          if (distToLine(px, py, coords[0]!.x, coords[0]!.y, coords[1]!.x, coords[1]!.y) <= 8) {
+            return { drawing: d, handleIndex: null }
+          }
+        }
+      } else if (
+        d.type === 'trendline' ||
+        d.type === 'info_line' ||
+        d.type === 'trend_angle' ||
+        d.type === 'regression_trend'
+      ) {
+        if (coords.length >= 2) {
+          if (distToSegment(px, py, coords[0]!.x, coords[0]!.y, coords[1]!.x, coords[1]!.y) <= 8) {
+            return { drawing: d, handleIndex: null }
+          }
+        }
+      } else if (d.type === 'parallel_channel' && coords.length >= 3) {
+        const p1 = coords[0]!
+        const p2 = coords[1]!
+        const p3 = coords[2]!
+        const dx = p2.x - p1.x
+        const dy = p2.y - p1.y
+        const baseLineYAtP3 = p1.y + (dx !== 0 ? (dy / dx) * (p3.x - p1.x) : 0)
+        const offset = p3.y - baseLineYAtP3
+        if (distToSegment(px, py, p1.x, p1.y, p2.x, p2.y) <= 8) return { drawing: d, handleIndex: null }
+        if (distToSegment(px, py, p1.x, p1.y + offset, p2.x, p2.y + offset) <= 8) return { drawing: d, handleIndex: null }
+        if (distToSegment(px, py, p1.x, p1.y + offset / 2, p2.x, p2.y + offset / 2) <= 8) return { drawing: d, handleIndex: null }
+      } else if (
+        d.type === 'pitchfork' ||
+        d.type === 'schiff_pitchfork' ||
+        d.type === 'modified_schiff' ||
+        d.type === 'inside_pitchfork'
+      ) {
+        if (coords.length >= 3) {
+          const p1 = coords[0]!
+          const p2 = coords[1]!
+          const p3 = coords[2]!
+          const midX = (p2.x + p3.x) / 2
+          const midY = (p2.y + p3.y) / 2
+          if (distToSegment(px, py, p2.x, p2.y, p3.x, p3.y) <= 8) return { drawing: d, handleIndex: null }
+          if (distToRay(px, py, p1.x, p1.y, midX, midY) <= 8) return { drawing: d, handleIndex: null }
+          const vx = midX - p1.x
+          const vy = midY - p1.y
+          if (distToRay(px, py, p2.x, p2.y, p2.x + vx, p2.y + vy) <= 8) return { drawing: d, handleIndex: null }
+          if (distToRay(px, py, p3.x, p3.y, p3.x + vx, p3.y + vy) <= 8) return { drawing: d, handleIndex: null }
+        }
+      } else if (d.type === 'rectangle' && coords.length >= 2) {
+        const p1 = coords[0]!
+        const p2 = coords[1]!
+        const minX = Math.min(p1.x, p2.x)
+        const maxX = Math.max(p1.x, p2.x)
+        const minY = Math.min(p1.y, p2.y)
+        const maxY = Math.max(p1.y, p2.y)
+        if (px >= minX - 6 && px <= maxX + 6 && py >= minY - 6 && py <= maxY + 6) {
+          return { drawing: d, handleIndex: null }
+        }
+      }
+    }
+    return null
+  }, [drawings, selectedDrawingId, resolveCoord])
 
   // 5. Canvas Overlay Rendering Function
   const redrawCanvas = useCallback(() => {
@@ -1383,18 +1547,19 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         const p1 = resolveCoord(d.points[0].time, d.points[0].price)
         const p2 = resolveCoord(d.points[1].time, d.points[1].price)
         if (p1 && p2) {
+          ctx.save()
           ctx.strokeStyle = d.color || '#38bdf8'
-          ctx.lineWidth = 2
+          ctx.lineWidth = d.lineWidth || 2
+          ctx.setLineDash(d.lineStyle === 'dashed' ? [6, 4] : d.lineStyle === 'dotted' ? [2, 3] : [])
+          if (d.id === selectedDrawingId || d.id === hoveredDrawingId) {
+            ctx.shadowColor = d.color || '#38bdf8'
+            ctx.shadowBlur = 6
+          }
           ctx.beginPath()
           ctx.moveTo(p1.x, p1.y)
           ctx.lineTo(p2.x, p2.y)
           ctx.stroke()
-
-          ctx.fillStyle = '#ffffff'
-          ctx.beginPath()
-          ctx.arc(p1.x, p1.y, 3, 0, Math.PI * 2)
-          ctx.arc(p2.x, p2.y, 3, 0, Math.PI * 2)
-          ctx.fill()
+          ctx.restore()
         }
       }
       // 2. Ray (One-directional infinite line to future)
@@ -1402,27 +1567,21 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         const p1 = resolveCoord(d.points[0].time, d.points[0].price)
         const p2 = resolveCoord(d.points[1].time, d.points[1].price)
         if (p1 && p2) {
+          ctx.save()
           ctx.strokeStyle = d.color || '#38bdf8'
-          ctx.lineWidth = 2
+          ctx.lineWidth = d.lineWidth || 2
+          ctx.setLineDash(d.lineStyle === 'dashed' ? [6, 4] : d.lineStyle === 'dotted' ? [2, 3] : [])
+          if (d.id === selectedDrawingId || d.id === hoveredDrawingId) {
+            ctx.shadowColor = d.color || '#38bdf8'
+            ctx.shadowBlur = 6
+          }
           ctx.beginPath()
           ctx.moveTo(p1.x, p1.y)
           const dx = p2.x - p1.x
           const dy = p2.y - p1.y
-          if (Math.abs(dx) > 0.001) {
-            const m = dy / dx
-            const targetX = p2.x >= p1.x ? width : 0
-            const targetY = p1.y + m * (targetX - p1.x)
-            ctx.lineTo(targetX, targetY)
-          } else {
-            ctx.lineTo(p1.x, p2.y >= p1.y ? height : 0)
-          }
+          ctx.lineTo(p1.x + 50 * dx, p1.y + 50 * dy)
           ctx.stroke()
-
-          ctx.fillStyle = '#ffffff'
-          ctx.beginPath()
-          ctx.arc(p1.x, p1.y, 3, 0, Math.PI * 2)
-          ctx.arc(p2.x, p2.y, 2.5, 0, Math.PI * 2)
-          ctx.fill()
+          ctx.restore()
         }
       }
       // 3. Info line (Trendline with quantitative data card)
@@ -1430,12 +1589,15 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         const p1 = resolveCoord(d.points[0].time, d.points[0].price)
         const p2 = resolveCoord(d.points[1].time, d.points[1].price)
         if (p1 && p2) {
+          ctx.save()
           ctx.strokeStyle = d.color || '#38bdf8'
-          ctx.lineWidth = 2
+          ctx.lineWidth = d.lineWidth || 2
+          ctx.setLineDash(d.lineStyle === 'dashed' ? [6, 4] : d.lineStyle === 'dotted' ? [2, 3] : [])
           ctx.beginPath()
           ctx.moveTo(p1.x, p1.y)
           ctx.lineTo(p2.x, p2.y)
           ctx.stroke()
+          ctx.restore()
 
           const deltaP = d.points[1].price - d.points[0].price
           const deltaPct = (deltaP / (d.points[0].price || 1)) * 100
@@ -1467,12 +1629,6 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
           ctx.font = '8.5px monospace'
           ctx.fillText(`${timeStr} | ∠ ${angleDeg}°`, midX - badgeW / 2 + 6, midY - badgeH + 19)
           ctx.restore()
-
-          ctx.fillStyle = '#ffffff'
-          ctx.beginPath()
-          ctx.arc(p1.x, p1.y, 3, 0, Math.PI * 2)
-          ctx.arc(p2.x, p2.y, 3, 0, Math.PI * 2)
-          ctx.fill()
         }
       }
       // 4. Extended line (Infinite in both directions)
@@ -1480,28 +1636,21 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         const p1 = resolveCoord(d.points[0].time, d.points[0].price)
         const p2 = resolveCoord(d.points[1].time, d.points[1].price)
         if (p1 && p2) {
+          ctx.save()
           ctx.strokeStyle = d.color || '#38bdf8'
-          ctx.lineWidth = 2
+          ctx.lineWidth = d.lineWidth || 2
+          ctx.setLineDash(d.lineStyle === 'dashed' ? [6, 4] : d.lineStyle === 'dotted' ? [2, 3] : [])
+          if (d.id === selectedDrawingId || d.id === hoveredDrawingId) {
+            ctx.shadowColor = d.color || '#38bdf8'
+            ctx.shadowBlur = 6
+          }
           ctx.beginPath()
           const dx = p2.x - p1.x
           const dy = p2.y - p1.y
-          if (Math.abs(dx) > 0.001) {
-            const m = dy / dx
-            const yAt0 = p1.y - m * p1.x
-            const yAtWidth = p1.y + m * (width - p1.x)
-            ctx.moveTo(0, yAt0)
-            ctx.lineTo(width, yAtWidth)
-          } else {
-            ctx.moveTo(p1.x, 0)
-            ctx.lineTo(p1.x, height)
-          }
+          ctx.moveTo(p1.x - 50 * dx, p1.y - 50 * dy)
+          ctx.lineTo(p2.x + 50 * dx, p2.y + 50 * dy)
           ctx.stroke()
-
-          ctx.fillStyle = '#ffffff'
-          ctx.beginPath()
-          ctx.arc(p1.x, p1.y, 3, 0, Math.PI * 2)
-          ctx.arc(p2.x, p2.y, 3, 0, Math.PI * 2)
-          ctx.fill()
+          ctx.restore()
         }
       }
       // 5. Trend angle
@@ -1509,14 +1658,15 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         const p1 = resolveCoord(d.points[0].time, d.points[0].price)
         const p2 = resolveCoord(d.points[1].time, d.points[1].price)
         if (p1 && p2) {
+          ctx.save()
           ctx.strokeStyle = d.color || '#f0b90b'
-          ctx.lineWidth = 2
+          ctx.lineWidth = d.lineWidth || 2
+          ctx.setLineDash(d.lineStyle === 'dashed' ? [6, 4] : d.lineStyle === 'dotted' ? [2, 3] : [])
           ctx.beginPath()
           ctx.moveTo(p1.x, p1.y)
           ctx.lineTo(p2.x, p2.y)
           ctx.stroke()
 
-          ctx.save()
           ctx.setLineDash([3, 2])
           ctx.strokeStyle = '#64748b'
           ctx.lineWidth = 1
@@ -1528,50 +1678,47 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
           const angleRad = Math.atan2(-(p2.y - p1.y), p2.x - p1.x)
           const degText = `${(angleRad * 180 / Math.PI).toFixed(1)}°`
           ctx.setLineDash([])
-          ctx.strokeStyle = '#f0b90b'
+          ctx.strokeStyle = d.color || '#f0b90b'
           ctx.beginPath()
           ctx.arc(p1.x, p1.y, 22, 0, -angleRad, angleRad > 0)
           ctx.stroke()
 
-          ctx.fillStyle = '#f0b90b'
+          ctx.fillStyle = d.color || '#f0b90b'
           ctx.font = 'bold 9.5px monospace'
           ctx.fillText(degText, p1.x + 28, p1.y - 6)
           ctx.restore()
-
-          ctx.fillStyle = '#ffffff'
-          ctx.beginPath()
-          ctx.arc(p1.x, p1.y, 3, 0, Math.PI * 2)
-          ctx.arc(p2.x, p2.y, 3, 0, Math.PI * 2)
-          ctx.fill()
         }
       }
       // 6. Horizontal line (Full screen horizontal at fixed price)
       else if (d.type === 'horizontal_line' && d.points.length >= 1) {
-        const y = series.priceToCoordinate(d.points[0].price)
-        if (y !== null) {
+        const p = resolveCoord(d.points[0].time, d.points[0].price)
+        if (p) {
+          ctx.save()
           ctx.strokeStyle = d.color || '#f59e0b'
-          ctx.lineWidth = 1.5
-          ctx.setLineDash([5, 4])
+          ctx.lineWidth = d.lineWidth || 1.5
+          ctx.setLineDash(d.lineStyle === 'dashed' ? [6, 4] : d.lineStyle === 'dotted' ? [2, 3] : [5, 4])
           ctx.beginPath()
-          ctx.moveTo(0, y)
-          ctx.lineTo(width - 65, y)
+          ctx.moveTo(0, p.y)
+          ctx.lineTo(width - 65, p.y)
           ctx.stroke()
           ctx.setLineDash([])
 
-          ctx.fillStyle = '#f59e0b'
-          ctx.fillRect(width - 64, y - 9, 62, 18)
+          ctx.fillStyle = d.color || '#f59e0b'
+          ctx.fillRect(width - 64, p.y - 9, 62, 18)
           ctx.fillStyle = '#000000'
           ctx.font = 'bold 9.5px monospace'
-          ctx.fillText(`$${formatPrice(d.points[0].price)}`, width - 60, y + 3)
+          ctx.fillText(`$${formatPrice(d.points[0].price)}`, width - 60, p.y + 3)
+          ctx.restore()
         }
       }
       // 7. Horizontal ray (Starts at point, extends right to future)
       else if (d.type === 'horizontal_ray' && d.points.length >= 1) {
         const p = resolveCoord(d.points[0].time, d.points[0].price)
         if (p) {
+          ctx.save()
           ctx.strokeStyle = d.color || '#f59e0b'
-          ctx.lineWidth = 1.5
-          ctx.setLineDash([5, 4])
+          ctx.lineWidth = d.lineWidth || 1.5
+          ctx.setLineDash(d.lineStyle === 'dashed' ? [6, 4] : d.lineStyle === 'dotted' ? [2, 3] : [5, 4])
           ctx.beginPath()
           ctx.moveTo(p.x, p.y)
           ctx.lineTo(width - 65, p.y)
@@ -1583,20 +1730,22 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
           ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2)
           ctx.fill()
 
-          ctx.fillStyle = '#f59e0b'
+          ctx.fillStyle = d.color || '#f59e0b'
           ctx.fillRect(width - 64, p.y - 9, 62, 18)
           ctx.fillStyle = '#000000'
           ctx.font = 'bold 9.5px monospace'
           ctx.fillText(`$${formatPrice(d.points[0].price)}`, width - 60, p.y + 3)
+          ctx.restore()
         }
       }
       // 8. Vertical line (Full height vertical line at timestamp)
       else if (d.type === 'vertical_line' && d.points.length >= 1) {
         const p = resolveCoord(d.points[0].time, d.points[0].price)
         if (p) {
+          ctx.save()
           ctx.strokeStyle = d.color || '#a855f7'
-          ctx.lineWidth = 1.5
-          ctx.setLineDash([5, 4])
+          ctx.lineWidth = d.lineWidth || 1.5
+          ctx.setLineDash(d.lineStyle === 'dashed' ? [6, 4] : d.lineStyle === 'dotted' ? [2, 3] : [5, 4])
           ctx.beginPath()
           ctx.moveTo(p.x, 0)
           ctx.lineTo(p.x, height - 22)
@@ -1605,7 +1754,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
 
           const date = new Date(d.points[0].time * 1000)
           const dateStr = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`
-          ctx.fillStyle = '#a855f7'
+          ctx.fillStyle = d.color || '#a855f7'
           ctx.fillRect(p.x - 22, height - 20, 44, 16)
           ctx.fillStyle = '#ffffff'
           ctx.font = 'bold 9px monospace'
@@ -1615,37 +1764,38 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
           ctx.beginPath()
           ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2)
           ctx.fill()
+          ctx.restore()
         }
       }
       // 9. Crossline (Simultaneous horizontal & vertical crosshair)
       else if (d.type === 'crossline' && d.points.length >= 1) {
         const p = resolveCoord(d.points[0].time, d.points[0].price)
         if (p) {
+          ctx.save()
           ctx.strokeStyle = d.color || '#38bdf8'
-          ctx.lineWidth = 1.2
-          ctx.setLineDash([4, 3])
+          ctx.lineWidth = d.lineWidth || 1.2
+          ctx.setLineDash(d.lineStyle === 'dashed' ? [6, 4] : d.lineStyle === 'dotted' ? [2, 3] : [4, 3])
           ctx.beginPath()
           ctx.moveTo(0, p.y)
           ctx.lineTo(width - 65, p.y)
-          ctx.stroke()
-          ctx.beginPath()
           ctx.moveTo(p.x, 0)
           ctx.lineTo(p.x, height - 22)
           ctx.stroke()
           ctx.setLineDash([])
 
-          ctx.strokeStyle = '#38bdf8'
+          ctx.strokeStyle = d.color || '#38bdf8'
           ctx.fillStyle = 'rgba(56, 189, 248, 0.3)'
           ctx.beginPath()
           ctx.arc(p.x, p.y, 4, 0, Math.PI * 2)
           ctx.fill()
           ctx.stroke()
 
-          ctx.fillStyle = '#38bdf8'
+          ctx.fillStyle = d.color || '#38bdf8'
           ctx.fillRect(width - 64, p.y - 9, 62, 18)
           ctx.fillStyle = '#000000'
           ctx.font = 'bold 9.5px monospace'
           ctx.fillText(`$${formatPrice(d.points[0].price)}`, width - 60, p.y + 3)
+          ctx.restore()
         }
       }
       // 10. Parallel channel (Base trendline, parallel boundary, dashed 50% midline, and shaded fill)
@@ -1660,7 +1810,9 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
           const offset = p3.y - baseLineYAtP3
 
           ctx.save()
-          ctx.fillStyle = 'rgba(56, 189, 248, 0.12)'
+          const chanColor = d.color || '#38bdf8'
+          const chanWidth = d.lineWidth || 1.8
+          ctx.fillStyle = chanColor.startsWith('#') ? `${chanColor}20` : 'rgba(56, 189, 248, 0.12)'
           ctx.beginPath()
           ctx.moveTo(p1.x, p1.y)
           ctx.lineTo(p2.x, p2.y)
@@ -1669,8 +1821,9 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
           ctx.closePath()
           ctx.fill()
 
-          ctx.strokeStyle = '#38bdf8'
-          ctx.lineWidth = 1.8
+          ctx.strokeStyle = chanColor
+          ctx.lineWidth = chanWidth
+          ctx.setLineDash(d.lineStyle === 'dashed' ? [6, 4] : d.lineStyle === 'dotted' ? [2, 3] : [])
           ctx.beginPath()
           ctx.moveTo(p1.x, p1.y)
           ctx.lineTo(p2.x, p2.y)
@@ -1850,15 +2003,15 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
           ctx.lineTo(p3.x, p3.y)
           ctx.stroke()
 
-          ctx.setLineDash([])
-          ctx.lineWidth = 1.8
-          ctx.strokeStyle = '#f0b90b'
+          ctx.setLineDash(d.lineStyle === 'dashed' ? [6, 4] : d.lineStyle === 'dotted' ? [2, 3] : [])
+          ctx.lineWidth = d.lineWidth || 1.8
+          ctx.strokeStyle = d.color || '#f0b90b'
           ctx.beginPath()
           ctx.moveTo(p1.x, p1.y)
           ctx.lineTo(endMidX, endMidY)
           ctx.stroke()
 
-          ctx.strokeStyle = '#38bdf8'
+          ctx.strokeStyle = d.color || '#38bdf8'
           ctx.beginPath()
           ctx.moveTo(p2.x, p2.y)
           ctx.lineTo(endUpperX, endUpperY)
@@ -1884,11 +2037,14 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
           const ry = Math.min(p1.y, p2.y)
           const rw = Math.abs(p2.x - p1.x)
           const rh = Math.abs(p2.y - p1.y)
-          ctx.fillStyle = 'rgba(56, 189, 248, 0.15)'
-          ctx.strokeStyle = '#38bdf8'
-          ctx.lineWidth = 1.5
+          const rectColor = d.color || '#38bdf8'
+          ctx.fillStyle = rectColor.startsWith('#') ? `${rectColor}26` : 'rgba(56, 189, 248, 0.15)'
+          ctx.strokeStyle = rectColor
+          ctx.lineWidth = d.lineWidth || 1.5
+          ctx.setLineDash(d.lineStyle === 'dashed' ? [6, 4] : d.lineStyle === 'dotted' ? [2, 3] : [])
           ctx.fillRect(rx, ry, rw, rh)
           ctx.strokeRect(rx, ry, rw, rh)
+          ctx.setLineDash([])
         }
       }
       // 16. Fibonacci Retracement
@@ -1950,6 +2106,29 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
           ctx.fillText(`Δ: ${deltaPrice >= 0 ? '+' : ''}${formatPrice(deltaPrice)} (${deltaPct.toFixed(2)}%)`, p2.x + 12, p2.y)
         }
       }
+
+      // Render prominent anchor handles if this drawing is currently selected
+      if (d.id === selectedDrawingId) {
+        d.points.forEach((pt, pIdx) => {
+          const cp = resolveCoord(pt.time, pt.price)
+          if (cp) {
+            ctx.save()
+            const isHandleHovered = hoveredDrawingId === d.id && hoveredHandleIndex === pIdx
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.7)'
+            ctx.shadowBlur = 6
+            ctx.shadowOffsetY = 1
+
+            ctx.fillStyle = '#ffffff'
+            ctx.strokeStyle = isHandleHovered ? '#f0b90b' : (d.color || '#38bdf8')
+            ctx.lineWidth = 2.5
+            ctx.beginPath()
+            ctx.arc(cp.x, cp.y, isHandleHovered ? 6.5 : 4.5, 0, Math.PI * 2)
+            ctx.fill()
+            ctx.stroke()
+            ctx.restore()
+          }
+        })
+      }
     })
 
     // H. Render active preview while dragging / clicking points
@@ -1972,6 +2151,62 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
           ctx.lineTo(currentMouse.x, currentMouse.y)
           ctx.stroke()
           ctx.setLineDash([])
+
+          // Info Line live floating preview badge
+          if (activeTool === 'info_line') {
+            const deltaP = currentMouse.price - pStartRaw.price
+            const deltaPct = (deltaP / (pStartRaw.price || 1)) * 100
+            const timeSecs = Math.abs(currentMouse.time - pStartRaw.time)
+            const days = Math.floor(timeSecs / 86400)
+            const hours = Math.floor((timeSecs % 86400) / 3600)
+            const mins = Math.floor((timeSecs % 3600) / 60)
+            const timeStr = days > 0 ? `${days}d ${hours}h` : hours > 0 ? `${hours}h ${mins}m` : `${mins}m`
+            const angleDeg = (Math.atan2(-(currentMouse.y - pStart.y), currentMouse.x - pStart.x) * 180 / Math.PI).toFixed(1)
+            const midX = (pStart.x + currentMouse.x) / 2
+            const midY = (pStart.y + currentMouse.y) / 2
+            const badgeW = 150
+            const badgeH = 34
+
+            ctx.save()
+            ctx.fillStyle = '#161a25'
+            ctx.strokeStyle = deltaP >= 0 ? '#00c087' : '#f6465d'
+            ctx.lineWidth = 1.2
+            ctx.beginPath()
+            ctx.rect(midX - badgeW / 2, midY - badgeH - 8, badgeW, badgeH)
+            ctx.fill()
+            ctx.stroke()
+
+            ctx.fillStyle = deltaP >= 0 ? '#00c087' : '#f6465d'
+            ctx.font = 'bold 9.5px monospace'
+            ctx.fillText(`Δ: ${deltaP >= 0 ? '+' : ''}${formatPrice(deltaP)} (${deltaPct >= 0 ? '+' : ''}${deltaPct.toFixed(2)}%)`, midX - badgeW / 2 + 6, midY - badgeH + 6)
+            ctx.fillStyle = '#94a3b8'
+            ctx.font = '8.5px monospace'
+            ctx.fillText(`${timeStr} | ∠ ${angleDeg}°`, midX - badgeW / 2 + 6, midY - badgeH + 19)
+            ctx.restore()
+          } else if (activeTool === 'trend_angle') {
+            // Trend angle live baseline & arc
+            ctx.save()
+            ctx.setLineDash([3, 2])
+            ctx.strokeStyle = '#64748b'
+            ctx.lineWidth = 1
+            ctx.beginPath()
+            ctx.moveTo(pStart.x, pStart.y)
+            ctx.lineTo(pStart.x + 40, pStart.y)
+            ctx.stroke()
+
+            const angleRad = Math.atan2(-(currentMouse.y - pStart.y), currentMouse.x - pStart.x)
+            const degText = `${(angleRad * 180 / Math.PI).toFixed(1)}°`
+            ctx.setLineDash([])
+            ctx.strokeStyle = '#f0b90b'
+            ctx.beginPath()
+            ctx.arc(pStart.x, pStart.y, 22, 0, -angleRad, angleRad > 0)
+            ctx.stroke()
+
+            ctx.fillStyle = '#f0b90b'
+            ctx.font = 'bold 9.5px monospace'
+            ctx.fillText(degText, pStart.x + 28, pStart.y - 6)
+            ctx.restore()
+          }
         } else if (
           activeTool === 'parallel_channel' ||
           activeTool === 'flat_top_bottom' ||
@@ -2052,6 +2287,80 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         }
       }
     }
+
+    // I. Live Placement Guides for 1-Point Tools (Alt+H, Alt+J, Alt+V, Alt+C)
+    if (!isDrawing && currentMouse && (
+      activeTool === 'horizontal_line' ||
+      activeTool === 'horizontal_ray' ||
+      activeTool === 'vertical_line' ||
+      activeTool === 'crossline'
+    )) {
+      if (activeTool === 'horizontal_line') {
+        ctx.save()
+        ctx.strokeStyle = '#f59e0b'
+        ctx.lineWidth = 1.5
+        ctx.setLineDash([4, 4])
+        ctx.beginPath()
+        ctx.moveTo(0, currentMouse.y)
+        ctx.lineTo(width - 65, currentMouse.y)
+        ctx.stroke()
+        ctx.fillStyle = '#f59e0b'
+        ctx.fillRect(width - 64, currentMouse.y - 9, 62, 18)
+        ctx.fillStyle = '#000000'
+        ctx.font = 'bold 9.5px monospace'
+        ctx.fillText(`$${formatPrice(currentMouse.price)}`, width - 60, currentMouse.y + 3)
+        ctx.restore()
+      } else if (activeTool === 'horizontal_ray') {
+        ctx.save()
+        ctx.strokeStyle = '#f59e0b'
+        ctx.lineWidth = 1.5
+        ctx.setLineDash([4, 4])
+        ctx.beginPath()
+        ctx.moveTo(currentMouse.x, currentMouse.y)
+        ctx.lineTo(width - 65, currentMouse.y)
+        ctx.stroke()
+        ctx.fillStyle = '#f59e0b'
+        ctx.fillRect(width - 64, currentMouse.y - 9, 62, 18)
+        ctx.fillStyle = '#000000'
+        ctx.font = 'bold 9.5px monospace'
+        ctx.fillText(`$${formatPrice(currentMouse.price)}`, width - 60, currentMouse.y + 3)
+        ctx.restore()
+      } else if (activeTool === 'vertical_line') {
+        ctx.save()
+        ctx.strokeStyle = '#a855f7'
+        ctx.lineWidth = 1.5
+        ctx.setLineDash([4, 4])
+        ctx.beginPath()
+        ctx.moveTo(currentMouse.x, 0)
+        ctx.lineTo(currentMouse.x, height - 22)
+        ctx.stroke()
+        const date = new Date(currentMouse.time * 1000)
+        const dateStr = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`
+        ctx.fillStyle = '#a855f7'
+        ctx.fillRect(currentMouse.x - 22, height - 20, 44, 16)
+        ctx.fillStyle = '#ffffff'
+        ctx.font = 'bold 9px monospace'
+        ctx.fillText(dateStr, currentMouse.x - 14, height - 8)
+        ctx.restore()
+      } else if (activeTool === 'crossline') {
+        ctx.save()
+        ctx.strokeStyle = '#38bdf8'
+        ctx.lineWidth = 1.2
+        ctx.setLineDash([4, 3])
+        ctx.beginPath()
+        ctx.moveTo(0, currentMouse.y)
+        ctx.lineTo(width - 65, currentMouse.y)
+        ctx.moveTo(currentMouse.x, 0)
+        ctx.lineTo(currentMouse.x, height - 22)
+        ctx.stroke()
+        ctx.fillStyle = '#38bdf8'
+        ctx.fillRect(width - 64, currentMouse.y - 9, 62, 18)
+        ctx.fillStyle = '#000000'
+        ctx.font = 'bold 9.5px monospace'
+        ctx.fillText(`$${formatPrice(currentMouse.price)}`, width - 60, currentMouse.y + 3)
+        ctx.restore()
+      }
+    }
   }, [
     smc,
     patterns,
@@ -2059,6 +2368,9 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     htfOverlay,
     forecast,
     drawings,
+    selectedDrawingId,
+    hoveredDrawingId,
+    hoveredHandleIndex,
     isDrawing,
     drawingStart,
     pendingPoints,
@@ -2079,9 +2391,52 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     }
   }, [redrawCanvas])
 
-  // Mouse Handlers for Drawing Toolbar (Supports dragging beyond last candle into future space)
+  // Keyboard listener: Delete/Backspace removes selected drawing, Ctrl+Z undoes, Escape deselects
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName)) return
+
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedDrawingId) {
+          e.preventDefault()
+          onRemoveDrawing(selectedDrawingId)
+          setSelectedDrawingId(null)
+        }
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
+        e.preventDefault()
+        onUndoDrawing?.()
+      } else if (e.key === 'Escape') {
+        if (isDrawing) {
+          setIsDrawing(false)
+          setPendingPoints([])
+          setDrawingStart(null)
+        }
+        if (selectedDrawingId) {
+          setSelectedDrawingId(null)
+        }
+        if (activeTool !== 'cursor') {
+          onSelectTool?.('cursor')
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [selectedDrawingId, isDrawing, activeTool, onRemoveDrawing, onUndoDrawing, onSelectTool])
+
+  // Mouse Handlers for Drawing Toolbar & Interactive Selection
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (activeTool === 'cursor' || !chartRef.current || !candleSeriesRef.current) return
+    if (e.button === 2) {
+      if (isDrawing) {
+        setIsDrawing(false)
+        setPendingPoints([])
+        setDrawingStart(null)
+        onSelectTool?.('cursor')
+      }
+      setSelectedDrawingId(null)
+      return
+    }
 
     const rect = canvasRef.current?.getBoundingClientRect()
     if (!rect) return
@@ -2094,23 +2449,31 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
 
     const point = { time, price, x, y }
 
+    // In Cursor mode: Select drawing or start dragging handle/body
+    if (activeTool === 'cursor') {
+      const hit = findDrawingAt(x, y)
+      if (hit) {
+        setSelectedDrawingId(hit.drawing.id)
+        setHoveredDrawingId(hit.drawing.id)
+        setHoveredHandleIndex(hit.handleIndex)
+        setDragMode(hit.handleIndex !== null ? 'handle' : 'move')
+        dragStartRef.current = {
+          x,
+          y,
+          time,
+          price,
+          points: hit.drawing.points.map((p) => ({ ...p }))
+        }
+      } else {
+        setSelectedDrawingId(null)
+      }
+      return
+    }
+
     // Eraser mode: remove clicked drawing
     if (activeTool === 'eraser') {
-      const hit = drawings.find((d) => {
-        if (!d.points[0]) return false
-        const coord = resolveCoord(d.points[0].time, d.points[0].price)
-        if (coord && Math.hypot(coord.x - x, coord.y - y) < 25) return true
-        if (d.points[1]) {
-          const coord2 = resolveCoord(d.points[1].time, d.points[1].price)
-          if (coord2 && Math.hypot(coord2.x - x, coord2.y - y) < 25) return true
-        }
-        if (d.points[2]) {
-          const coord3 = resolveCoord(d.points[2].time, d.points[2].price)
-          if (coord3 && Math.hypot(coord3.x - x, coord3.y - y) < 25) return true
-        }
-        return false
-      })
-      if (hit) onRemoveDrawing(hit.id)
+      const hit = findDrawingAt(x, y)
+      if (hit) onRemoveDrawing(hit.drawing.id)
       return
     }
 
@@ -2121,8 +2484,9 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
       activeTool === 'vertical_line' ||
       activeTool === 'crossline'
     ) {
+      const newId = `${activeTool}_${Date.now()}`
       onAddDrawing({
-        id: `${activeTool}_${Date.now()}`,
+        id: newId,
         type: activeTool,
         points: [{ time, price }],
         color:
@@ -2130,8 +2494,12 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
             ? '#38bdf8'
             : activeTool === 'vertical_line'
               ? '#a855f7'
-              : '#f59e0b'
+              : '#f59e0b',
+        lineWidth: 2,
+        lineStyle: 'solid'
       })
+      setSelectedDrawingId(newId)
+      onSelectTool?.('cursor')
       return
     }
 
@@ -2155,19 +2523,24 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         setPendingPoints([pendingPoints[0], point])
         setDrawingStart(point)
       } else if (pendingPoints.length >= 2) {
+        const newId = `${activeTool}_${Date.now()}`
         onAddDrawing({
-          id: `${activeTool}_${Date.now()}`,
+          id: newId,
           type: activeTool,
           points: [
             { time: pendingPoints[0].time, price: pendingPoints[0].price },
             { time: pendingPoints[1].time, price: pendingPoints[1].price },
             { time: point.time, price: point.price }
           ],
-          color: '#38bdf8'
+          color: '#38bdf8',
+          lineWidth: 2,
+          lineStyle: 'solid'
         })
+        setSelectedDrawingId(newId)
         setPendingPoints([])
         setIsDrawing(false)
         setDrawingStart(null)
+        onSelectTool?.('cursor')
       }
       return
     }
@@ -2178,18 +2551,23 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
       setIsDrawing(true)
       setDrawingStart(point)
     } else {
+      const newId = `${activeTool}_${Date.now()}`
       onAddDrawing({
-        id: `${activeTool}_${Date.now()}`,
+        id: newId,
         type: activeTool,
         points: [
           { time: pendingPoints[0].time, price: pendingPoints[0].price },
           { time: point.time, price: point.price }
         ],
-        color: activeTool === 'trendline' ? '#38bdf8' : '#f0b90b'
+        color: activeTool === 'trendline' ? '#38bdf8' : '#f0b90b',
+        lineWidth: 2,
+        lineStyle: 'solid'
       })
+      setSelectedDrawingId(newId)
       setPendingPoints([])
       setIsDrawing(false)
       setDrawingStart(null)
+      onSelectTool?.('cursor')
     }
   }
 
@@ -2204,7 +2582,45 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     const price = getPriceFromCoordinate(y)
     if (time !== null && price !== null) {
       setCurrentMouse({ x, y, time, price })
-      if (isDrawing) redrawCanvas()
+
+      // Dragging an existing drawing or handle
+      if (dragMode && dragStartRef.current && selectedDrawingId) {
+        const drawing = drawings.find((d) => d.id === selectedDrawingId)
+        if (drawing) {
+          const initPoints = dragStartRef.current.points
+          if (dragMode === 'handle' && hoveredHandleIndex !== null && hoveredHandleIndex < initPoints.length) {
+            const newPoints = [...initPoints]
+            newPoints[hoveredHandleIndex] = { time, price }
+            onUpdateDrawing?.({ ...drawing, points: newPoints })
+          } else if (dragMode === 'move') {
+            const dTime = time - dragStartRef.current.time
+            const dPrice = price - dragStartRef.current.price
+            const newPoints = initPoints.map((p) => ({
+              time: p.time + dTime,
+              price: p.price + dPrice
+            }))
+            onUpdateDrawing?.({ ...drawing, points: newPoints })
+          }
+        }
+        return
+      }
+
+      if (activeTool !== 'cursor') {
+        redrawCanvas()
+      } else {
+        const hit = findDrawingAt(x, y)
+        if (hit) {
+          setHoveredDrawingId(hit.drawing.id)
+          setHoveredHandleIndex(hit.handleIndex)
+          setIsHoveringDrawing(true)
+        } else {
+          if (isHoveringDrawing) {
+            setIsHoveringDrawing(false)
+            setHoveredDrawingId(null)
+            setHoveredHandleIndex(null)
+          }
+        }
+      }
 
       if (syncCrosshairRef.current) {
         window.dispatchEvent(
@@ -2221,11 +2637,17 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
   }
 
   const handleMouseUp = () => {
+    if (dragMode) {
+      setDragMode(null)
+      dragStartRef.current = null
+      redrawCanvas()
+    }
+
     if (!isDrawing || !drawingStart || !currentMouse) return
 
-    // If it's a drag-to-draw (moved significantly from start)
+    // Drag-to-draw release for 2-point tools
     const dist = Math.hypot(currentMouse.x - drawingStart.x, currentMouse.y - drawingStart.y)
-    if (dist > 10) {
+    if (dist > 12) {
       const isThreePointTool = [
         'parallel_channel',
         'flat_top_bottom',
@@ -2236,34 +2658,98 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         'inside_pitchfork'
       ].includes(activeTool)
 
-      if (isThreePointTool) {
-        if (pendingPoints.length === 1) {
-          // Keep point 1 and 2, ready for point 3 click
-          setPendingPoints([
-            pendingPoints[0],
-            { time: currentMouse.time, price: currentMouse.price, x: currentMouse.x, y: currentMouse.y }
-          ])
-          setDrawingStart({ time: currentMouse.time, price: currentMouse.price, x: currentMouse.x, y: currentMouse.y })
-          return
-        }
-      } else {
-        // 2-point tool finishes on drag release
+      if (!isThreePointTool) {
+        const newId = `${activeTool}_${Date.now()}`
         onAddDrawing({
-          id: `${activeTool}_${Date.now()}`,
+          id: newId,
           type: activeTool,
           points: [
             { time: drawingStart.time, price: drawingStart.price },
             { time: currentMouse.time, price: currentMouse.price }
           ],
-          color: activeTool === 'trendline' ? '#38bdf8' : '#f0b90b'
+          color: activeTool === 'trendline' ? '#38bdf8' : '#f0b90b',
+          lineWidth: 2,
+          lineStyle: 'solid'
         })
+        setSelectedDrawingId(newId)
         setIsDrawing(false)
         setDrawingStart(null)
         setPendingPoints([])
         setCurrentMouse(null)
+        onSelectTool?.('cursor')
       }
     }
   }
+
+  const handleContainerMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (activeTool !== 'cursor' || dragMode !== null) return
+    const rect = canvasRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const x = e.clientX - rect.left
+    const y = e.clientY - rect.top
+
+    const hit = findDrawingAt(x, y)
+    if (hit) {
+      setHoveredDrawingId(hit.drawing.id)
+      setHoveredHandleIndex(hit.handleIndex)
+      setIsHoveringDrawing(true)
+    } else {
+      if (isHoveringDrawing) {
+        setIsHoveringDrawing(false)
+        setHoveredDrawingId(null)
+        setHoveredHandleIndex(null)
+      }
+    }
+  }
+
+  const handleContainerMouseDown = () => {
+    if (activeTool === 'cursor' && selectedDrawingId && !isHoveringDrawing) {
+      setSelectedDrawingId(null)
+    }
+  }
+
+  // Floating Action Toolbar screen position calculator for selected drawing
+  const selectedFloatingPos = useMemo(() => {
+    if (!selectedDrawingId) return null
+    const d = drawings.find((item) => item.id === selectedDrawingId)
+    if (!d || d.points.length === 0) return null
+
+    let minX = Infinity
+    let maxX = -Infinity
+    let minY = Infinity
+    for (const pt of d.points) {
+      const c = resolveCoord(pt.time, pt.price)
+      if (c) {
+        if (c.x < minX) minX = c.x
+        if (c.x > maxX) maxX = c.x
+        if (c.y < minY) minY = c.y
+      }
+    }
+    if (minX === Infinity) return null
+
+    const midX = (minX + maxX) / 2
+    const canvasW = canvasRef.current?.width || 800
+    const posX = Math.max(140, Math.min(canvasW - 160, midX))
+    const posY = Math.max(38, minY - 16)
+
+    return { x: posX, y: posY, drawing: d }
+  }, [selectedDrawingId, drawings, resolveCoord])
+
+  const getCanvasCursor = () => {
+    if (activeTool !== 'cursor') {
+      if (activeTool === 'eraser') return 'cursor-pointer'
+      return 'cursor-crosshair'
+    }
+    if (dragMode === 'handle' || hoveredHandleIndex !== null) {
+      return 'cursor-crosshair'
+    }
+    if (dragMode === 'move' || hoveredDrawingId !== null) {
+      return 'cursor-grab'
+    }
+    return 'cursor-default'
+  }
+
+  const isCanvasInteractive = activeTool !== 'cursor' || isHoveringDrawing || dragMode !== null
 
   const handleInteraction = () => {
     requestAnimationFrame(() => redrawCanvasRef.current())
@@ -2287,17 +2773,155 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
       onMouseLeave={handleContainerMouseLeave}
     >
       {/* Main Candlestick Chart Area */}
-      <div className="relative flex-1 w-full min-h-0 overflow-hidden">
+      <div 
+        className="relative flex-1 w-full min-h-0 overflow-hidden"
+        onMouseMove={handleContainerMouseMove}
+        onMouseDown={handleContainerMouseDown}
+      >
         <div ref={containerRef} className="w-full h-full" />
         <canvas
           ref={canvasRef}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
-          className={`absolute inset-0 z-10 ${
-            activeTool !== 'cursor' ? 'cursor-crosshair pointer-events-auto' : 'pointer-events-none'
+          onContextMenu={(e) => {
+            e.preventDefault()
+            if (isDrawing) {
+              setIsDrawing(false)
+              setPendingPoints([])
+              setDrawingStart(null)
+              onSelectTool?.('cursor')
+            }
+            setSelectedDrawingId(null)
+          }}
+          className={`absolute inset-0 z-10 ${getCanvasCursor()} ${
+            isCanvasInteractive ? 'pointer-events-auto' : 'pointer-events-none'
           }`}
         />
+
+        {/* Floating Action Toolbar for Selected Drawing (TradingView Style) */}
+        {selectedFloatingPos && (
+          <div
+            style={{
+              left: `${selectedFloatingPos.x}px`,
+              top: `${selectedFloatingPos.y}px`,
+              transform: 'translate(-50%, -100%)'
+            }}
+            className="absolute z-30 flex items-center space-x-2 px-2.5 py-1.5 rounded-lg bg-[#181d26]/95 border border-[#2e3646] shadow-2xl backdrop-blur-md font-mono select-none"
+          >
+            {/* Tool Name Badge */}
+            <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider pr-1 border-r border-[#2e3646]">
+              {selectedFloatingPos.drawing.type.replace('_', ' ')}
+            </span>
+
+            {/* Quick Color Swatches */}
+            <div className="flex items-center space-x-1 border-r border-[#2e3646] pr-2">
+              {[
+                { name: 'Cyan', color: '#38bdf8' },
+                { name: 'Gold', color: '#f0b90b' },
+                { name: 'Green', color: '#10b981' },
+                { name: 'Red', color: '#f43f5e' },
+                { name: 'Purple', color: '#a855f7' },
+                { name: 'White', color: '#ffffff' }
+              ].map((c) => (
+                <button
+                  key={c.color}
+                  type="button"
+                  onClick={() => onUpdateDrawing?.({ ...selectedFloatingPos.drawing, color: c.color })}
+                  title={`Warna: ${c.name}`}
+                  className={`w-3.5 h-3.5 rounded-full border transition-transform hover:scale-125 ${
+                    (selectedFloatingPos.drawing.color || '#38bdf8') === c.color
+                      ? 'border-white ring-1 ring-white/50 scale-110'
+                      : 'border-transparent opacity-80 hover:opacity-100'
+                  }`}
+                  style={{ backgroundColor: c.color }}
+                />
+              ))}
+            </div>
+
+            {/* Line Thickness Picker */}
+            <div className="flex items-center space-x-1 border-r border-[#2e3646] pr-2 text-[10px]">
+              {[1, 2, 3, 4].map((w) => (
+                <button
+                  key={w}
+                  type="button"
+                  onClick={() => onUpdateDrawing?.({ ...selectedFloatingPos.drawing, lineWidth: w })}
+                  title={`Ketebalan: ${w}px`}
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition-colors ${
+                    (selectedFloatingPos.drawing.lineWidth || 2) === w
+                      ? 'bg-[#38bdf8]/20 text-[#38bdf8] border border-[#38bdf8]/40'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-[#222836]'
+                  }`}
+                >
+                  {w}px
+                </button>
+              ))}
+            </div>
+
+            {/* Line Style (Solid / Dashed / Dotted) */}
+            <div className="flex items-center space-x-1 border-r border-[#2e3646] pr-2">
+              <button
+                type="button"
+                onClick={() => onUpdateDrawing?.({ ...selectedFloatingPos.drawing, lineStyle: 'solid' })}
+                title="Garis Solid"
+                className={`px-1.5 py-0.5 rounded text-[10px] transition-colors ${
+                  (!selectedFloatingPos.drawing.lineStyle || selectedFloatingPos.drawing.lineStyle === 'solid')
+                    ? 'bg-[#38bdf8]/20 text-[#38bdf8] border border-[#38bdf8]/40'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                —
+              </button>
+              <button
+                type="button"
+                onClick={() => onUpdateDrawing?.({ ...selectedFloatingPos.drawing, lineStyle: 'dashed' })}
+                title="Garis Putus-Putus (Dashed)"
+                className={`px-1.5 py-0.5 rounded text-[10px] transition-colors ${
+                  selectedFloatingPos.drawing.lineStyle === 'dashed'
+                    ? 'bg-[#38bdf8]/20 text-[#38bdf8] border border-[#38bdf8]/40'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                - -
+              </button>
+              <button
+                type="button"
+                onClick={() => onUpdateDrawing?.({ ...selectedFloatingPos.drawing, lineStyle: 'dotted' })}
+                title="Garis Titik-Titik (Dotted)"
+                className={`px-1.5 py-0.5 rounded text-[10px] transition-colors ${
+                  selectedFloatingPos.drawing.lineStyle === 'dotted'
+                    ? 'bg-[#38bdf8]/20 text-[#38bdf8] border border-[#38bdf8]/40'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                ···
+              </button>
+            </div>
+
+            {/* Delete Button */}
+            <button
+              type="button"
+              onClick={() => {
+                onRemoveDrawing(selectedFloatingPos.drawing.id)
+                setSelectedDrawingId(null)
+              }}
+              title="Hapus Garis (Delete / Backspace)"
+              className="p-1 rounded text-rose-400 hover:text-rose-200 hover:bg-rose-500/20 transition-colors"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+
+            {/* Deselect / Close */}
+            <button
+              type="button"
+              onClick={() => setSelectedDrawingId(null)}
+              title="Tutup (Esc)"
+              className="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-[#222836] transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
 
         {/* Floating Active Market Session Indicator */}
         {visibility.marketSessions && (

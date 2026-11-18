@@ -28,8 +28,11 @@ interface SubChartProps {
   settings?: AppSettings
   visibility: LayerVisibility
   activeTool: DrawingToolType
+  onSelectTool?: (tool: DrawingToolType) => void
   drawings: DrawingItem[]
   onAddDrawing: (d: DrawingItem) => void
+  onUpdateDrawing?: (d: DrawingItem) => void
+  onUndoDrawing?: () => void
   onRemoveDrawing: (id: string) => void
   openInterest?: OpenInterestData | null
   fundingRate?: FundingRateData | null
@@ -47,8 +50,11 @@ const SubTimeframeChart: React.FC<SubChartProps> = ({
   settings,
   visibility,
   activeTool,
+  onSelectTool,
   drawings,
   onAddDrawing,
+  onUpdateDrawing,
+  onUndoDrawing,
   onRemoveDrawing,
   openInterest,
   fundingRate,
@@ -128,8 +134,11 @@ const SubTimeframeChart: React.FC<SubChartProps> = ({
       htfOverlay={data.htf_overlay}
       visibility={visibility}
       activeTool={activeTool}
+      onSelectTool={onSelectTool}
       drawings={drawings}
       onAddDrawing={onAddDrawing}
+      onUpdateDrawing={onUpdateDrawing}
+      onUndoDrawing={onUndoDrawing}
       onRemoveDrawing={onRemoveDrawing}
       openInterest={data?.open_interest || openInterest}
       fundingRate={data?.funding_rate || fundingRate}
@@ -161,8 +170,11 @@ interface ChartContainerProps {
   activePaneId?: string
   onSelectPane?: (paneId: string) => void
   activeTool: DrawingToolType
+  onSelectTool?: (tool: DrawingToolType) => void
   drawings: DrawingItem[]
   onAddDrawing: (d: DrawingItem) => void
+  onUpdateDrawing?: (d: DrawingItem) => void
+  onUndoDrawing?: () => void
   onRemoveDrawing: (id: string) => void
   openInterest?: OpenInterestData | null
   fundingRate?: FundingRateData | null
@@ -201,8 +213,11 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
   activePaneId = 'chart-1',
   onSelectPane,
   activeTool,
+  onSelectTool,
   drawings,
   onAddDrawing,
+  onUpdateDrawing,
+  onUndoDrawing,
   onRemoveDrawing,
   openInterest,
   fundingRate,
@@ -398,8 +413,11 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
               htfOverlay={htfOverlay}
               visibility={paneVis}
               activeTool={activeTool}
+              onSelectTool={onSelectTool}
               drawings={drawings}
               onAddDrawing={onAddDrawing}
+              onUpdateDrawing={onUpdateDrawing}
+              onUndoDrawing={onUndoDrawing}
               onRemoveDrawing={onRemoveDrawing}
               openInterest={openInterest}
               fundingRate={fundingRate}
@@ -425,8 +443,11 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
               settings={settings}
               visibility={paneVis}
               activeTool={activeTool}
+              onSelectTool={onSelectTool}
               drawings={drawings}
               onAddDrawing={onAddDrawing}
+              onUpdateDrawing={onUpdateDrawing}
+              onUndoDrawing={onUndoDrawing}
               onRemoveDrawing={onRemoveDrawing}
               openInterest={openInterest}
               fundingRate={fundingRate}

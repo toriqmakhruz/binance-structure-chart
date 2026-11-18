@@ -498,6 +498,24 @@ export function App() {
     setActiveTool('cursor')
   }
 
+  const handleUpdateDrawing = (item: DrawingItem) => {
+    setDrawingsBySymbol((prev) => ({
+      ...prev,
+      [symbol]: (prev[symbol] || []).map((d) => (d.id === item.id ? item : d))
+    }))
+  }
+
+  const handleUndoDrawing = () => {
+    setDrawingsBySymbol((prev) => {
+      const list = prev[symbol] || []
+      if (list.length === 0) return prev
+      return {
+        ...prev,
+        [symbol]: list.slice(0, list.length - 1)
+      }
+    })
+  }
+
   const handleRemoveDrawing = (id: string) => {
     setDrawingsBySymbol((prev) => ({
       ...prev,
@@ -925,8 +943,11 @@ export function App() {
               activePaneId={activePaneId}
               onSelectPane={setActivePaneId}
               activeTool={activeTool}
+              onSelectTool={setActiveTool}
               drawings={currentDrawings}
               onAddDrawing={handleAddDrawing}
+              onUpdateDrawing={handleUpdateDrawing}
+              onUndoDrawing={handleUndoDrawing}
               onRemoveDrawing={handleRemoveDrawing}
               openInterest={analysis?.open_interest}
               fundingRate={analysis?.funding_rate}
