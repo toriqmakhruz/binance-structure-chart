@@ -234,8 +234,27 @@ export interface LayerVisibility {
 
 export type DrawingToolType = 
   | 'cursor' 
+  // Lines
   | 'trendline' 
+  | 'ray'
+  | 'info_line'
+  | 'extended_line'
+  | 'trend_angle'
   | 'horizontal_line' 
+  | 'horizontal_ray'
+  | 'vertical_line'
+  | 'crossline'
+  // Channels
+  | 'parallel_channel'
+  | 'regression_trend'
+  | 'flat_top_bottom'
+  | 'disjoint_channel'
+  // Pitchforks
+  | 'pitchfork'
+  | 'schiff_pitchfork'
+  | 'modified_schiff'
+  | 'inside_pitchfork'
+  // Shapes & Tools
   | 'rectangle' 
   | 'fibonacci' 
   | 'measure' 

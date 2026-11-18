@@ -117,7 +117,14 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
   // Drawing state
   const [isDrawing, setIsDrawing] = useState(false)
   const [drawingStart, setDrawingStart] = useState<{ time: number; price: number; x: number; y: number } | null>(null)
+  const [pendingPoints, setPendingPoints] = useState<{ time: number; price: number; x: number; y: number }[]>([])
   const [currentMouse, setCurrentMouse] = useState<{ x: number; y: number; time: number; price: number } | null>(null)
+
+  useEffect(() => {
+    setIsDrawing(false)
+    setDrawingStart(null)
+    setPendingPoints([])
+  }, [activeTool])
 
   // Market Sessions extraction & live UTC status
   const sessionBlocks = useMemo(() => extractSessionBlocks(candles), [candles])
@@ -1274,6 +1281,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
 
     // G. Render Manual Drawings
     drawings.forEach((d) => {
+      // 1. Trendline
       if (d.type === 'trendline' && d.points.length >= 2) {
         const p1 = resolveCoord(d.points[0].time, d.points[0].price)
         const p2 = resolveCoord(d.points[1].time, d.points[1].price)
@@ -1284,23 +1292,494 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
           ctx.moveTo(p1.x, p1.y)
           ctx.lineTo(p2.x, p2.y)
           ctx.stroke()
+
+          ctx.fillStyle = '#ffffff'
+          ctx.beginPath()
+          ctx.arc(p1.x, p1.y, 3, 0, Math.PI * 2)
+          ctx.arc(p2.x, p2.y, 3, 0, Math.PI * 2)
+          ctx.fill()
         }
-      } else if (d.type === 'horizontal_line' && d.points.length >= 1) {
+      }
+      // 2. Ray (One-directional infinite line to future)
+      else if (d.type === 'ray' && d.points.length >= 2) {
+        const p1 = resolveCoord(d.points[0].time, d.points[0].price)
+        const p2 = resolveCoord(d.points[1].time, d.points[1].price)
+        if (p1 && p2) {
+          ctx.strokeStyle = d.color || '#38bdf8'
+          ctx.lineWidth = 2
+          ctx.beginPath()
+          ctx.moveTo(p1.x, p1.y)
+          const dx = p2.x - p1.x
+          const dy = p2.y - p1.y
+          if (Math.abs(dx) > 0.001) {
+            const m = dy / dx
+            const targetX = p2.x >= p1.x ? width : 0
+            const targetY = p1.y + m * (targetX - p1.x)
+            ctx.lineTo(targetX, targetY)
+          } else {
+            ctx.lineTo(p1.x, p2.y >= p1.y ? height : 0)
+          }
+          ctx.stroke()
+
+          ctx.fillStyle = '#ffffff'
+          ctx.beginPath()
+          ctx.arc(p1.x, p1.y, 3, 0, Math.PI * 2)
+          ctx.arc(p2.x, p2.y, 2.5, 0, Math.PI * 2)
+          ctx.fill()
+        }
+      }
+      // 3. Info line (Trendline with quantitative data card)
+      else if (d.type === 'info_line' && d.points.length >= 2) {
+        const p1 = resolveCoord(d.points[0].time, d.points[0].price)
+        const p2 = resolveCoord(d.points[1].time, d.points[1].price)
+        if (p1 && p2) {
+          ctx.strokeStyle = d.color || '#38bdf8'
+          ctx.lineWidth = 2
+          ctx.beginPath()
+          ctx.moveTo(p1.x, p1.y)
+          ctx.lineTo(p2.x, p2.y)
+          ctx.stroke()
+
+          const deltaP = d.points[1].price - d.points[0].price
+          const deltaPct = (deltaP / (d.points[0].price || 1)) * 100
+          const timeSecs = Math.abs(d.points[1].time - d.points[0].time)
+          const days = Math.floor(timeSecs / 86400)
+          const hours = Math.floor((timeSecs % 86400) / 3600)
+          const mins = Math.floor((timeSecs % 3600) / 60)
+          const timeStr = days > 0 ? `${days}d ${hours}h` : hours > 0 ? `${hours}h ${mins}m` : `${mins}m`
+          const angleDeg = (Math.atan2(-(p2.y - p1.y), p2.x - p1.x) * 180 / Math.PI).toFixed(1)
+
+          const midX = (p1.x + p2.x) / 2
+          const midY = (p1.y + p2.y) / 2
+          const badgeW = 150
+          const badgeH = 34
+
+          ctx.save()
+          ctx.fillStyle = '#161a25'
+          ctx.strokeStyle = deltaP >= 0 ? '#00c087' : '#f6465d'
+          ctx.lineWidth = 1.2
+          ctx.beginPath()
+          ctx.rect(midX - badgeW / 2, midY - badgeH - 8, badgeW, badgeH)
+          ctx.fill()
+          ctx.stroke()
+
+          ctx.fillStyle = deltaP >= 0 ? '#00c087' : '#f6465d'
+          ctx.font = 'bold 9.5px monospace'
+          ctx.fillText(`Δ: ${deltaP >= 0 ? '+' : ''}${formatPrice(deltaP)} (${deltaPct >= 0 ? '+' : ''}${deltaPct.toFixed(2)}%)`, midX - badgeW / 2 + 6, midY - badgeH + 6)
+          ctx.fillStyle = '#94a3b8'
+          ctx.font = '8.5px monospace'
+          ctx.fillText(`${timeStr} | ∠ ${angleDeg}°`, midX - badgeW / 2 + 6, midY - badgeH + 19)
+          ctx.restore()
+
+          ctx.fillStyle = '#ffffff'
+          ctx.beginPath()
+          ctx.arc(p1.x, p1.y, 3, 0, Math.PI * 2)
+          ctx.arc(p2.x, p2.y, 3, 0, Math.PI * 2)
+          ctx.fill()
+        }
+      }
+      // 4. Extended line (Infinite in both directions)
+      else if (d.type === 'extended_line' && d.points.length >= 2) {
+        const p1 = resolveCoord(d.points[0].time, d.points[0].price)
+        const p2 = resolveCoord(d.points[1].time, d.points[1].price)
+        if (p1 && p2) {
+          ctx.strokeStyle = d.color || '#38bdf8'
+          ctx.lineWidth = 2
+          ctx.beginPath()
+          const dx = p2.x - p1.x
+          const dy = p2.y - p1.y
+          if (Math.abs(dx) > 0.001) {
+            const m = dy / dx
+            const yAt0 = p1.y - m * p1.x
+            const yAtWidth = p1.y + m * (width - p1.x)
+            ctx.moveTo(0, yAt0)
+            ctx.lineTo(width, yAtWidth)
+          } else {
+            ctx.moveTo(p1.x, 0)
+            ctx.lineTo(p1.x, height)
+          }
+          ctx.stroke()
+
+          ctx.fillStyle = '#ffffff'
+          ctx.beginPath()
+          ctx.arc(p1.x, p1.y, 3, 0, Math.PI * 2)
+          ctx.arc(p2.x, p2.y, 3, 0, Math.PI * 2)
+          ctx.fill()
+        }
+      }
+      // 5. Trend angle
+      else if (d.type === 'trend_angle' && d.points.length >= 2) {
+        const p1 = resolveCoord(d.points[0].time, d.points[0].price)
+        const p2 = resolveCoord(d.points[1].time, d.points[1].price)
+        if (p1 && p2) {
+          ctx.strokeStyle = d.color || '#f0b90b'
+          ctx.lineWidth = 2
+          ctx.beginPath()
+          ctx.moveTo(p1.x, p1.y)
+          ctx.lineTo(p2.x, p2.y)
+          ctx.stroke()
+
+          ctx.save()
+          ctx.setLineDash([3, 2])
+          ctx.strokeStyle = '#64748b'
+          ctx.lineWidth = 1
+          ctx.beginPath()
+          ctx.moveTo(p1.x, p1.y)
+          ctx.lineTo(p1.x + 40, p1.y)
+          ctx.stroke()
+
+          const angleRad = Math.atan2(-(p2.y - p1.y), p2.x - p1.x)
+          const degText = `${(angleRad * 180 / Math.PI).toFixed(1)}°`
+          ctx.setLineDash([])
+          ctx.strokeStyle = '#f0b90b'
+          ctx.beginPath()
+          ctx.arc(p1.x, p1.y, 22, 0, -angleRad, angleRad > 0)
+          ctx.stroke()
+
+          ctx.fillStyle = '#f0b90b'
+          ctx.font = 'bold 9.5px monospace'
+          ctx.fillText(degText, p1.x + 28, p1.y - 6)
+          ctx.restore()
+
+          ctx.fillStyle = '#ffffff'
+          ctx.beginPath()
+          ctx.arc(p1.x, p1.y, 3, 0, Math.PI * 2)
+          ctx.arc(p2.x, p2.y, 3, 0, Math.PI * 2)
+          ctx.fill()
+        }
+      }
+      // 6. Horizontal line (Full screen horizontal at fixed price)
+      else if (d.type === 'horizontal_line' && d.points.length >= 1) {
+        const y = series.priceToCoordinate(d.points[0].price)
+        if (y !== null) {
+          ctx.strokeStyle = d.color || '#f59e0b'
+          ctx.lineWidth = 1.5
+          ctx.setLineDash([5, 4])
+          ctx.beginPath()
+          ctx.moveTo(0, y)
+          ctx.lineTo(width - 65, y)
+          ctx.stroke()
+          ctx.setLineDash([])
+
+          ctx.fillStyle = '#f59e0b'
+          ctx.fillRect(width - 64, y - 9, 62, 18)
+          ctx.fillStyle = '#000000'
+          ctx.font = 'bold 9.5px monospace'
+          ctx.fillText(`$${formatPrice(d.points[0].price)}`, width - 60, y + 3)
+        }
+      }
+      // 7. Horizontal ray (Starts at point, extends right to future)
+      else if (d.type === 'horizontal_ray' && d.points.length >= 1) {
         const p = resolveCoord(d.points[0].time, d.points[0].price)
         if (p) {
           ctx.strokeStyle = d.color || '#f59e0b'
           ctx.lineWidth = 1.5
-          ctx.setLineDash([5, 5])
+          ctx.setLineDash([5, 4])
+          ctx.beginPath()
+          ctx.moveTo(p.x, p.y)
+          ctx.lineTo(width - 65, p.y)
+          ctx.stroke()
+          ctx.setLineDash([])
+
+          ctx.fillStyle = '#ffffff'
+          ctx.beginPath()
+          ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2)
+          ctx.fill()
+
+          ctx.fillStyle = '#f59e0b'
+          ctx.fillRect(width - 64, p.y - 9, 62, 18)
+          ctx.fillStyle = '#000000'
+          ctx.font = 'bold 9.5px monospace'
+          ctx.fillText(`$${formatPrice(d.points[0].price)}`, width - 60, p.y + 3)
+        }
+      }
+      // 8. Vertical line (Full height vertical line at timestamp)
+      else if (d.type === 'vertical_line' && d.points.length >= 1) {
+        const p = resolveCoord(d.points[0].time, d.points[0].price)
+        if (p) {
+          ctx.strokeStyle = d.color || '#a855f7'
+          ctx.lineWidth = 1.5
+          ctx.setLineDash([5, 4])
+          ctx.beginPath()
+          ctx.moveTo(p.x, 0)
+          ctx.lineTo(p.x, height - 22)
+          ctx.stroke()
+          ctx.setLineDash([])
+
+          const date = new Date(d.points[0].time * 1000)
+          const dateStr = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`
+          ctx.fillStyle = '#a855f7'
+          ctx.fillRect(p.x - 22, height - 20, 44, 16)
+          ctx.fillStyle = '#ffffff'
+          ctx.font = 'bold 9px monospace'
+          ctx.fillText(dateStr, p.x - 14, height - 8)
+
+          ctx.fillStyle = '#ffffff'
+          ctx.beginPath()
+          ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2)
+          ctx.fill()
+        }
+      }
+      // 9. Crossline (Simultaneous horizontal & vertical crosshair)
+      else if (d.type === 'crossline' && d.points.length >= 1) {
+        const p = resolveCoord(d.points[0].time, d.points[0].price)
+        if (p) {
+          ctx.strokeStyle = d.color || '#38bdf8'
+          ctx.lineWidth = 1.2
+          ctx.setLineDash([4, 3])
           ctx.beginPath()
           ctx.moveTo(0, p.y)
           ctx.lineTo(width - 65, p.y)
           ctx.stroke()
+          ctx.beginPath()
+          ctx.moveTo(p.x, 0)
+          ctx.lineTo(p.x, height - 22)
+          ctx.stroke()
           ctx.setLineDash([])
-          ctx.fillStyle = '#f59e0b'
-          ctx.font = '10px monospace'
-          ctx.fillText(`$${formatPrice(d.points[0].price)}`, 10, p.y - 4)
+
+          ctx.strokeStyle = '#38bdf8'
+          ctx.fillStyle = 'rgba(56, 189, 248, 0.3)'
+          ctx.beginPath()
+          ctx.arc(p.x, p.y, 4, 0, Math.PI * 2)
+          ctx.fill()
+          ctx.stroke()
+
+          ctx.fillStyle = '#38bdf8'
+          ctx.fillRect(width - 64, p.y - 9, 62, 18)
+          ctx.fillStyle = '#000000'
+          ctx.font = 'bold 9.5px monospace'
+          ctx.fillText(`$${formatPrice(d.points[0].price)}`, width - 60, p.y + 3)
         }
-      } else if (d.type === 'rectangle' && d.points.length >= 2) {
+      }
+      // 10. Parallel channel (Base trendline, parallel boundary, dashed 50% midline, and shaded fill)
+      else if (d.type === 'parallel_channel' && d.points.length >= 3) {
+        const p1 = resolveCoord(d.points[0].time, d.points[0].price)
+        const p2 = resolveCoord(d.points[1].time, d.points[1].price)
+        const p3 = resolveCoord(d.points[2].time, d.points[2].price)
+        if (p1 && p2 && p3) {
+          const dx = p2.x - p1.x
+          const dy = p2.y - p1.y
+          const baseLineYAtP3 = p1.y + (dx !== 0 ? (dy / dx) * (p3.x - p1.x) : 0)
+          const offset = p3.y - baseLineYAtP3
+
+          ctx.save()
+          ctx.fillStyle = 'rgba(56, 189, 248, 0.12)'
+          ctx.beginPath()
+          ctx.moveTo(p1.x, p1.y)
+          ctx.lineTo(p2.x, p2.y)
+          ctx.lineTo(p2.x, p2.y + offset)
+          ctx.lineTo(p1.x, p1.y + offset)
+          ctx.closePath()
+          ctx.fill()
+
+          ctx.strokeStyle = '#38bdf8'
+          ctx.lineWidth = 1.8
+          ctx.beginPath()
+          ctx.moveTo(p1.x, p1.y)
+          ctx.lineTo(p2.x, p2.y)
+          ctx.stroke()
+
+          ctx.beginPath()
+          ctx.moveTo(p1.x, p1.y + offset)
+          ctx.lineTo(p2.x, p2.y + offset)
+          ctx.stroke()
+
+          ctx.setLineDash([4, 3])
+          ctx.strokeStyle = '#94a3b8'
+          ctx.lineWidth = 1
+          ctx.beginPath()
+          ctx.moveTo(p1.x, p1.y + offset / 2)
+          ctx.lineTo(p2.x, p2.y + offset / 2)
+          ctx.stroke()
+          ctx.restore()
+
+          ctx.fillStyle = '#ffffff'
+          ctx.beginPath()
+          ctx.arc(p1.x, p1.y, 3, 0, Math.PI * 2)
+          ctx.arc(p2.x, p2.y, 3, 0, Math.PI * 2)
+          ctx.arc(p3.x, p3.y, 3, 0, Math.PI * 2)
+          ctx.fill()
+        }
+      }
+      // 11. Regression trend
+      else if (d.type === 'regression_trend' && d.points.length >= 2) {
+        const p1 = resolveCoord(d.points[0].time, d.points[0].price)
+        const p2 = resolveCoord(d.points[1].time, d.points[1].price)
+        if (p1 && p2) {
+          const xStart = Math.min(p1.x, p2.x)
+          const xEnd = Math.max(p1.x, p2.x)
+          const bandHeight = Math.max(Math.abs(p2.y - p1.y), 24)
+
+          ctx.save()
+          ctx.fillStyle = 'rgba(168, 85, 247, 0.12)'
+          ctx.beginPath()
+          ctx.moveTo(p1.x, p1.y - bandHeight)
+          ctx.lineTo(p2.x, p2.y - bandHeight)
+          ctx.lineTo(p2.x, p2.y + bandHeight)
+          ctx.lineTo(p1.x, p1.y + bandHeight)
+          ctx.closePath()
+          ctx.fill()
+
+          ctx.strokeStyle = '#a855f7'
+          ctx.lineWidth = 1.8
+          ctx.beginPath()
+          ctx.moveTo(p1.x, p1.y)
+          ctx.lineTo(p2.x, p2.y)
+          ctx.stroke()
+
+          ctx.strokeStyle = '#c084fc'
+          ctx.setLineDash([3, 2])
+          ctx.beginPath()
+          ctx.moveTo(p1.x, p1.y - bandHeight)
+          ctx.lineTo(p2.x, p2.y - bandHeight)
+          ctx.moveTo(p1.x, p1.y + bandHeight)
+          ctx.lineTo(p2.x, p2.y + bandHeight)
+          ctx.stroke()
+          ctx.restore()
+        }
+      }
+      // 12. Flat top/bottom
+      else if (d.type === 'flat_top_bottom' && d.points.length >= 3) {
+        const p1 = resolveCoord(d.points[0].time, d.points[0].price)
+        const p2 = resolveCoord(d.points[1].time, d.points[1].price)
+        const p3 = resolveCoord(d.points[2].time, d.points[2].price)
+        if (p1 && p2 && p3) {
+          ctx.save()
+          ctx.fillStyle = 'rgba(240, 185, 11, 0.12)'
+          ctx.beginPath()
+          ctx.moveTo(p1.x, p1.y)
+          ctx.lineTo(p2.x, p2.y)
+          ctx.lineTo(p2.x, p3.y)
+          ctx.lineTo(p1.x, p3.y)
+          ctx.closePath()
+          ctx.fill()
+
+          ctx.strokeStyle = '#f0b90b'
+          ctx.lineWidth = 1.8
+          ctx.beginPath()
+          ctx.moveTo(p1.x, p1.y)
+          ctx.lineTo(p2.x, p2.y)
+          ctx.stroke()
+
+          ctx.strokeStyle = '#38bdf8'
+          ctx.beginPath()
+          ctx.moveTo(p1.x, p3.y)
+          ctx.lineTo(p2.x, p3.y)
+          ctx.stroke()
+          ctx.restore()
+        }
+      }
+      // 13. Disjoint channel
+      else if (d.type === 'disjoint_channel' && d.points.length >= 3) {
+        const p1 = resolveCoord(d.points[0].time, d.points[0].price)
+        const p2 = resolveCoord(d.points[1].time, d.points[1].price)
+        const p3 = resolveCoord(d.points[2].time, d.points[2].price)
+        if (p1 && p2 && p3) {
+          ctx.save()
+          ctx.fillStyle = 'rgba(56, 189, 248, 0.1)'
+          ctx.beginPath()
+          ctx.moveTo(p1.x, p1.y)
+          ctx.lineTo(p2.x, p2.y)
+          ctx.lineTo(p2.x, p3.y)
+          ctx.lineTo(p1.x, p3.y - (p2.y - p1.y) * 0.5)
+          ctx.closePath()
+          ctx.fill()
+
+          ctx.strokeStyle = '#38bdf8'
+          ctx.lineWidth = 1.8
+          ctx.beginPath()
+          ctx.moveTo(p1.x, p1.y)
+          ctx.lineTo(p2.x, p2.y)
+          ctx.stroke()
+
+          ctx.beginPath()
+          ctx.moveTo(p1.x, p3.y - (p2.y - p1.y) * 0.5)
+          ctx.lineTo(p2.x, p3.y)
+          ctx.stroke()
+          ctx.restore()
+        }
+      }
+      // 14. Pitchforks (Andrews, Schiff, Modified Schiff, Inside Pitchfork)
+      else if (
+        (d.type === 'pitchfork' ||
+         d.type === 'schiff_pitchfork' ||
+         d.type === 'modified_schiff' ||
+         d.type === 'inside_pitchfork') &&
+        d.points.length >= 3
+      ) {
+        let p1 = resolveCoord(d.points[0].time, d.points[0].price)
+        const p2 = resolveCoord(d.points[1].time, d.points[1].price)
+        const p3 = resolveCoord(d.points[2].time, d.points[2].price)
+        if (p1 && p2 && p3) {
+          if (d.type === 'schiff_pitchfork') {
+            p1 = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 }
+          } else if (d.type === 'modified_schiff') {
+            p1 = { x: p1.x + (p2.x - p1.x) * 0.5, y: p1.y + (p2.y - p1.y) * 0.5 }
+          } else if (d.type === 'inside_pitchfork') {
+            p1 = { x: (p2.x + p3.x) / 2, y: (p2.y + p3.y) / 2 }
+          }
+
+          const midX = (p2.x + p3.x) / 2
+          const midY = (p2.y + p3.y) / 2
+          const dx = midX - p1.x
+          const dy = midY - p1.y
+
+          const projLen = Math.max(width - p1.x, 240)
+          const scale = dx !== 0 ? projLen / Math.abs(dx) : 1
+          const endMidX = p1.x + dx * scale
+          const endMidY = p1.y + dy * scale
+
+          const endUpperX = p2.x + dx * scale
+          const endUpperY = p2.y + dy * scale
+
+          const endLowerX = p3.x + dx * scale
+          const endLowerY = p3.y + dy * scale
+
+          ctx.save()
+          ctx.fillStyle = 'rgba(56, 189, 248, 0.08)'
+          ctx.beginPath()
+          ctx.moveTo(p2.x, p2.y)
+          ctx.lineTo(endUpperX, endUpperY)
+          ctx.lineTo(endLowerX, endLowerY)
+          ctx.lineTo(p3.x, p3.y)
+          ctx.closePath()
+          ctx.fill()
+
+          ctx.setLineDash([3, 3])
+          ctx.strokeStyle = '#64748b'
+          ctx.lineWidth = 1
+          ctx.beginPath()
+          ctx.moveTo(p2.x, p2.y)
+          ctx.lineTo(p3.x, p3.y)
+          ctx.stroke()
+
+          ctx.setLineDash([])
+          ctx.lineWidth = 1.8
+          ctx.strokeStyle = '#f0b90b'
+          ctx.beginPath()
+          ctx.moveTo(p1.x, p1.y)
+          ctx.lineTo(endMidX, endMidY)
+          ctx.stroke()
+
+          ctx.strokeStyle = '#38bdf8'
+          ctx.beginPath()
+          ctx.moveTo(p2.x, p2.y)
+          ctx.lineTo(endUpperX, endUpperY)
+          ctx.moveTo(p3.x, p3.y)
+          ctx.lineTo(endLowerX, endLowerY)
+          ctx.stroke()
+          ctx.restore()
+
+          ctx.fillStyle = '#ffffff'
+          ctx.beginPath()
+          ctx.arc(p1.x, p1.y, 3, 0, Math.PI * 2)
+          ctx.arc(p2.x, p2.y, 3, 0, Math.PI * 2)
+          ctx.arc(p3.x, p3.y, 3, 0, Math.PI * 2)
+          ctx.fill()
+        }
+      }
+      // 15. Rectangle
+      else if (d.type === 'rectangle' && d.points.length >= 2) {
         const p1 = resolveCoord(d.points[0].time, d.points[0].price)
         const p2 = resolveCoord(d.points[1].time, d.points[1].price)
         if (p1 && p2) {
@@ -1314,7 +1793,9 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
           ctx.fillRect(rx, ry, rw, rh)
           ctx.strokeRect(rx, ry, rw, rh)
         }
-      } else if (d.type === 'fibonacci' && d.points.length >= 2) {
+      }
+      // 16. Fibonacci Retracement
+      else if (d.type === 'fibonacci' && d.points.length >= 2) {
         const p1 = resolveCoord(d.points[0].time, d.points[0].price)
         const p2 = resolveCoord(d.points[1].time, d.points[1].price)
         if (p1 && p2) {
@@ -1344,12 +1825,14 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
             }
           })
         }
-      } else if (d.type === 'measure' && d.points.length >= 2) {
+      }
+      // 17. Measure (Ruler)
+      else if (d.type === 'measure' && d.points.length >= 2) {
         const p1 = resolveCoord(d.points[0].time, d.points[0].price)
         const p2 = resolveCoord(d.points[1].time, d.points[1].price)
         if (p1 && p2) {
           const deltaPrice = d.points[1].price - d.points[0].price
-          const deltaPct = (deltaPrice / d.points[0].price) * 100
+          const deltaPct = (deltaPrice / (d.points[0].price || 1)) * 100
           const rx = Math.min(p1.x, p2.x)
           const ry = Math.min(p1.y, p2.y)
           const rw = Math.abs(p2.x - p1.x)
@@ -1362,9 +1845,9 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
           ctx.strokeRect(rx, ry, rw, rh)
 
           ctx.fillStyle = '#111620'
-          ctx.fillRect(p2.x + 8, p2.y - 15, 120, 30)
+          ctx.fillRect(p2.x + 8, p2.y - 15, 125, 30)
           ctx.strokeStyle = ctx.strokeStyle
-          ctx.strokeRect(p2.x + 8, p2.y - 15, 120, 30)
+          ctx.strokeRect(p2.x + 8, p2.y - 15, 125, 30)
           ctx.fillStyle = deltaPrice >= 0 ? '#00c087' : '#f6465d'
           ctx.font = 'bold 10px monospace'
           ctx.fillText(`Δ: ${deltaPrice >= 0 ? '+' : ''}${formatPrice(deltaPrice)} (${deltaPct.toFixed(2)}%)`, p2.x + 12, p2.y)
@@ -1372,29 +1855,121 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
       }
     })
 
-    // H. Render active preview while dragging drawing
-    if (isDrawing && drawingStart && currentMouse) {
-      if (activeTool === 'trendline') {
-        ctx.strokeStyle = '#f0b90b'
-        ctx.lineWidth = 2
-        ctx.setLineDash([4, 2])
-        ctx.beginPath()
-        ctx.moveTo(drawingStart.x, drawingStart.y)
-        ctx.lineTo(currentMouse.x, currentMouse.y)
-        ctx.stroke()
-        ctx.setLineDash([])
-      } else if (activeTool === 'rectangle' || activeTool === 'measure') {
-        const rx = Math.min(drawingStart.x, currentMouse.x)
-        const ry = Math.min(drawingStart.y, currentMouse.y)
-        const rw = Math.abs(currentMouse.x - drawingStart.x)
-        const rh = Math.abs(currentMouse.y - drawingStart.y)
-        ctx.strokeStyle = '#f0b90b'
-        ctx.setLineDash([3, 3])
-        ctx.strokeRect(rx, ry, rw, rh)
-        ctx.setLineDash([])
+    // H. Render active preview while dragging / clicking points
+    if (isDrawing && (drawingStart || pendingPoints.length > 0) && currentMouse) {
+      const pStart = pendingPoints[0] || drawingStart
+      if (pStart) {
+        if (
+          activeTool === 'trendline' ||
+          activeTool === 'ray' ||
+          activeTool === 'info_line' ||
+          activeTool === 'extended_line' ||
+          activeTool === 'trend_angle'
+        ) {
+          ctx.strokeStyle = '#f0b90b'
+          ctx.lineWidth = 2
+          ctx.setLineDash([4, 2])
+          ctx.beginPath()
+          ctx.moveTo(pStart.x, pStart.y)
+          ctx.lineTo(currentMouse.x, currentMouse.y)
+          ctx.stroke()
+          ctx.setLineDash([])
+        } else if (
+          activeTool === 'parallel_channel' ||
+          activeTool === 'flat_top_bottom' ||
+          activeTool === 'disjoint_channel'
+        ) {
+          if (pendingPoints.length <= 1) {
+            ctx.strokeStyle = '#f0b90b'
+            ctx.lineWidth = 2
+            ctx.setLineDash([4, 2])
+            ctx.beginPath()
+            ctx.moveTo(pStart.x, pStart.y)
+            ctx.lineTo(currentMouse.x, currentMouse.y)
+            ctx.stroke()
+            ctx.setLineDash([])
+          } else {
+            const p1 = pendingPoints[0]
+            const p2 = pendingPoints[1]
+            const dx = p2.x - p1.x
+            const dy = p2.y - p1.y
+            const baseLineY = p1.y + (dx !== 0 ? (dy / dx) * (currentMouse.x - p1.x) : 0)
+            const offset = currentMouse.y - baseLineY
+
+            ctx.save()
+            ctx.fillStyle = 'rgba(240, 185, 11, 0.12)'
+            ctx.beginPath()
+            ctx.moveTo(p1.x, p1.y)
+            ctx.lineTo(p2.x, p2.y)
+            ctx.lineTo(p2.x, p2.y + offset)
+            ctx.lineTo(p1.x, p1.y + offset)
+            ctx.closePath()
+            ctx.fill()
+
+            ctx.strokeStyle = '#f0b90b'
+            ctx.lineWidth = 1.5
+            ctx.setLineDash([3, 3])
+            ctx.stroke()
+            ctx.restore()
+          }
+        } else if (
+          activeTool === 'pitchfork' ||
+          activeTool === 'schiff_pitchfork' ||
+          activeTool === 'modified_schiff' ||
+          activeTool === 'inside_pitchfork'
+        ) {
+          if (pendingPoints.length <= 1) {
+            ctx.strokeStyle = '#f0b90b'
+            ctx.setLineDash([4, 2])
+            ctx.beginPath()
+            ctx.moveTo(pStart.x, pStart.y)
+            ctx.lineTo(currentMouse.x, currentMouse.y)
+            ctx.stroke()
+            ctx.setLineDash([])
+          } else {
+            const p1 = pendingPoints[0]
+            const p2 = pendingPoints[1]
+            const p3 = currentMouse
+            const midX = (p2.x + p3.x) / 2
+            const midY = (p2.y + p3.y) / 2
+            ctx.strokeStyle = '#f0b90b'
+            ctx.setLineDash([3, 3])
+            ctx.beginPath()
+            ctx.moveTo(p1.x, p1.y)
+            ctx.lineTo(midX, midY)
+            ctx.moveTo(p2.x, p2.y)
+            ctx.lineTo(p3.x, p3.y)
+            ctx.stroke()
+            ctx.setLineDash([])
+          }
+        } else if (activeTool === 'rectangle' || activeTool === 'measure') {
+          const rx = Math.min(pStart.x, currentMouse.x)
+          const ry = Math.min(pStart.y, currentMouse.y)
+          const rw = Math.abs(currentMouse.x - pStart.x)
+          const rh = Math.abs(currentMouse.y - pStart.y)
+          ctx.strokeStyle = '#f0b90b'
+          ctx.setLineDash([3, 3])
+          ctx.strokeRect(rx, ry, rw, rh)
+          ctx.setLineDash([])
+        }
       }
     }
-  }, [smc, patterns, visibility, htfOverlay, forecast, drawings, isDrawing, drawingStart, currentMouse, activeTool, resolveCoord, sessionBlocks, timeframe])
+  }, [
+    smc,
+    patterns,
+    visibility,
+    htfOverlay,
+    forecast,
+    drawings,
+    isDrawing,
+    drawingStart,
+    pendingPoints,
+    currentMouse,
+    activeTool,
+    resolveCoord,
+    sessionBlocks,
+    timeframe
+  ])
 
   // Always update the ref with the latest redraw function
   useEffect(() => {
@@ -1419,12 +1994,21 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     const price = candleSeriesRef.current.coordinateToPrice(y)
     if (!time || !price) return
 
+    const point = { time: Number(time), price, x, y }
+
+    // Eraser mode: remove clicked drawing
     if (activeTool === 'eraser') {
       const hit = drawings.find((d) => {
         if (!d.points[0]) return false
         const coord = resolveCoord(d.points[0].time, d.points[0].price)
-        if (coord) {
-          return Math.hypot(coord.x - x, coord.y - y) < 25
+        if (coord && Math.hypot(coord.x - x, coord.y - y) < 25) return true
+        if (d.points[1]) {
+          const coord2 = resolveCoord(d.points[1].time, d.points[1].price)
+          if (coord2 && Math.hypot(coord2.x - x, coord2.y - y) < 25) return true
+        }
+        if (d.points[2]) {
+          const coord3 = resolveCoord(d.points[2].time, d.points[2].price)
+          if (coord3 && Math.hypot(coord3.x - x, coord3.y - y) < 25) return true
         }
         return false
       })
@@ -1432,18 +2016,83 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
       return
     }
 
-    if (activeTool === 'horizontal_line') {
+    // 1-Point Instant Placement Tools
+    if (
+      activeTool === 'horizontal_line' ||
+      activeTool === 'horizontal_ray' ||
+      activeTool === 'vertical_line' ||
+      activeTool === 'crossline'
+    ) {
       onAddDrawing({
-        id: `hline_${Date.now()}`,
-        type: 'horizontal_line',
+        id: `${activeTool}_${Date.now()}`,
+        type: activeTool,
         points: [{ time: Number(time), price }],
-        color: '#f59e0b'
+        color:
+          activeTool === 'crossline'
+            ? '#38bdf8'
+            : activeTool === 'vertical_line'
+              ? '#a855f7'
+              : '#f59e0b'
       })
       return
     }
 
-    setIsDrawing(true)
-    setDrawingStart({ time: Number(time), price, x, y })
+    // 3-Point Multi-Click Tools
+    const isThreePointTool = [
+      'parallel_channel',
+      'flat_top_bottom',
+      'disjoint_channel',
+      'pitchfork',
+      'schiff_pitchfork',
+      'modified_schiff',
+      'inside_pitchfork'
+    ].includes(activeTool)
+
+    if (isThreePointTool) {
+      if (pendingPoints.length === 0) {
+        setPendingPoints([point])
+        setIsDrawing(true)
+        setDrawingStart(point)
+      } else if (pendingPoints.length === 1) {
+        setPendingPoints([pendingPoints[0], point])
+        setDrawingStart(point)
+      } else if (pendingPoints.length >= 2) {
+        onAddDrawing({
+          id: `${activeTool}_${Date.now()}`,
+          type: activeTool,
+          points: [
+            { time: pendingPoints[0].time, price: pendingPoints[0].price },
+            { time: pendingPoints[1].time, price: pendingPoints[1].price },
+            { time: point.time, price: point.price }
+          ],
+          color: '#38bdf8'
+        })
+        setPendingPoints([])
+        setIsDrawing(false)
+        setDrawingStart(null)
+      }
+      return
+    }
+
+    // 2-Point Tools
+    if (pendingPoints.length === 0) {
+      setPendingPoints([point])
+      setIsDrawing(true)
+      setDrawingStart(point)
+    } else {
+      onAddDrawing({
+        id: `${activeTool}_${Date.now()}`,
+        type: activeTool,
+        points: [
+          { time: pendingPoints[0].time, price: pendingPoints[0].price },
+          { time: point.time, price: point.price }
+        ],
+        color: activeTool === 'trendline' ? '#38bdf8' : '#f0b90b'
+      })
+      setPendingPoints([])
+      setIsDrawing(false)
+      setDrawingStart(null)
+    }
   }
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -1476,18 +2125,45 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
   const handleMouseUp = () => {
     if (!isDrawing || !drawingStart || !currentMouse) return
 
-    onAddDrawing({
-      id: `draw_${Date.now()}`,
-      type: activeTool,
-      points: [
-        { time: drawingStart.time, price: drawingStart.price },
-        { time: currentMouse.time, price: currentMouse.price }
-      ]
-    })
+    // If it's a drag-to-draw (moved significantly from start)
+    const dist = Math.hypot(currentMouse.x - drawingStart.x, currentMouse.y - drawingStart.y)
+    if (dist > 15) {
+      const isThreePointTool = [
+        'parallel_channel',
+        'flat_top_bottom',
+        'disjoint_channel',
+        'pitchfork',
+        'schiff_pitchfork',
+        'modified_schiff',
+        'inside_pitchfork'
+      ].includes(activeTool)
 
-    setIsDrawing(false)
-    setDrawingStart(null)
-    setCurrentMouse(null)
+      if (isThreePointTool) {
+        if (pendingPoints.length === 1) {
+          // Keep point 1 and 2, ready for point 3 click
+          setPendingPoints([
+            pendingPoints[0],
+            { time: currentMouse.time, price: currentMouse.price, x: currentMouse.x, y: currentMouse.y }
+          ])
+          setDrawingStart({ time: currentMouse.time, price: currentMouse.price, x: currentMouse.x, y: currentMouse.y })
+          return
+        }
+      } else {
+        // 2-point tool finishes on drag release
+        onAddDrawing({
+          id: `${activeTool}_${Date.now()}`,
+          type: activeTool,
+          points: [
+            { time: drawingStart.time, price: drawingStart.price },
+            { time: currentMouse.time, price: currentMouse.price }
+          ]
+        })
+        setIsDrawing(false)
+        setDrawingStart(null)
+        setPendingPoints([])
+        setCurrentMouse(null)
+      }
+    }
   }
 
   const handleInteraction = () => {
