@@ -119,6 +119,31 @@ export function App() {
     readStoredJson<LayerVisibility>('cp_layer_visibility', DEFAULT_VISIBILITY, true)
   )
 
+  // Active Pane ID in multi-chart layout ('chart-1', 'chart-2', 'chart-3', 'chart-4')
+  const [activePaneId, setActivePaneId] = useState<string>('chart-1')
+
+  // Per-Pane Layer Visibility (Independent per chart pane, persistent in localStorage)
+  const [paneVisibility, setPaneVisibility] = useState<Record<string, LayerVisibility>>(() => {
+    try {
+      const saved = localStorage.getItem('cp_pane_visibility')
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        return {
+          'chart-1': { ...DEFAULT_VISIBILITY, ...(parsed['chart-1'] || {}) },
+          'chart-2': { ...DEFAULT_VISIBILITY, entryBoxes: false, ...(parsed['chart-2'] || {}) },
+          'chart-3': { ...DEFAULT_VISIBILITY, ...(parsed['chart-3'] || {}) },
+          'chart-4': { ...DEFAULT_VISIBILITY, ...(parsed['chart-4'] || {}) }
+        }
+      }
+    } catch {}
+    return {
+      'chart-1': { ...DEFAULT_VISIBILITY },
+      'chart-2': { ...DEFAULT_VISIBILITY, entryBoxes: false }, // Default matching user request: Chart 1 has entry box ON, Chart 2 has entry box OFF
+      'chart-3': { ...DEFAULT_VISIBILITY },
+      'chart-4': { ...DEFAULT_VISIBILITY }
+    }
+  })
+
   // Drawing Toolbar (Persistent per-symbol)
   const [activeTool, setActiveTool] = useState<DrawingToolType>('cursor')
   const [drawingsBySymbol, setDrawingsBySymbol] = useState<Record<string, DrawingItem[]>>(() =>
@@ -141,6 +166,7 @@ export function App() {
   useEffect(() => { writeStorage('cp_sync_crosshair', syncCrosshair) }, [syncCrosshair])
   useEffect(() => { writeStorage('cp_sync_setup_box', syncSetup) }, [syncSetup])
   useEffect(() => { writeStorage('cp_layer_visibility', visibility) }, [visibility])
+  useEffect(() => { writeStorage('cp_pane_visibility', paneVisibility) }, [paneVisibility])
   useEffect(() => { writeStorage('cp_app_settings', settings) }, [settings])
   useEffect(() => { writeStorage('cp_drawings_by_symbol', drawingsBySymbol) }, [drawingsBySymbol])
 
@@ -374,8 +400,67 @@ export function App() {
     setMarket(newMarket)
   }
 
+  const handleTogglePaneLayer = useCallback((paneId: string, key: keyof LayerVisibility) => {
+    setPaneVisibility((prev) => {
+      const currentPaneVis = prev[paneId] || visibility
+      const next = {
+        ...prev,
+        [paneId]: {
+          ...currentPaneVis,
+          [key]: !currentPaneVis[key]
+        }
+      }
+      return next
+    })
+    if (paneId === 'chart-1') {
+      setVisibility((prev) => ({ ...prev, [key]: !prev[key] }))
+    }
+  }, [visibility])
+
+  const handleSetAllPaneLayers = useCallback((paneId: string, enabled: boolean) => {
+    setPaneVisibility((prev) => {
+      const currentPaneVis = prev[paneId] || visibility
+      const allKeys: (keyof LayerVisibility)[] = [
+        'smcSwings', 'smcEvents', 'orderBlocks', 'fvgs', 'patterns',
+        'srLevels', 'marketSessions', 'forecastCone', 'forecastScenarios',
+        'entryBoxes', 'htfOverlay', 'volume', 'openInterest', 'fundingRate'
+      ]
+      const updatedVis = { ...currentPaneVis }
+      allKeys.forEach((k) => {
+        updatedVis[k] = enabled
+      })
+      return {
+        ...prev,
+        [paneId]: updatedVis
+      }
+    })
+    if (paneId === 'chart-1') {
+      setVisibility({
+        smcSwings: enabled,
+        smcEvents: enabled,
+        orderBlocks: enabled,
+        fvgs: enabled,
+        patterns: enabled,
+        srLevels: enabled,
+        marketSessions: enabled,
+        forecastCone: enabled,
+        forecastScenarios: enabled,
+        entryBoxes: enabled,
+        htfOverlay: enabled,
+        volume: enabled,
+        openInterest: enabled,
+        fundingRate: enabled
+      })
+    }
+  }, [visibility])
+
   const handleToggleLayer = (key: keyof LayerVisibility) => {
-    setVisibility((prev) => ({ ...prev, [key]: !prev[key] }))
+    if (layout !== 'single') {
+      handleTogglePaneLayer(activePaneId, key)
+    } else {
+      setVisibility((prev) => ({ ...prev, [key]: !prev[key] }))
+      handleTogglePaneLayer('chart-1', key)
+    }
   }
 
   const handleSetAllLayers = (enabled: boolean) => {
@@ -395,6 +480,11 @@ export function App() {
       openInterest: enabled,
       fundingRate: enabled
     })
+    if (layout !== 'single') {
+      handleSetAllPaneLayers(activePaneId, enabled)
+    } else {
+      handleSetAllPaneLayers('chart-1', enabled)
+    }
   }
 
   // Per-symbol drawings
@@ -777,12 +867,23 @@ export function App() {
 
       {/* 2. Layer Toggles Bar (TradingView Dropdown Style) */}
       <LayerToggles
-        visibility={visibility}
+        visibility={layout !== 'single' ? (paneVisibility[activePaneId] || visibility) : (paneVisibility['chart-1'] || visibility)}
         onToggle={handleToggleLayer}
         hasHtf={Boolean(analysis?.htf_overlay)}
         market={market}
         openInterest={analysis?.open_interest}
         onSetAll={handleSetAllLayers}
+        activePaneTitle={
+          layout !== 'single'
+            ? activePaneId === 'chart-1'
+              ? 'PANE 1'
+              : activePaneId === 'chart-2'
+                ? 'PANE 2'
+                : activePaneId === 'chart-3'
+                  ? 'PANE 3'
+                  : 'PANE 4'
+            : undefined
+        }
       />
 
       {/* 3. Main Workspace */}
@@ -818,6 +919,11 @@ export function App() {
             }
               htfOverlay={analysis?.htf_overlay}
               visibility={visibility}
+              paneVisibility={paneVisibility}
+              onTogglePaneLayer={handleTogglePaneLayer}
+              onSetAllPaneLayers={handleSetAllPaneLayers}
+              activePaneId={activePaneId}
+              onSelectPane={setActivePaneId}
               activeTool={activeTool}
               drawings={currentDrawings}
               onAddDrawing={handleAddDrawing}

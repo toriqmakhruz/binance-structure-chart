@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { Crosshair, Layers } from 'lucide-react'
 import { LightweightChart } from './LightweightChart'
+import { PaneLayerDropdown } from './PaneLayerDropdown'
 import { fetchAnalysis, defaultAppSettings } from '../../services/api'
 import {
   Candle,
@@ -154,6 +155,11 @@ interface ChartContainerProps {
   forecast?: ForecastResult
   htfOverlay?: any
   visibility: LayerVisibility
+  paneVisibility?: Record<string, LayerVisibility>
+  onTogglePaneLayer?: (paneId: string, key: keyof LayerVisibility) => void
+  onSetAllPaneLayers?: (paneId: string, enabled: boolean) => void
+  activePaneId?: string
+  onSelectPane?: (paneId: string) => void
   activeTool: DrawingToolType
   drawings: DrawingItem[]
   onAddDrawing: (d: DrawingItem) => void
@@ -189,6 +195,11 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
   forecast,
   htfOverlay,
   visibility,
+  paneVisibility,
+  onTogglePaneLayer,
+  onSetAllPaneLayers,
+  activePaneId = 'chart-1',
+  onSelectPane,
   activeTool,
   drawings,
   onAddDrawing,
@@ -226,23 +237,75 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
       (chartId === 'chart-1' || chartId === 'chart-main') &&
       effectiveTf.toLowerCase() === timeframe.toLowerCase()
 
+    const paneVis =
+      (paneVisibility &&
+        (paneVisibility[chartId] ||
+          (chartId === 'chart-main' ? paneVisibility['chart-1'] : undefined))) ||
+      visibility
+
+    const paneTitle =
+      chartId === 'chart-1' || chartId === 'chart-main'
+        ? 'PANE 1'
+        : chartId === 'chart-2'
+          ? 'PANE 2'
+          : chartId === 'chart-3'
+            ? 'PANE 3'
+            : 'PANE 4'
+
+    const isActive = activePaneId === chartId || (chartId === 'chart-main' && activePaneId === 'chart-1')
+
     return (
-      <div key={chartId} className="relative w-full h-full bg-[#0b0e14] border border-[#21262d] overflow-hidden flex flex-col">
+      <div
+        key={chartId}
+        onClick={() => onSelectPane && onSelectPane(chartId === 'chart-main' ? 'chart-1' : chartId)}
+        className={`relative w-full h-full bg-[#0b0e14] border transition-all overflow-hidden flex flex-col ${
+          layout !== 'single' && isActive
+            ? 'border-amber-500/60 shadow-sm shadow-amber-950/20 ring-1 ring-amber-500/30'
+            : 'border-[#21262d]'
+        }`}
+      >
         {/* Interactive Chart Header for multi-chart view */}
         {layout !== 'single' && (
           <div className="h-8 bg-[#161b22] px-2 md:px-3 flex items-center justify-between text-[11px] font-mono border-b border-[#21262d] z-20 shrink-0 select-none">
             <div className="flex items-center space-x-1.5 md:space-x-2">
-              <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-[#252d3d] text-[#f0b90b] border border-amber-500/30">
-                {chartId === 'chart-1'
-                  ? 'PANE 1'
-                  : chartId === 'chart-2'
-                    ? 'PANE 2'
-                    : chartId === 'chart-3'
-                      ? 'PANE 3'
-                      : 'PANE 4'}
-              </span>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onSelectPane && onSelectPane(chartId)
+                }}
+                className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded border transition-colors ${
+                  isActive
+                    ? 'bg-amber-500 text-black border-amber-400 font-black shadow-sm'
+                    : 'bg-[#252d3d] text-[#f0b90b] border-amber-500/30 hover:border-amber-400'
+                }`}
+                title={`Klik untuk fokus ke ${paneTitle}`}
+              >
+                {paneTitle}
+              </button>
               <span className="font-bold text-white tracking-wider">{symbol}</span>
               <span className="text-[#00c087] font-bold hidden sm:inline">[{effectiveTf.toUpperCase()}]</span>
+
+              {/* Dedicated Per-Pane Independent Layer Toggles */}
+              <PaneLayerDropdown
+                paneTitle={paneTitle}
+                chartId={chartId}
+                visibility={paneVis}
+                onToggleLayer={(key) => {
+                  if (onTogglePaneLayer) {
+                    onTogglePaneLayer(chartId === 'chart-main' ? 'chart-1' : chartId, key)
+                  } else if (onToggleLayer) {
+                    onToggleLayer(key)
+                  }
+                }}
+                onSetAllLayers={(enabled) => {
+                  if (onSetAllPaneLayers) {
+                    onSetAllPaneLayers(chartId === 'chart-main' ? 'chart-1' : chartId, enabled)
+                  }
+                }}
+                market={market}
+                hasHtf={Boolean(htfOverlay)}
+              />
             </div>
 
             {/* Timeframe selector & Crosshair/Setup Sync toggles for THIS pane */}
@@ -333,7 +396,7 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
               patterns={patterns}
               forecast={forecast}
               htfOverlay={htfOverlay}
-              visibility={visibility}
+              visibility={paneVis}
               activeTool={activeTool}
               drawings={drawings}
               onAddDrawing={onAddDrawing}
@@ -341,7 +404,13 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
               openInterest={openInterest}
               fundingRate={fundingRate}
               market={market}
-              onToggleLayer={onToggleLayer}
+              onToggleLayer={(key) => {
+                if (onTogglePaneLayer) {
+                  onTogglePaneLayer(chartId === 'chart-main' ? 'chart-1' : chartId, key)
+                } else if (onToggleLayer) {
+                  onToggleLayer(key)
+                }
+              }}
             />
           ) : (
             <SubTimeframeChart
@@ -354,14 +423,20 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
               timeframe={effectiveTf}
               market={market}
               settings={settings}
-              visibility={visibility}
+              visibility={paneVis}
               activeTool={activeTool}
               drawings={drawings}
               onAddDrawing={onAddDrawing}
               onRemoveDrawing={onRemoveDrawing}
               openInterest={openInterest}
               fundingRate={fundingRate}
-              onToggleLayer={onToggleLayer}
+              onToggleLayer={(key) => {
+                if (onTogglePaneLayer) {
+                  onTogglePaneLayer(chartId, key)
+                } else if (onToggleLayer) {
+                  onToggleLayer(key)
+                }
+              }}
             />
           )}
         </div>

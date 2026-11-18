@@ -6,7 +6,8 @@ import {
   Time,
   SeriesMarker,
   ColorType,
-  MouseEventParams
+  MouseEventParams,
+  CrosshairMode
 } from 'lightweight-charts'
 import {
   Candle,
@@ -145,6 +146,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         horzLines: { color: '#161b22', style: 1 }
       },
       crosshair: {
+        mode: CrosshairMode.Normal,
         vertLine: { color: '#444d56', width: 1, style: 3, labelBackgroundColor: '#1f242c' },
         horzLine: { color: '#444d56', width: 1, style: 3, labelBackgroundColor: '#1f242c' }
       },
@@ -218,8 +220,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
       if (
         !param.point ||
         param.point.x < 0 ||
-        param.point.y < 0 ||
-        param.time === undefined
+        param.point.y < 0
       ) {
         window.dispatchEvent(
           new CustomEvent('cp_sync_crosshair_clear', {
@@ -230,12 +231,17 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
       }
 
       const price = candleSeries.coordinateToPrice(param.point.y)
-      if (price !== null && price !== undefined) {
+      let time = param.time
+      if (time === undefined && chart.timeScale()) {
+        time = (chart.timeScale().coordinateToTime(param.point.x) ?? undefined) as Time | undefined
+      }
+
+      if (price !== null && price !== undefined && time !== undefined) {
         window.dispatchEvent(
           new CustomEvent('cp_sync_crosshair_move', {
             detail: {
               sourceId: chartIdRef.current,
-              time: param.time,
+              time: time,
               price: price
             }
           })

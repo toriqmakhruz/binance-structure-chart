@@ -29,6 +29,7 @@ interface LayerTogglesProps {
   market?: 'spot' | 'futures'
   openInterest?: OpenInterestData | null
   onSetAll?: (enabled: boolean) => void
+  activePaneTitle?: string
 }
 
 interface LayerItem {
@@ -51,7 +52,8 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
   hasHtf,
   market = 'futures',
   openInterest,
-  onSetAll
+  onSetAll,
+  activePaneTitle
 }) => {
   const [isOpen, setIsOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -149,6 +151,11 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
         >
           <SlidersHorizontal className="w-3.5 h-3.5 text-[#f0b90b]" />
           <span>Indikator & Layers</span>
+          {activePaneTitle && (
+            <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px] font-mono font-extrabold">
+              {activePaneTitle}
+            </span>
+          )}
           <span className="px-1.5 py-0.2 rounded-full bg-[#0d1117] text-[#f0b90b] font-mono text-[10px] font-bold">
             {activeCount}/{totalCount}
           </span>
