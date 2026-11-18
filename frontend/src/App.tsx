@@ -809,6 +809,7 @@ export function App() {
               openInterest={analysis?.open_interest}
               fundingRate={analysis?.funding_rate}
               onToggleLayer={handleToggleLayer}
+              onTimeframeChange={handleTimeframeChange}
             />
           </div>
 
