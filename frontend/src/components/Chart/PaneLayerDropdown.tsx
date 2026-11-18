@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react'
 import { LayerVisibility } from '../../types/analysis'
 import {
   SlidersHorizontal,
+  Sliders,
   ChevronDown,
   Target,
   Boxes,
@@ -26,6 +27,7 @@ interface PaneLayerDropdownProps {
   onSetAllLayers?: (enabled: boolean) => void
   market?: 'spot' | 'futures'
   hasHtf?: boolean
+  onOpenAutoFibSettings?: () => void
 }
 
 interface LayerOption {
@@ -43,7 +45,8 @@ export const PaneLayerDropdown: React.FC<PaneLayerDropdownProps> = ({
   onToggleLayer,
   onSetAllLayers,
   market = 'futures',
-  hasHtf = true
+  hasHtf = true,
+  onOpenAutoFibSettings
 }) => {
   const [isOpen, setIsOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -103,6 +106,13 @@ export const PaneLayerDropdown: React.FC<PaneLayerDropdownProps> = ({
       desc: 'Struktur titik puncak & lembah swing',
       icon: <GitCommit className="w-3.5 h-3.5" />,
       color: 'text-purple-400'
+    },
+    {
+      key: 'fibonacci',
+      label: 'Auto Fib Retracement',
+      desc: 'Auto Retracement OTE & Golden Ratio (Anti-Repaint)',
+      icon: <SlidersHorizontal className="w-3.5 h-3.5" />,
+      color: 'text-amber-400'
     },
     {
       key: 'patterns',
@@ -272,13 +282,27 @@ export const PaneLayerDropdown: React.FC<PaneLayerDropdownProps> = ({
                     </div>
                   </div>
 
-                  {/* Toggle Switch Pill */}
-                  <div
-                    className={`w-7 h-4 flex items-center rounded-full p-0.5 transition-colors shrink-0 ${
-                      isEnabled ? 'bg-emerald-500 justify-end' : 'bg-slate-700 justify-start'
-                    }`}
-                  >
-                    <div className="w-3 h-3 rounded-full bg-white shadow-sm" />
+                  {/* Toggle Switch Pill & Optional Settings */}
+                  <div className="flex items-center space-x-1.5 shrink-0">
+                    {opt.key === 'fibonacci' && onOpenAutoFibSettings && (
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onOpenAutoFibSettings()
+                        }}
+                        className="p-1 rounded bg-[#202738] hover:bg-[#2b354b] text-amber-400 hover:text-amber-300 border border-amber-500/30 transition-all cursor-pointer"
+                        title="Pengaturan Auto Fibonacci"
+                      >
+                        <Sliders className="w-3 h-3" />
+                      </span>
+                    )}
+                    <div
+                      className={`w-7 h-4 flex items-center rounded-full p-0.5 transition-colors shrink-0 ${
+                        isEnabled ? 'bg-emerald-500 justify-end' : 'bg-slate-700 justify-start'
+                      }`}
+                    >
+                      <div className="w-3 h-3 rounded-full bg-white shadow-sm" />
+                    </div>
                   </div>
                 </button>
               )

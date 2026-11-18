@@ -20,6 +20,7 @@ import {
   OpenInterestData,
   FundingRateData
 } from '../../types/analysis'
+import { AutoFibSettings, DEFAULT_AUTO_FIB_SETTINGS } from '../../types/fibonacci'
 import { formatPrice, getPricePrecision, formatOpenInterestValue, formatOpenInterest } from '../../utils/formatters'
 import { Crosshair, Clock, Trash2, Move, Palette, Check, X } from 'lucide-react'
 import { OpenInterestPane } from './OpenInterestPane'
@@ -37,6 +38,7 @@ interface LightweightChartProps {
   forecast?: ForecastResult
   htfOverlay?: any
   visibility: LayerVisibility
+  autoFibSettings?: AutoFibSettings
   activeTool: DrawingToolType
   onSelectTool?: (tool: DrawingToolType) => void
   drawings: DrawingItem[]
@@ -61,6 +63,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
   forecast,
   htfOverlay,
   visibility,
+  autoFibSettings,
   activeTool,
   onSelectTool,
   drawings,
@@ -1309,6 +1312,254 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
           ctx.restore()
         }
       })
+    }
+
+    // D2. Auto Fibonacci Retracement (Anti-Repaint Algorithm)
+    if (visibility.fibonacci && candles.length > 5) {
+      const fibConfig = autoFibSettings || DEFAULT_AUTO_FIB_SETTINGS
+      const pivotLegs = Math.max(3, fibConfig.pivotLegs || 10)
+
+      let swingHigh: { time: number; price: number } | null = null
+      let swingLow: { time: number; price: number } | null = null
+
+      // 1. Pivot Detection Strategy:
+      if (fibConfig.source === 'smc_swings' && smc?.swings && smc.swings.length >= 2) {
+        // Cari Swing High dan Swing Low terkonfirmasi terbaru dari SMC (yang sudah confirmed tanpa repaint)
+        const highSwings = smc.swings.filter((s) => s.type === 'H' || s.type === 'HH' || s.type === 'LH')
+        const lowSwings = smc.swings.filter((s) => s.type === 'L' || s.type === 'LL' || s.type === 'HL')
+
+        if (highSwings.length > 0 && lowSwings.length > 0) {
+          const lastHigh = highSwings[highSwings.length - 1]
+          const lastLow = lowSwings[lowSwings.length - 1]
+          swingHigh = { time: lastHigh.time, price: lastHigh.price }
+          swingLow = { time: lastLow.time, price: lastLow.price }
+        }
+      }
+
+      // Fallback atau jika dipilih zigzag_pivots:
+      if (!swingHigh || !swingLow || fibConfig.source === 'zigzag_pivots') {
+        // Pure mathematical anti-repaint Zigzag on closed candles:
+        // Hanya periksa candle sampai index (candles.length - 1 - pivotLegs)
+        // agar kepastian puncak/lembah 100% terkunci oleh penutupan pivotLegs bar di kanannya!
+        const maxIdx = candles.length - 1 - pivotLegs
+        const L = pivotLegs
+
+        let foundHigh: { time: number; price: number; idx: number } | null = null
+        let foundLow: { time: number; price: number; idx: number } | null = null
+
+        for (let i = maxIdx; i >= L; i--) {
+          const c = candles[i]
+          // Test Swing High
+          if (!foundHigh) {
+            let isH = true
+            for (let k = 1; k <= L; k++) {
+              if (candles[i - k].high > c.high || candles[i + k].high >= c.high) {
+                isH = false
+                break
+              }
+            }
+            if (isH) foundHigh = { time: c.time, price: c.high, idx: i }
+          }
+
+          // Test Swing Low
+          if (!foundLow) {
+            let isL = true
+            for (let k = 1; k <= L; k++) {
+              if (candles[i - k].low < c.low || candles[i + k].low <= c.low) {
+                isL = false
+                break
+              }
+            }
+            if (isL) foundLow = { time: c.time, price: c.low, idx: i }
+          }
+
+          if (foundHigh && foundLow) break
+        }
+
+        if (foundHigh) swingHigh = { time: foundHigh.time, price: foundHigh.price }
+        if (foundLow) swingLow = { time: foundLow.time, price: foundLow.price }
+      }
+
+      // Jika kedua titik swing berhasil ditemukan:
+      if (swingHigh && swingLow && swingHigh.price > swingLow.price) {
+        // Tentukan arah tren (Bullish vs Bearish):
+        let isBullish: boolean
+        if (fibConfig.trendDirection === 'up') {
+          isBullish = true
+        } else if (fibConfig.trendDirection === 'down') {
+          isBullish = false
+        } else {
+          isBullish = swingHigh.time >= swingLow.time
+        }
+
+        // Titik awal dan akhir Fibonacci:
+        const origin = isBullish ? swingLow : swingHigh
+        const extreme = isBullish ? swingHigh : swingLow
+
+        const pOrigin = resolveCoord(origin.time, origin.price)
+        const pExtreme = resolveCoord(extreme.time, extreme.price)
+
+        const highPrice = swingHigh.price
+        const lowPrice = swingLow.price
+        const priceDiff = highPrice - lowPrice
+
+        // Filter level-level yang aktif
+        const activeLevels = fibConfig.levels
+          .filter((lvl) => lvl.enabled)
+          .map((lvl) => {
+            let effLevel = lvl.level
+            if (fibConfig.reverse) {
+              effLevel = 1.0 - effLevel
+            }
+
+            // Hitung harga level persis
+            let levelPrice: number
+            if (isBullish) {
+              // Bullish: 0.0 di High, 1.0 di Low. Retracement turun dari High
+              levelPrice = highPrice - (effLevel * priceDiff)
+            } else {
+              // Bearish: 0.0 di Low, 1.0 di High. Retracement naik dari Low
+              levelPrice = lowPrice + (effLevel * priceDiff)
+            }
+
+            const y = series.priceToCoordinate(levelPrice)
+            return {
+              config: lvl,
+              effLevel,
+              price: levelPrice,
+              y
+            }
+          })
+          .filter((item) => item.y !== null)
+
+        // Urutkan berdasarkan koordinat y (layar) untuk penggambaran background shading antar pita
+        const sortedByY = [...activeLevels].sort((a, b) => (a.y as number) - (b.y as number))
+
+        // Batas horizontal garis
+        const minAnchorX = pOrigin && pExtreme ? Math.min(pOrigin.x, pExtreme.x) : 0
+        const startX = fibConfig.extendLeft ? 0 : Math.max(0, minAnchorX)
+        const endX = fibConfig.extendRight ? (width - 65) : Math.max(width - 65, pOrigin && pExtreme ? Math.max(pOrigin.x, pExtreme.x) + 120 : width - 65)
+
+        // 1. Background Shading
+        if (fibConfig.backgroundShading && sortedByY.length >= 2) {
+          for (let i = 0; i < sortedByY.length - 1; i++) {
+            const top = sortedByY[i]
+            const bottom = sortedByY[i + 1]
+            if (top.y !== null && bottom.y !== null) {
+              const bandHeight = Math.abs(bottom.y - top.y)
+              if (bandHeight >= 1) {
+                const isGoldenPocket =
+                  (top.config.level >= 0.618 && top.config.level <= 0.786) ||
+                  (bottom.config.level >= 0.618 && bottom.config.level <= 0.786)
+
+                ctx.fillStyle = top.config.color
+                ctx.globalAlpha = isGoldenPocket ? Math.min(0.35, (fibConfig.backgroundOpacity || 0.12) * 1.8) : (fibConfig.backgroundOpacity || 0.12)
+                ctx.fillRect(startX, Math.min(top.y, bottom.y), endX - startX, bandHeight)
+                ctx.globalAlpha = 1.0
+              }
+            }
+          }
+        }
+
+        // 2. Garis Baseline Diagonal Penunjuk Swing (Dotted line between Origin and Extreme)
+        if (pOrigin && pExtreme) {
+          ctx.save()
+          ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)'
+          ctx.lineWidth = 1
+          ctx.setLineDash([3, 3])
+          ctx.beginPath()
+          ctx.moveTo(pOrigin.x, pOrigin.y)
+          ctx.lineTo(pExtreme.x, pExtreme.y)
+          ctx.stroke()
+          ctx.setLineDash([])
+
+          // Anchor markers
+          ;[pOrigin, pExtreme].forEach((pt, pIdx) => {
+            ctx.fillStyle = pIdx === 0 ? '#38bdf8' : '#f59e0b'
+            ctx.beginPath()
+            ctx.arc(pt.x, pt.y, 3.5, 0, Math.PI * 2)
+            ctx.fill()
+            ctx.strokeStyle = '#0b0e14'
+            ctx.lineWidth = 1.5
+            ctx.stroke()
+          })
+          ctx.restore()
+        }
+
+        // 3. Level Lines & Labels
+        activeLevels.forEach((item) => {
+          if (item.y === null) return
+          const y = item.y
+
+          ctx.save()
+          ctx.strokeStyle = item.config.color
+          ctx.lineWidth = fibConfig.lineWidth || 1.2
+          if (fibConfig.lineStyle === 'dashed') {
+            ctx.setLineDash([5, 4])
+          } else if (fibConfig.lineStyle === 'dotted') {
+            ctx.setLineDash([2, 2])
+          } else {
+            ctx.setLineDash([])
+          }
+
+          ctx.beginPath()
+          ctx.moveTo(startX, y)
+          ctx.lineTo(endX, y)
+          ctx.stroke()
+          ctx.setLineDash([])
+
+          // Format Text Label
+          let labelStr = ''
+          if (fibConfig.showLevels === 'both') {
+            labelStr = `${item.config.level} (${(item.config.level * 100).toFixed(1)}%)`
+          } else if (fibConfig.showLevels === 'percent') {
+            labelStr = `${(item.config.level * 100).toFixed(1)}%`
+          } else {
+            labelStr = `${item.config.level}`
+          }
+
+          if (fibConfig.showPrices) {
+            labelStr += `  $${formatPrice(item.price)}`
+          }
+
+          // Posisi Label (Right / Center / Left)
+          ctx.font = 'bold 9.5px Inter, monospace'
+          const textMetrics = ctx.measureText(labelStr)
+          const textW = textMetrics.width
+          const padX = 5
+          const pillW = textW + padX * 2
+          const pillH = 14
+
+          let pillX: number
+          if (fibConfig.labelPosition === 'left') {
+            pillX = startX + 8
+          } else if (fibConfig.labelPosition === 'center') {
+            pillX = (startX + endX) / 2 - pillW / 2
+          } else {
+            pillX = endX - pillW - 6
+          }
+          const pillY = y - pillH / 2
+
+          // Background pill
+          ctx.fillStyle = 'rgba(11, 14, 20, 0.88)'
+          ctx.strokeStyle = item.config.color
+          ctx.lineWidth = 1
+          ctx.beginPath()
+          if (typeof (ctx as any).roundRect === 'function') {
+            ;(ctx as any).roundRect(pillX, pillY, pillW, pillH, 3)
+          } else {
+            ctx.rect(pillX, pillY, pillW, pillH)
+          }
+          ctx.fill()
+          ctx.stroke()
+
+          // Text
+          ctx.fillStyle = item.config.color
+          ctx.fillText(labelStr, pillX + padX, pillY + 10.5)
+
+          ctx.restore()
+        })
+      }
     }
 
     // E. Render Forecast Confidence Cone & Trajectory

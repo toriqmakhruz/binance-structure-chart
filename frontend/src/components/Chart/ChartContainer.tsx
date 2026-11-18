@@ -14,7 +14,8 @@ import {
   DrawingItem,
   AppSettings,
   OpenInterestData,
-  FundingRateData
+  FundingRateData,
+  AutoFibSettings
 } from '../../types/analysis'
 
 interface SubChartProps {
@@ -27,6 +28,7 @@ interface SubChartProps {
   market: 'spot' | 'futures'
   settings?: AppSettings
   visibility: LayerVisibility
+  autoFibSettings?: AutoFibSettings
   activeTool: DrawingToolType
   onSelectTool?: (tool: DrawingToolType) => void
   drawings: DrawingItem[]
@@ -49,6 +51,7 @@ const SubTimeframeChart: React.FC<SubChartProps> = ({
   market,
   settings,
   visibility,
+  autoFibSettings,
   activeTool,
   onSelectTool,
   drawings,
@@ -134,6 +137,7 @@ const SubTimeframeChart: React.FC<SubChartProps> = ({
       forecast={effectiveForecast}
       htfOverlay={data.htf_overlay}
       visibility={visibility}
+      autoFibSettings={autoFibSettings}
       activeTool={activeTool}
       onSelectTool={onSelectTool}
       drawings={drawings}
@@ -166,6 +170,8 @@ interface ChartContainerProps {
   htfOverlay?: any
   visibility: LayerVisibility
   paneVisibility?: Record<string, LayerVisibility>
+  autoFibSettings?: AutoFibSettings
+  onOpenAutoFibSettings?: () => void
   onTogglePaneLayer?: (paneId: string, key: keyof LayerVisibility) => void
   onSetAllPaneLayers?: (paneId: string, enabled: boolean) => void
   activePaneId?: string
@@ -209,6 +215,8 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
   htfOverlay,
   visibility,
   paneVisibility,
+  autoFibSettings,
+  onOpenAutoFibSettings,
   onTogglePaneLayer,
   onSetAllPaneLayers,
   activePaneId = 'chart-1',
@@ -321,6 +329,7 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
                 }}
                 market={market}
                 hasHtf={Boolean(htfOverlay)}
+                onOpenAutoFibSettings={onOpenAutoFibSettings}
               />
             </div>
 
@@ -413,6 +422,7 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
               forecast={forecast}
               htfOverlay={htfOverlay}
               visibility={paneVis}
+              autoFibSettings={autoFibSettings}
               activeTool={activeTool}
               onSelectTool={onSelectTool}
               drawings={drawings}
@@ -443,6 +453,7 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
               market={market}
               settings={settings}
               visibility={paneVis}
+              autoFibSettings={autoFibSettings}
               activeTool={activeTool}
               onSelectTool={onSelectTool}
               drawings={drawings}

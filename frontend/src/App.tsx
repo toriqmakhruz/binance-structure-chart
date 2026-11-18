@@ -7,6 +7,7 @@ import { ChartContainer } from './components/Chart/ChartContainer'
 import { RightSidebar } from './components/HUD/RightSidebar'
 import { SettingsDrawer } from './components/Settings/SettingsDrawer'
 import { TelegramAlertModal } from './components/Settings/TelegramAlertModal'
+import { AutoFibModal } from './components/Settings/AutoFibModal'
 import { fetchTelegramSettings } from './services/api'
 import { OpenPositionModal, SetupTradeTarget } from './components/Trade/OpenPositionModal'
 import { TradingDashboardDrawer } from './components/Trade/TradingDashboardDrawer'
@@ -27,6 +28,7 @@ import {
   SetupMode,
   ValidSetupItem
 } from './types/analysis'
+import { AutoFibSettings, DEFAULT_AUTO_FIB_SETTINGS } from './types/fibonacci'
 
 const DEFAULT_VISIBILITY: LayerVisibility = {
   smcSwings: true,
@@ -42,7 +44,8 @@ const DEFAULT_VISIBILITY: LayerVisibility = {
   htfOverlay: true,
   volume: true,
   openInterest: true,
-  fundingRate: true
+  fundingRate: true,
+  fibonacci: true
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -191,6 +194,12 @@ export function App() {
   const [selectedRadarSetup, setSelectedRadarSetup] = useState<ValidSetupItem | null>(null)
   const [isDashboardDrawerOpen, setIsDashboardDrawerOpen] = useState(false)
   const [tradeRefreshSeq, setTradeRefreshSeq] = useState(0)
+
+  // Auto Fibonacci Retracement Configuration (TradingView Style)
+  const [autoFibSettings, setAutoFibSettings] = useState<AutoFibSettings>(() =>
+    readStoredJson<AutoFibSettings>('cp_auto_fib_settings', DEFAULT_AUTO_FIB_SETTINGS, true)
+  )
+  const [isAutoFibModalOpen, setIsAutoFibModalOpen] = useState(false)
 
   // Notification Toast Stack
   const [toasts, setToasts] = useState<ToastData[]>([])
@@ -907,6 +916,7 @@ export function App() {
         market={market}
         openInterest={analysis?.open_interest}
         onSetAll={handleSetAllLayers}
+        onOpenAutoFibSettings={() => setIsAutoFibModalOpen(true)}
         activePaneTitle={
           layout !== 'single'
             ? activePaneId === 'chart-1'
@@ -954,6 +964,8 @@ export function App() {
               htfOverlay={analysis?.htf_overlay}
               visibility={visibility}
               paneVisibility={paneVisibility}
+              autoFibSettings={autoFibSettings}
+              onOpenAutoFibSettings={() => setIsAutoFibModalOpen(true)}
               onTogglePaneLayer={handleTogglePaneLayer}
               onSetAllPaneLayers={handleSetAllPaneLayers}
               activePaneId={activePaneId}
@@ -1128,6 +1140,23 @@ export function App() {
               duration: 7000
             })
           }
+        }}
+      />
+
+      {/* Auto Fibonacci Retracement Settings Modal (TradingView Style) */}
+      <AutoFibModal
+        isOpen={isAutoFibModalOpen}
+        settings={autoFibSettings}
+        onClose={() => setIsAutoFibModalOpen(false)}
+        onSave={(newSettings) => {
+          setAutoFibSettings(newSettings)
+          writeStorage('cp_auto_fib_settings', newSettings)
+          addToast({
+            type: 'success',
+            title: 'Pengaturan Auto Fibonacci Disimpan ⚙️',
+            message: 'Konfigurasi level, gaya visual, dan parameter anti-repaint berhasil diperbarui.',
+            duration: 4000
+          })
         }}
       />
 

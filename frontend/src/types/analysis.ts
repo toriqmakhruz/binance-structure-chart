@@ -230,7 +230,10 @@ export interface LayerVisibility {
   volume: boolean
   openInterest: boolean
   fundingRate: boolean
+  fibonacci?: boolean
 }
+
+export * from './fibonacci'
 
 export type DrawingToolType = 
   | 'cursor' 

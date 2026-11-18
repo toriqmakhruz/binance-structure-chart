@@ -19,7 +19,8 @@ import {
   Activity,
   Check,
   X,
-  Percent
+  Percent,
+  Sliders
 } from 'lucide-react'
 
 interface LayerTogglesProps {
@@ -30,6 +31,7 @@ interface LayerTogglesProps {
   openInterest?: OpenInterestData | null
   onSetAll?: (enabled: boolean) => void
   activePaneTitle?: string
+  onOpenAutoFibSettings?: () => void
 }
 
 interface LayerItem {
@@ -53,7 +55,8 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
   market = 'futures',
   openInterest,
   onSetAll,
-  activePaneTitle
+  activePaneTitle,
+  onOpenAutoFibSettings
 }) => {
   const [isOpen, setIsOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -93,6 +96,7 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
     {
       category: 'Pola & Level Pasar',
       items: [
+        { key: 'fibonacci', label: 'Auto Fib Retracement', desc: 'Auto OTE & Golden Pocket (Anti-Repaint)', icon: <SlidersHorizontal className="w-3.5 h-3.5" />, color: 'text-amber-400', bgHover: 'hover:bg-amber-950/30' },
         { key: 'patterns', label: 'Pola Chart', desc: 'Double Top/Bottom, H&S, Triangles', icon: <Shapes className="w-3.5 h-3.5" />, color: 'text-emerald-400', bgHover: 'hover:bg-emerald-950/30' },
         { key: 'srLevels', label: 'S/R Levels', desc: 'Support & Resistance dinamis', icon: <Minus className="w-3.5 h-3.5" />, color: 'text-teal-400', bgHover: 'hover:bg-teal-950/30' },
         { key: 'marketSessions', label: 'Sesi Pasar (Sessions)', desc: 'Asia, London, New York & Range H/L', icon: <Clock className="w-3.5 h-3.5" />, color: 'text-amber-400', bgHover: 'hover:bg-amber-950/30' }
@@ -120,17 +124,18 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
   // Count active layers
   const allKeys: (keyof LayerVisibility)[] = [
     'smcEvents', 'orderBlocks', 'fvgs', 'smcSwings',
-    'patterns', 'srLevels', 'marketSessions', 'forecastCone', 'forecastScenarios',
+    'fibonacci', 'patterns', 'srLevels', 'marketSessions', 'forecastCone', 'forecastScenarios',
     'entryBoxes', 'volume', 'openInterest', 'fundingRate', ...(hasHtf ? ['htfOverlay' as keyof LayerVisibility] : [])
   ]
   const activeCount = allKeys.filter((k) => visibility[k]).length
   const totalCount = allKeys.length
 
-  // Quick chips for top 4 core indicators
+  // Quick chips for top core indicators
   const quickChips: { key: keyof LayerVisibility; label: string }[] = [
     { key: 'smcEvents', label: 'BOS/CHoCH' },
     { key: 'orderBlocks', label: 'OB' },
     { key: 'fvgs', label: 'FVG' },
+    { key: 'fibonacci', label: 'Auto Fib' },
     { key: 'entryBoxes', label: 'Box Entry' }
   ]
 
@@ -259,7 +264,20 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
                         </div>
 
                         {/* Interactive Toggle Switch / Eye Icon */}
-                        <div className="shrink-0 ml-2">
+                        <div className="shrink-0 ml-2 flex items-center space-x-1">
+                          {item.key === 'fibonacci' && onOpenAutoFibSettings && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                onOpenAutoFibSettings()
+                              }}
+                              className="p-1.5 rounded-md bg-[#1c2434] hover:bg-[#252f44] text-amber-400 hover:text-amber-300 border border-amber-500/30 transition-all shadow-sm"
+                              title="Buka Pengaturan Auto Fibonacci (TradingView)"
+                            >
+                              <Sliders className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={(e) => {
