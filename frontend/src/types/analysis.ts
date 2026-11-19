@@ -231,9 +231,11 @@ export interface LayerVisibility {
   openInterest: boolean
   fundingRate: boolean
   fibonacci?: boolean
+  volumeProfile?: boolean
 }
 
 export * from './fibonacci'
+export * from './volumeProfile'
 
 export type DrawingToolType = 
   | 'cursor' 

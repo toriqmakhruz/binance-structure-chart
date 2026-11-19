@@ -21,6 +21,7 @@ import {
   FundingRateData
 } from '../../types/analysis'
 import { AutoFibSettings, DEFAULT_AUTO_FIB_SETTINGS } from '../../types/fibonacci'
+import { VolumeProfileSettings, DEFAULT_VOLUME_PROFILE_SETTINGS } from '../../types/volumeProfile'
 import { formatPrice, getPricePrecision, formatOpenInterestValue, formatOpenInterest } from '../../utils/formatters'
 import { Crosshair, Clock, Trash2, Move, Palette, Check, X } from 'lucide-react'
 import { OpenInterestPane } from './OpenInterestPane'
@@ -39,6 +40,7 @@ interface LightweightChartProps {
   htfOverlay?: any
   visibility: LayerVisibility
   autoFibSettings?: AutoFibSettings
+  vpvrSettings?: VolumeProfileSettings
   activeTool: DrawingToolType
   onSelectTool?: (tool: DrawingToolType) => void
   drawings: DrawingItem[]
@@ -64,6 +66,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
   htfOverlay,
   visibility,
   autoFibSettings,
+  vpvrSettings,
   activeTool,
   onSelectTool,
   drawings,
@@ -827,6 +830,342 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
 
           ctx.restore()
         })
+      }
+    }
+
+    // 0.5. Volume Profile (VPVR - Visible Range Volume Profile + POC, VAH, VAL)
+    if (visibility.volumeProfile && candles.length >= 10) {
+      const vpConfig: VolumeProfileSettings = vpvrSettings || DEFAULT_VOLUME_PROFILE_SETTINGS
+      const maxChartX = Math.max(40, width - 68)
+
+      // 1. Ambil rentang candle (Visible Range di layar saat ini atau Fixed Lookback)
+      let vpCandles: Candle[] = []
+      if (vpConfig.rangeMode === 'visible') {
+        try {
+          const logicalRange = chart.timeScale().getVisibleLogicalRange()
+          if (logicalRange) {
+            const fromIdx = Math.max(0, Math.floor(logicalRange.from))
+            const toIdx = Math.min(candles.length - 1, Math.ceil(logicalRange.to))
+            if (toIdx >= fromIdx) {
+              vpCandles = candles.slice(fromIdx, toIdx + 1)
+            }
+          }
+        } catch {}
+        if (vpCandles.length < 5) {
+          vpCandles = candles.slice(-150)
+        }
+      } else {
+        const lookback = Math.max(20, vpConfig.fixedLookbackBars || 150)
+        vpCandles = candles.slice(-lookback)
+      }
+
+      if (vpCandles.length >= 5) {
+        let minP = Infinity
+        let maxP = -Infinity
+        for (let i = 0; i < vpCandles.length; i++) {
+          const c = vpCandles[i]
+          if (c.low < minP) minP = c.low
+          if (c.high > maxP) maxP = c.high
+        }
+
+        const priceSpan = maxP - minP
+        if (Number.isFinite(priceSpan) && priceSpan > 0) {
+          const numRows = Math.max(12, Math.min(120, vpConfig.rowSize || 48))
+          const binStep = priceSpan / numRows
+
+          interface VpBin {
+            lowPrice: number
+            highPrice: number
+            midPrice: number
+            upVol: number
+            downVol: number
+            totalVol: number
+            inVa: boolean
+            isHvn: boolean
+          }
+
+          const bins: VpBin[] = Array.from({ length: numRows }, (_, idx) => {
+            const lowPrice = minP + idx * binStep
+            const highPrice = lowPrice + binStep
+            return {
+              lowPrice,
+              highPrice,
+              midPrice: (lowPrice + highPrice) / 2,
+              upVol: 0,
+              downVol: 0,
+              totalVol: 0,
+              inVa: false,
+              isHvn: false
+            }
+          })
+
+          // 2. Distribusikan volume tiap candle ke dalam baris-baris harga yang dilewatinya
+          for (let i = 0; i < vpCandles.length; i++) {
+            const c = vpCandles[i]
+            const vol = Number(c.volume) || 0
+            if (vol <= 0) continue
+
+            let buyVol = 0
+            let sellVol = 0
+            if (c.taker_buy_volume && c.taker_buy_volume > 0 && c.taker_buy_volume <= vol) {
+              buyVol = c.taker_buy_volume
+              sellVol = Math.max(0, vol - c.taker_buy_volume)
+            } else {
+              const cRange = c.high - c.low
+              const buyRatio =
+                cRange > 0
+                  ? c.close >= c.open
+                    ? 0.5 + 0.5 * ((c.close - c.open) / cRange)
+                    : 0.5 * ((c.close - c.low) / cRange)
+                  : c.close >= c.open
+                    ? 1
+                    : 0
+              buyVol = vol * buyRatio
+              sellVol = vol * (1 - buyRatio)
+            }
+
+            const startBin = Math.max(0, Math.min(numRows - 1, Math.floor((c.low - minP) / binStep)))
+            const endBin = Math.max(0, Math.min(numRows - 1, Math.floor((c.high - minP) / binStep)))
+            const spanCount = Math.max(1, endBin - startBin + 1)
+            const upPerBin = buyVol / spanCount
+            const downPerBin = sellVol / spanCount
+            const totPerBin = vol / spanCount
+
+            for (let b = startBin; b <= endBin; b++) {
+              bins[b].upVol += upPerBin
+              bins[b].downVol += downPerBin
+              bins[b].totalVol += totPerBin
+            }
+          }
+
+          // 3. Cari POC (Point of Control) & Total Volume
+          let pocIdx = 0
+          let maxBinVol = 0
+          let totalProfileVol = 0
+          for (let i = 0; i < numRows; i++) {
+            totalProfileVol += bins[i].totalVol
+            if (bins[i].totalVol > maxBinVol) {
+              maxBinVol = bins[i].totalVol
+              pocIdx = i
+            }
+          }
+
+          if (maxBinVol > 0 && totalProfileVol > 0) {
+            // 4. Hitung Value Area (Standar 70% dari Total Volume mulai ekspansi dari POC)
+            const vaTargetVol = totalProfileVol * ((vpConfig.valueAreaVolumePct || 70) / 100)
+            let vaLowIdx = pocIdx
+            let vaHighIdx = pocIdx
+            let accumVaVol = bins[pocIdx].totalVol
+
+            while (accumVaVol < vaTargetVol && (vaLowIdx > 0 || vaHighIdx < numRows - 1)) {
+              const upCandidate = vaHighIdx < numRows - 1 ? bins[vaHighIdx + 1].totalVol : -1
+              const downCandidate = vaLowIdx > 0 ? bins[vaLowIdx - 1].totalVol : -1
+
+              if (upCandidate >= downCandidate && vaHighIdx < numRows - 1) {
+                vaHighIdx++
+                accumVaVol += bins[vaHighIdx].totalVol
+              } else if (vaLowIdx > 0) {
+                vaLowIdx--
+                accumVaVol += bins[vaLowIdx].totalVol
+              } else {
+                break
+              }
+            }
+
+            for (let i = vaLowIdx; i <= vaHighIdx; i++) {
+              bins[i].inVa = true
+            }
+
+            // Deteksi High Volume Nodes (HVN lokal selain POC)
+            for (let i = 1; i < numRows - 1; i++) {
+              if (
+                i !== pocIdx &&
+                bins[i].totalVol > bins[i - 1].totalVol &&
+                bins[i].totalVol > bins[i + 1].totalVol &&
+                bins[i].totalVol >= maxBinVol * 0.58
+              ) {
+                bins[i].isHvn = true
+              }
+            }
+
+            const isRight = vpConfig.placement !== 'left'
+            const maxBarW = Math.max(36, Math.min(maxChartX * 0.45, (maxChartX * (vpConfig.widthPct || 24)) / 100))
+
+            ctx.save()
+
+            // A. Background Shading Area Nilai (Value Area Box entre VAL & VAH)
+            const vahPrice = bins[vaHighIdx].highPrice
+            const valPrice = bins[vaLowIdx].lowPrice
+            const pocPrice = bins[pocIdx].midPrice
+            const yVah = series.priceToCoordinate(vahPrice)
+            const yVal = series.priceToCoordinate(valPrice)
+            const yPoc = series.priceToCoordinate(pocPrice)
+
+            if (vpConfig.vaBackgroundShading && yVah !== null && yVal !== null) {
+              const vaTop = Math.min(yVah, yVal)
+              const vaHeight = Math.abs(yVal - yVah)
+              const boxX = isRight ? maxChartX - maxBarW - 8 : 0
+              const boxW = maxBarW + 8
+              ctx.fillStyle = vpConfig.vahColor || '#38bdf8'
+              ctx.globalAlpha = vpConfig.vaBackgroundOpacity || 0.06
+              ctx.fillRect(boxX, vaTop, boxW, vaHeight)
+              ctx.globalAlpha = 1.0
+            }
+
+            // B. Render Horizontal Histogram Bars untuk setiap Row
+            for (let i = 0; i < numRows; i++) {
+              const bin = bins[i]
+              if (bin.totalVol <= 0) continue
+
+              const yTop = series.priceToCoordinate(bin.highPrice)
+              const yBot = series.priceToCoordinate(bin.lowPrice)
+              if (yTop === null || yBot === null) continue
+
+              const barTop = Math.min(yTop, yBot) + 0.5
+              const barH = Math.max(1.5, Math.abs(yBot - yTop) - 1)
+              if (barTop + barH < 0 || barTop > height) continue
+
+              const totalW = (bin.totalVol / maxBinVol) * maxBarW
+              const upW = (bin.upVol / maxBinVol) * maxBarW
+              const downW = (bin.downVol / maxBinVol) * maxBarW
+              const isPocRow = i === pocIdx
+
+              const alpha = isPocRow
+                ? Math.min(0.92, (vpConfig.barOpacity || 0.52) + 0.25)
+                : bin.inVa
+                  ? vpConfig.barOpacity || 0.52
+                  : vpConfig.outsideVaOpacity || 0.22
+
+              ctx.globalAlpha = alpha
+
+              if (vpConfig.volumeType === 'up_down') {
+                if (isRight) {
+                  // Up/Buy Volume menempel dari kanan (maxChartX) ke kiri
+                  ctx.fillStyle = vpConfig.upVolumeColor || '#00c087'
+                  ctx.fillRect(maxChartX - upW, barTop, upW, barH)
+                  // Down/Sell Volume menyambung di sebelah kirinya
+                  ctx.fillStyle = vpConfig.downVolumeColor || '#f6465d'
+                  ctx.fillRect(maxChartX - upW - downW, barTop, downW, barH)
+                } else {
+                  ctx.fillStyle = vpConfig.upVolumeColor || '#00c087'
+                  ctx.fillRect(0, barTop, upW, barH)
+                  ctx.fillStyle = vpConfig.downVolumeColor || '#f6465d'
+                  ctx.fillRect(upW, barTop, downW, barH)
+                }
+              } else if (vpConfig.volumeType === 'delta') {
+                const isBuyDom = bin.upVol >= bin.downVol
+                ctx.fillStyle = isBuyDom ? (vpConfig.upVolumeColor || '#00c087') : (vpConfig.downVolumeColor || '#f6465d')
+                const xStart = isRight ? maxChartX - totalW : 0
+                ctx.fillRect(xStart, barTop, totalW, barH)
+              } else {
+                ctx.fillStyle = bin.inVa ? (vpConfig.upVolumeColor || '#00c087') : '#64748b'
+                const xStart = isRight ? maxChartX - totalW : 0
+                ctx.fillRect(xStart, barTop, totalW, barH)
+              }
+
+              // Highlight khusus pada baris POC atau HVN
+              if (isPocRow) {
+                ctx.globalAlpha = 0.95
+                ctx.strokeStyle = vpConfig.pocColor || '#f0b90b'
+                ctx.lineWidth = 1.2
+                const xStart = isRight ? maxChartX - totalW : 0
+                ctx.strokeRect(xStart, barTop, totalW, barH)
+              } else if (vpConfig.showHvnLvn && bin.isHvn) {
+                ctx.globalAlpha = 0.85
+                ctx.fillStyle = '#f0b90b'
+                const tipX = isRight ? maxChartX - totalW - 2 : totalW
+                ctx.fillRect(tipX, barTop, 2, barH)
+              }
+            }
+
+            ctx.globalAlpha = 1.0
+
+            // Helper untuk menggambar garis level VPVR (POC, VAH, VAL) beserta Pill Badge
+            const drawVpLevel = (
+              yCoord: number | null,
+              priceVal: number,
+              tag: string,
+              color: string,
+              lineW: number,
+              isDashed: boolean,
+              extendFull: boolean
+            ) => {
+              if (yCoord === null || yCoord < 0 || yCoord > height) return
+
+              const lineStartX = extendFull
+                ? 0
+                : isRight
+                  ? Math.max(0, maxChartX - maxBarW - 24)
+                  : 0
+              const lineEndX = extendFull
+                ? maxChartX
+                : isRight
+                  ? maxChartX
+                  : Math.min(maxChartX, maxBarW + 24)
+
+              ctx.save()
+              ctx.beginPath()
+              ctx.strokeStyle = color
+              ctx.lineWidth = lineW
+              ctx.setLineDash(isDashed ? [4, 3] : [])
+              ctx.moveTo(lineStartX, yCoord)
+              ctx.lineTo(lineEndX, yCoord)
+              ctx.stroke()
+              ctx.setLineDash([])
+
+              if (vpConfig.showLabels) {
+                const labelStr = `${tag} $${formatPrice(priceVal)}`
+                ctx.font = 'bold 9px Inter, monospace'
+                const textW = ctx.measureText(labelStr).width
+                const padX = 5
+                const pillW = textW + padX * 2
+                const pillH = 14
+                const pillX = isRight
+                  ? Math.max(6, maxChartX - pillW - 4)
+                  : 6
+                const pillY = yCoord - pillH / 2
+
+                ctx.fillStyle = 'rgba(11, 15, 25, 0.90)'
+                ctx.strokeStyle = color
+                ctx.lineWidth = 1
+                ctx.beginPath()
+                if (typeof (ctx as any).roundRect === 'function') {
+                  ;(ctx as any).roundRect(pillX, pillY, pillW, pillH, 3)
+                } else {
+                  ctx.rect(pillX, pillY, pillW, pillH)
+                }
+                ctx.fill()
+                ctx.stroke()
+
+                ctx.textAlign = 'left'
+                ctx.fillStyle = color
+                ctx.fillText(labelStr, pillX + padX, pillY + 10)
+              }
+              ctx.restore()
+            }
+
+            // C. Gambar garis VAH, VAL, dan POC
+            if (vpConfig.showVah) {
+              drawVpLevel(yVah, vahPrice, 'VAH', vpConfig.vahColor || '#38bdf8', vpConfig.vahLineWidth || 1.2, true, false)
+            }
+            if (vpConfig.showVal) {
+              drawVpLevel(yVal, valPrice, 'VAL', vpConfig.valColor || '#38bdf8', vpConfig.valLineWidth || 1.2, true, false)
+            }
+            if (vpConfig.showPoc) {
+              drawVpLevel(
+                yPoc,
+                pocPrice,
+                'POC',
+                vpConfig.pocColor || '#f0b90b',
+                vpConfig.pocLineWidth || 1.8,
+                false,
+                Boolean(vpConfig.pocExtendFull)
+              )
+            }
+
+            ctx.restore()
+          }
+        }
       }
     }
 
@@ -2687,7 +3026,10 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     activeTool,
     resolveCoord,
     sessionBlocks,
-    timeframe
+    timeframe,
+    candles,
+    autoFibSettings,
+    vpvrSettings
   ])
 
   // Always update the ref with the latest redraw function

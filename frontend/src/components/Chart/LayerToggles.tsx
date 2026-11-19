@@ -32,6 +32,7 @@ interface LayerTogglesProps {
   onSetAll?: (enabled: boolean) => void
   activePaneTitle?: string
   onOpenAutoFibSettings?: () => void
+  onOpenVpvrSettings?: () => void
 }
 
 interface LayerItem {
@@ -56,7 +57,8 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
   openInterest,
   onSetAll,
   activePaneTitle,
-  onOpenAutoFibSettings
+  onOpenAutoFibSettings,
+  onOpenVpvrSettings
 }) => {
   const [isOpen, setIsOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -113,6 +115,7 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
     {
       category: 'Volume & Derivatif',
       items: [
+        { key: 'volumeProfile', label: 'Volume Profile (VPVR)', desc: 'POC, VAH, VAL & Distribusi Volume Horizontal (70% VA)', icon: <BarChart2 className="w-3.5 h-3.5 rotate-90" />, color: 'text-cyan-400', bgHover: 'hover:bg-cyan-950/30' },
         { key: 'volume', label: 'Volume Delta', desc: 'Tekanan Taker Buy vs Sell bar', icon: <BarChart2 className="w-3.5 h-3.5" />, color: 'text-blue-400', bgHover: 'hover:bg-blue-950/30' },
         { key: 'openInterest', label: 'Open Interest (OI)', desc: 'Total kontrak aktif pasar Futures (Indikator Murni)', icon: <Activity className="w-3.5 h-3.5" />, color: 'text-sky-400', bgHover: 'hover:bg-sky-950/30' },
         { key: 'fundingRate', label: 'Funding Rate [Futures]', desc: 'Tarif pendanaan posisi Long vs Short (Indikator Murni)', icon: <Percent className="w-3.5 h-3.5" />, color: 'text-purple-400', bgHover: 'hover:bg-purple-950/30' },
@@ -125,7 +128,7 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
   const allKeys: (keyof LayerVisibility)[] = [
     'smcEvents', 'orderBlocks', 'fvgs', 'smcSwings',
     'fibonacci', 'patterns', 'srLevels', 'marketSessions', 'forecastCone', 'forecastScenarios',
-    'entryBoxes', 'volume', 'openInterest', 'fundingRate', ...(hasHtf ? ['htfOverlay' as keyof LayerVisibility] : [])
+    'entryBoxes', 'volumeProfile', 'volume', 'openInterest', 'fundingRate', ...(hasHtf ? ['htfOverlay' as keyof LayerVisibility] : [])
   ]
   const activeCount = allKeys.filter((k) => visibility[k]).length
   const totalCount = allKeys.length
@@ -136,6 +139,7 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
     { key: 'orderBlocks', label: 'OB' },
     { key: 'fvgs', label: 'FVG' },
     { key: 'fibonacci', label: 'Auto Fib' },
+    { key: 'volumeProfile', label: 'VPVR' },
     { key: 'entryBoxes', label: 'Box Entry' }
   ]
 
@@ -274,6 +278,19 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
                               }}
                               className="p-1.5 rounded-md bg-[#1c2434] hover:bg-[#252f44] text-amber-400 hover:text-amber-300 border border-amber-500/30 transition-all shadow-sm"
                               title="Buka Pengaturan Auto Fibonacci (TradingView)"
+                            >
+                              <Sliders className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {item.key === 'volumeProfile' && onOpenVpvrSettings && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                onOpenVpvrSettings()
+                              }}
+                              className="p-1.5 rounded-md bg-[#1c2434] hover:bg-[#252f44] text-cyan-400 hover:text-cyan-300 border border-cyan-500/30 transition-all shadow-sm"
+                              title="Buka Pengaturan Volume Profile (VPVR)"
                             >
                               <Sliders className="w-3.5 h-3.5" />
                             </button>

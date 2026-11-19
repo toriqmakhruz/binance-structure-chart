@@ -8,6 +8,7 @@ import { RightSidebar } from './components/HUD/RightSidebar'
 import { SettingsDrawer } from './components/Settings/SettingsDrawer'
 import { TelegramAlertModal } from './components/Settings/TelegramAlertModal'
 import { AutoFibModal } from './components/Settings/AutoFibModal'
+import { VpvrModal } from './components/Settings/VpvrModal'
 import { fetchTelegramSettings } from './services/api'
 import { OpenPositionModal, SetupTradeTarget } from './components/Trade/OpenPositionModal'
 import { TradingDashboardDrawer } from './components/Trade/TradingDashboardDrawer'
@@ -29,6 +30,7 @@ import {
   ValidSetupItem
 } from './types/analysis'
 import { AutoFibSettings, DEFAULT_AUTO_FIB_SETTINGS } from './types/fibonacci'
+import { VolumeProfileSettings, DEFAULT_VOLUME_PROFILE_SETTINGS } from './types/volumeProfile'
 
 const DEFAULT_VISIBILITY: LayerVisibility = {
   smcSwings: true,
@@ -45,7 +47,8 @@ const DEFAULT_VISIBILITY: LayerVisibility = {
   volume: true,
   openInterest: true,
   fundingRate: true,
-  fibonacci: true
+  fibonacci: true,
+  volumeProfile: true
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -200,6 +203,12 @@ export function App() {
     readStoredJson<AutoFibSettings>('cp_auto_fib_settings', DEFAULT_AUTO_FIB_SETTINGS, true)
   )
   const [isAutoFibModalOpen, setIsAutoFibModalOpen] = useState(false)
+
+  // Volume Profile (VPVR) Configuration (TradingView Style)
+  const [vpvrSettings, setVpvrSettings] = useState<VolumeProfileSettings>(() =>
+    readStoredJson<VolumeProfileSettings>('cp_vpvr_settings', DEFAULT_VOLUME_PROFILE_SETTINGS, true)
+  )
+  const [isVpvrModalOpen, setIsVpvrModalOpen] = useState(false)
 
   // Notification Toast Stack
   const [toasts, setToasts] = useState<ToastData[]>([])
@@ -452,7 +461,8 @@ export function App() {
       const allKeys: (keyof LayerVisibility)[] = [
         'smcSwings', 'smcEvents', 'orderBlocks', 'fvgs', 'patterns',
         'srLevels', 'marketSessions', 'forecastCone', 'forecastScenarios',
-        'entryBoxes', 'htfOverlay', 'volume', 'openInterest', 'fundingRate'
+        'entryBoxes', 'htfOverlay', 'volume', 'openInterest', 'fundingRate',
+        'fibonacci', 'volumeProfile'
       ]
       const updatedVis = { ...currentPaneVis }
       allKeys.forEach((k) => {
@@ -478,7 +488,9 @@ export function App() {
         htfOverlay: enabled,
         volume: enabled,
         openInterest: enabled,
-        fundingRate: enabled
+        fundingRate: enabled,
+        fibonacci: enabled,
+        volumeProfile: enabled
       })
     }
   }, [visibility])
@@ -507,7 +519,9 @@ export function App() {
       htfOverlay: enabled,
       volume: enabled,
       openInterest: enabled,
-      fundingRate: enabled
+      fundingRate: enabled,
+      fibonacci: enabled,
+      volumeProfile: enabled
     })
     if (layout !== 'single') {
       handleSetAllPaneLayers(activePaneId, enabled)
@@ -921,6 +935,7 @@ export function App() {
         openInterest={analysis?.open_interest}
         onSetAll={handleSetAllLayers}
         onOpenAutoFibSettings={() => setIsAutoFibModalOpen(true)}
+        onOpenVpvrSettings={() => setIsVpvrModalOpen(true)}
         activePaneTitle={
           layout !== 'single'
             ? activePaneId === 'chart-1'
@@ -970,6 +985,8 @@ export function App() {
               paneVisibility={paneVisibility}
               autoFibSettings={autoFibSettings}
               onOpenAutoFibSettings={() => setIsAutoFibModalOpen(true)}
+              vpvrSettings={vpvrSettings}
+              onOpenVpvrSettings={() => setIsVpvrModalOpen(true)}
               onTogglePaneLayer={handleTogglePaneLayer}
               onSetAllPaneLayers={handleSetAllPaneLayers}
               activePaneId={activePaneId}
@@ -1159,6 +1176,23 @@ export function App() {
             type: 'success',
             title: 'Pengaturan Auto Fibonacci Disimpan ⚙️',
             message: 'Konfigurasi level, gaya visual, dan parameter anti-repaint berhasil diperbarui.',
+            duration: 4000
+          })
+        }}
+      />
+
+      {/* Volume Profile (VPVR) Settings Modal (TradingView Style) */}
+      <VpvrModal
+        isOpen={isVpvrModalOpen}
+        settings={vpvrSettings}
+        onClose={() => setIsVpvrModalOpen(false)}
+        onSave={(newSettings) => {
+          setVpvrSettings(newSettings)
+          writeStorage('cp_vpvr_settings', newSettings)
+          addToast({
+            type: 'success',
+            title: 'Pengaturan Volume Profile (VPVR) Disimpan 📊',
+            message: `Resolusi ${newSettings.rowSize} rows, Value Area ${newSettings.valueAreaVolumePct}%, dan level POC/VAH/VAL berhasil diperbarui.`,
             duration: 4000
           })
         }}

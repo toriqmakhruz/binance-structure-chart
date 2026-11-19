@@ -28,6 +28,7 @@ interface PaneLayerDropdownProps {
   market?: 'spot' | 'futures'
   hasHtf?: boolean
   onOpenAutoFibSettings?: () => void
+  onOpenVpvrSettings?: () => void
 }
 
 interface LayerOption {
@@ -46,7 +47,8 @@ export const PaneLayerDropdown: React.FC<PaneLayerDropdownProps> = ({
   onSetAllLayers,
   market = 'futures',
   hasHtf = true,
-  onOpenAutoFibSettings
+  onOpenAutoFibSettings,
+  onOpenVpvrSettings
 }) => {
   const [isOpen, setIsOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -113,6 +115,13 @@ export const PaneLayerDropdown: React.FC<PaneLayerDropdownProps> = ({
       desc: 'Auto Retracement OTE & Golden Ratio (Anti-Repaint)',
       icon: <SlidersHorizontal className="w-3.5 h-3.5" />,
       color: 'text-amber-400'
+    },
+    {
+      key: 'volumeProfile',
+      label: 'Volume Profile (VPVR)',
+      desc: 'POC, VAH, VAL & Distribusi Volume 70% VA',
+      icon: <BarChart2 className="w-3.5 h-3.5 rotate-90" />,
+      color: 'text-cyan-400'
     },
     {
       key: 'patterns',
@@ -292,6 +301,18 @@ export const PaneLayerDropdown: React.FC<PaneLayerDropdownProps> = ({
                         }}
                         className="p-1 rounded bg-[#202738] hover:bg-[#2b354b] text-amber-400 hover:text-amber-300 border border-amber-500/30 transition-all cursor-pointer"
                         title="Pengaturan Auto Fibonacci"
+                      >
+                        <Sliders className="w-3 h-3" />
+                      </span>
+                    )}
+                    {opt.key === 'volumeProfile' && onOpenVpvrSettings && (
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onOpenVpvrSettings()
+                        }}
+                        className="p-1 rounded bg-[#202738] hover:bg-[#2b354b] text-cyan-400 hover:text-cyan-300 border border-cyan-500/30 transition-all cursor-pointer"
+                        title="Pengaturan Volume Profile (VPVR)"
                       >
                         <Sliders className="w-3 h-3" />
                       </span>
