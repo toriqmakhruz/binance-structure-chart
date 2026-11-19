@@ -550,3 +550,4 @@ class ApexQuantEngine:
         # Urutkan berdasarkan kombinasi bobot konfluensi tertinggi, kesegaran waktu entry, dan R:R
         active_candidates.sort(key=lambda x: (x["entry_time"], x["weight"], x["rr"]), reverse=True)
         return active_candidates
+

@@ -1717,11 +1717,14 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
 
         if (!pStart || yEntry === null || yTarget === null || yStop === null) return
 
-        const startX = Math.max(10, pStart.x)
-        const endX = pEnd ? Math.max(startX + 140, pEnd.x) : Math.min(width - 65, startX + 220)
-        const boxWidth = Math.max(120, endX - startX)
+        // Batasi batas horizontal maksimum agar tidak menembus sumbu harga (priceScale) di sisi kanan
+        const maxChartX = Math.max(20, width - 68)
+        const startX = Math.max(6, pStart.x)
+        const rawEndX = pEnd ? Math.max(startX + 60, pEnd.x) : startX + 180
+        const endX = Math.min(maxChartX, Math.max(startX + 35, rawEndX))
+        const boxWidth = Math.max(20, endX - startX)
 
-        if (startX > width || startX + boxWidth < 0) return
+        if (startX >= maxChartX || startX + boxWidth < 0) return
 
         // 1. Take Profit Box (Green Zone)
         const tpY = Math.min(yEntry, yTarget)
@@ -1768,31 +1771,78 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         ctx.lineTo(startX + boxWidth, yEntry)
         ctx.stroke()
 
-        // 5. Badges & Text Labels (Ditempatkan rapi di sisi kanan box agar tidak menghalangi candlestick)
+        // 5. Badges & Text Labels (TradingView Style dengan background pill kontras anti-clipping)
         const profitPct = Math.abs(((targetPrice - entryPrice) / entryPrice) * 100)
         const lossPct = Math.abs(((invalidationPrice - entryPrice) / entryPrice) * 100)
 
         ctx.save()
-        ctx.font = 'bold 10px monospace'
-        const labelX = Math.max(startX + 60, Math.min(startX + boxWidth - 8, width - 70))
-        ctx.textAlign = 'right'
+        ctx.font = 'bold 9.5px Inter, monospace'
 
-        // TP Label (Di sisi kanan zona TP)
-        ctx.fillStyle = '#00c087'
+        const isCompact = boxWidth < 170
         const tpLabel = `TP: $${formatPrice(targetPrice)} (+${profitPct.toFixed(2)}%)`
-        ctx.fillText(tpLabel, labelX, isLong ? tpY + 12 : tpY + tpHeight - 4)
-
-        // SL Label (Di sisi kanan zona SL)
-        ctx.fillStyle = '#f6465d'
         const slLabel = `SL: $${formatPrice(invalidationPrice)} (-${lossPct.toFixed(2)}%)`
-        ctx.fillText(slLabel, labelX, isLong ? slY + slHeight - 4 : slY + 12)
-
-        // Entry Level Label (Di sisi kanan garis entry - tidak ada banner solid yang menutupi candle)
-        ctx.fillStyle = '#38bdf8'
         const entryText = isLocked
-          ? `🔒 ${isLong ? 'BUY' : 'SELL'}: $${formatPrice(entryPrice)} (R:R 1:${sc.risk_reward_ratio})`
-          : `ENTRY: $${formatPrice(entryPrice)} (R:R 1:${sc.risk_reward_ratio})`
-        ctx.fillText(entryText, labelX, yEntry - 4)
+          ? `🔒 ${isLong ? 'BUY' : 'SELL'}: $${formatPrice(entryPrice)}${isCompact ? '' : ` (1:${sc.risk_reward_ratio})`}`
+          : `ENTRY: $${formatPrice(entryPrice)}${isCompact ? '' : ` (1:${sc.risk_reward_ratio})`}`
+
+        // Helper untuk menggambar rounded pill badge agar teks tidak bertabrakan dengan candle
+        const drawSetupBadge = (
+          text: string,
+          yCenter: number,
+          textColor: string,
+          borderColor: string,
+          bgColor = 'rgba(11, 15, 25, 0.90)'
+        ) => {
+          const textW = ctx.measureText(text).width
+          const padX = 5
+          const badgeW = textW + padX * 2
+          const badgeH = 15
+
+          // Hitung posisi horizontal badge:
+          // Posisikan merapat ke kanan dalam box jika cukup luas, tapi jangan pernah melewati kiri (startX + 4)
+          // dan jangan melewati batas kanan chart (maxChartX - badgeW - 2)
+          let bX = endX - badgeW - 4
+          if (bX < startX + 4) {
+            bX = Math.max(6, startX + 4)
+          }
+          if (bX + badgeW > maxChartX - 2) {
+            bX = Math.max(6, maxChartX - badgeW - 2)
+          }
+
+          const bY = yCenter - badgeH / 2
+
+          // Background pill
+          ctx.fillStyle = bgColor
+          ctx.strokeStyle = borderColor
+          ctx.lineWidth = 1
+          ctx.beginPath()
+          if (typeof (ctx as any).roundRect === 'function') {
+            ;(ctx as any).roundRect(bX, bY, badgeW, badgeH, 3)
+          } else {
+            ctx.rect(bX, bY, badgeW, badgeH)
+          }
+          ctx.fill()
+          ctx.stroke()
+
+          // Teks di dalam pill selalu left-aligned dari bX + padX
+          ctx.textAlign = 'left'
+          ctx.fillStyle = textColor
+          ctx.fillText(text, bX + padX, bY + 11)
+        }
+
+        // Hitung Y posisi vertikal masing-masing badge agar tidak saling bertabrakan
+        const tpBadgeY = isLong
+          ? Math.max(tpY + 9, Math.min(yTarget, yEntry - 14))
+          : Math.min(tpY + tpHeight - 9, Math.max(yTarget, yEntry + 14))
+
+        const slBadgeY = isLong
+          ? Math.min(slY + slHeight - 9, Math.max(yStop, yEntry + 14))
+          : Math.max(slY + 9, Math.min(yStop, yEntry - 14))
+
+        // Gambar ketiga badge secara terpisah dan kontras
+        drawSetupBadge(tpLabel, tpBadgeY, '#00c087', '#00c087')
+        drawSetupBadge(entryText, yEntry, '#38bdf8', '#38bdf8')
+        drawSetupBadge(slLabel, slBadgeY, '#f6465d', '#f6465d')
 
         ctx.restore()
       })

@@ -62,3 +62,4 @@ export const DEFAULT_AUTO_FIB_SETTINGS: AutoFibSettings = {
   lineWidth: 1.2,
   lineStyle: 'solid'
 }
+
