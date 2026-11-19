@@ -45,7 +45,7 @@ export interface SetupTradeTarget {
   planned_risk?: number
   planned_risk_mode?: 'USDT' | 'PERCENT'
   planned_leverage?: number
-  setup_mode?: 'standard' | 'pro_shield' | 'craig_10x'
+  setup_mode?: 'standard' | 'pro_shield' | 'craig_10x' | 'apex_quant'
 }
 
 interface OpenPositionModalProps {
@@ -519,7 +519,12 @@ export const OpenPositionModal: React.FC<OpenPositionModalProps> = ({
               </span>
             )}
 
-            {target.setup_mode === 'craig_10x' ? (
+            {target.setup_mode === 'apex_quant' ? (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-950/80 text-cyan-200 font-bold border border-cyan-600/60 flex items-center space-x-1">
+                <Target className="w-3 h-3 text-cyan-400" />
+                <span>Apex Quant A++ (Hybrid OTE)</span>
+              </span>
+            ) : target.setup_mode === 'craig_10x' ? (
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-950/80 text-emerald-300 font-bold border border-emerald-700/60 flex items-center space-x-1">
                 <Target className="w-3 h-3 text-emerald-400" />
                 <span>Craig 10x (Asymmetric R:R)</span>

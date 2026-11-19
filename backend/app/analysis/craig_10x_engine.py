@@ -277,15 +277,16 @@ class Craig10xEngine:
                         continue
 
                     tap_idx = None
+                    tap_count = 0
                     for i in range(lookback_start, len(candles)):
                         c = candles[i]
                         if c.time >= fvg.time:
                             # Cek retest ke dalam FVG
                             if c.low <= (fvg.top + atr * 0.1) and c.close >= (fvg.bottom - atr * 0.15):
-                                if cls.is_rejection_candle(c, "LONG"):
+                                tap_count += 1
+                                if cls.is_rejection_candle(c, "LONG") and tap_idx is None:
                                     tap_idx = i
-                                    break
-                    if tap_idx is not None:
+                    if tap_idx is not None and tap_count <= 2:
                         entry_t = candles[tap_idx].time
                         # Craig entry pada equilibrium (50%) atau top FVG
                         entry_p = dynamic_round((fvg.top + fvg.bottom) / 2.0)
@@ -293,8 +294,11 @@ class Craig10xEngine:
                         sl = dynamic_round(fvg.bottom - max(atr * 0.15, entry_p * 0.0008))
                         risk_dist = max(entry_p * 0.0005, abs(entry_p - sl))
 
-                        # Target asimetris
-                        tp = dynamic_round(entry_p + max(atr * 4.0, risk_dist * 4.0))
+                        # Target asimetris berbasis struktur (EQH / Supply OB >= 3.0R)
+                        eqh_targets = [p.price for p in (smc.liquidity_pools or []) if p.type == "EQH" and p.price > entry_p]
+                        supply_targets = [ob.bottom for ob in (smc.order_blocks or []) if ob.direction == "BEARISH" and ob.bottom > entry_p]
+                        valid_tps = [t for t in (eqh_targets + supply_targets) if (t - entry_p) >= risk_dist * 3.0]
+                        tp = dynamic_round(min(valid_tps)) if valid_tps else dynamic_round(entry_p + max(atr * 4.0, risk_dist * 4.0))
                         rr = round(abs(tp - entry_p) / risk_dist, 2)
 
                         if rr >= 3.0:
@@ -322,20 +326,24 @@ class Craig10xEngine:
                         continue
 
                     tap_idx = None
+                    tap_count = 0
                     for i in range(lookback_start, len(candles)):
                         c = candles[i]
                         if c.time >= fvg.time:
                             if c.high >= (fvg.bottom - atr * 0.1) and c.close <= (fvg.top + atr * 0.15):
-                                if cls.is_rejection_candle(c, "SHORT"):
+                                tap_count += 1
+                                if cls.is_rejection_candle(c, "SHORT") and tap_idx is None:
                                     tap_idx = i
-                                    break
-                    if tap_idx is not None:
+                    if tap_idx is not None and tap_count <= 2:
                         entry_t = candles[tap_idx].time
                         entry_p = dynamic_round((fvg.top + fvg.bottom) / 2.0)
                         sl = dynamic_round(fvg.top + max(atr * 0.15, entry_p * 0.0008))
                         risk_dist = max(entry_p * 0.0005, abs(sl - entry_p))
 
-                        tp = dynamic_round(entry_p - max(atr * 4.0, risk_dist * 4.0))
+                        eql_targets = [p.price for p in (smc.liquidity_pools or []) if p.type == "EQL" and p.price < entry_p]
+                        demand_targets = [ob.top for ob in (smc.order_blocks or []) if ob.direction == "BULLISH" and ob.top < entry_p]
+                        valid_tps = [t for t in (eql_targets + demand_targets) if (entry_p - t) >= risk_dist * 3.0]
+                        tp = dynamic_round(max(valid_tps)) if valid_tps else dynamic_round(entry_p - max(atr * 4.0, risk_dist * 4.0))
                         rr = round(abs(entry_p - tp) / risk_dist, 2)
 
                         if rr >= 3.0:
@@ -367,19 +375,23 @@ class Craig10xEngine:
                     if ema_bias == "BEARISH" or htf_trend == "BEARISH":
                         continue
                     tap_idx = None
+                    tap_count = 0
                     for i in range(lookback_start, len(candles)):
                         c = candles[i]
                         if c.time > ob.start_time:
                             if c.low <= (ob.top + atr * 0.1) and c.close >= (ob.bottom - atr * 0.15):
-                                if cls.is_rejection_candle(c, "LONG"):
+                                tap_count += 1
+                                if cls.is_rejection_candle(c, "LONG") and tap_idx is None:
                                     tap_idx = i
-                                    break
-                    if tap_idx is not None:
+                    if tap_idx is not None and tap_count <= 2:
                         entry_t = candles[tap_idx].time
                         entry_p = dynamic_round(ob.top)
                         sl = dynamic_round(ob.bottom - max(atr * 0.15, entry_p * 0.0008))
                         risk_dist = max(entry_p * 0.0005, abs(entry_p - sl))
-                        tp = dynamic_round(entry_p + max(atr * 4.0, risk_dist * 4.0))
+                        eqh_targets = [p.price for p in (smc.liquidity_pools or []) if p.type == "EQH" and p.price > entry_p]
+                        supply_targets = [o.bottom for o in (smc.order_blocks or []) if o.direction == "BEARISH" and o.bottom > entry_p]
+                        valid_tps = [t for t in (eqh_targets + supply_targets) if (t - entry_p) >= risk_dist * 3.0]
+                        tp = dynamic_round(min(valid_tps)) if valid_tps else dynamic_round(entry_p + max(atr * 4.0, risk_dist * 4.0))
                         rr = round(abs(tp - entry_p) / risk_dist, 2)
                         if rr >= 3.0:
                             sub_candles = candles[tap_idx:]
@@ -405,19 +417,23 @@ class Craig10xEngine:
                     if ema_bias == "BULLISH" or htf_trend == "BULLISH":
                         continue
                     tap_idx = None
+                    tap_count = 0
                     for i in range(lookback_start, len(candles)):
                         c = candles[i]
                         if c.time > ob.start_time:
                             if c.high >= (ob.bottom - atr * 0.1) and c.close <= (ob.top + atr * 0.15):
-                                if cls.is_rejection_candle(c, "SHORT"):
+                                tap_count += 1
+                                if cls.is_rejection_candle(c, "SHORT") and tap_idx is None:
                                     tap_idx = i
-                                    break
-                    if tap_idx is not None:
+                    if tap_idx is not None and tap_count <= 2:
                         entry_t = candles[tap_idx].time
                         entry_p = dynamic_round(ob.bottom)
                         sl = dynamic_round(ob.top + max(atr * 0.15, entry_p * 0.0008))
                         risk_dist = max(entry_p * 0.0005, abs(sl - entry_p))
-                        tp = dynamic_round(entry_p - max(atr * 4.0, risk_dist * 4.0))
+                        eql_targets = [p.price for p in (smc.liquidity_pools or []) if p.type == "EQL" and p.price < entry_p]
+                        demand_targets = [o.top for o in (smc.order_blocks or []) if o.direction == "BULLISH" and o.top < entry_p]
+                        valid_tps = [t for t in (eql_targets + demand_targets) if (entry_p - t) >= risk_dist * 3.0]
+                        tp = dynamic_round(max(valid_tps)) if valid_tps else dynamic_round(entry_p - max(atr * 4.0, risk_dist * 4.0))
                         rr = round(abs(entry_p - tp) / risk_dist, 2)
                         if rr >= 3.0:
                             sub_candles = candles[tap_idx:]

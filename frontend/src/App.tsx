@@ -101,7 +101,7 @@ export function App() {
     readStoredString('cp_layout', 'single', ['single', 'split-vertical', 'split-horizontal', 'grid-4'])
   )
   const [setupMode, setSetupMode] = useState<SetupMode>(() =>
-    readStoredString('cp_setup_mode', 'standard', ['standard', 'pro_shield', 'craig_10x']) as SetupMode
+    readStoredString('cp_setup_mode', 'standard', ['standard', 'pro_shield', 'craig_10x', 'apex_quant']) as SetupMode
   )
   const [syncCrosshair, setSyncCrosshair] = useState<boolean>(() =>
     readStoredJson<boolean>('cp_sync_crosshair', true)
@@ -156,7 +156,7 @@ export function App() {
   // Settings (Global persistent across all pairs)
   const [settings, setSettings] = useState<AppSettings>(() => {
     const saved = readStoredJson<AppSettings>('cp_app_settings', DEFAULT_SETTINGS, true)
-    const mode = readStoredString('cp_setup_mode', 'standard', ['standard', 'pro_shield', 'craig_10x']) as SetupMode
+    const mode = readStoredString('cp_setup_mode', 'standard', ['standard', 'pro_shield', 'craig_10x', 'apex_quant']) as SetupMode
     return { ...saved, setupMode: mode }
   })
 
@@ -219,17 +219,21 @@ export function App() {
       return next
     })
     const title =
-      mode === 'craig_10x'
-        ? '🎯 Mode Craig 10x Aktif'
-        : mode === 'pro_shield'
-          ? '🛡️ Mode Pro Shield Aktif'
-          : '⚡ Mode Standar Aktif'
+      mode === 'apex_quant'
+        ? '💎 Mode Apex Quant A++ Aktif'
+        : mode === 'craig_10x'
+          ? '🎯 Mode Craig 10x Aktif'
+          : mode === 'pro_shield'
+            ? '🛡️ Mode Pro Shield Aktif'
+            : '⚡ Mode Standar Aktif'
     const message =
-      mode === 'craig_10x'
-        ? 'Engine Craig 10x aktif: Asymmetric R:R (min 3R - 10R), Liquidity Sweep, FVG 50% Retest, Micro-SL & Auto-BE.'
-        : mode === 'pro_shield'
-          ? 'Engine proteksi aktif: Buffer SL diperlebar (0.8 ATR) dan validasi candle penolakan diaktifkan.'
-          : 'Engine standar aktif: Setup agresif momentum dan breakout langsung dievaluasi.'
+      mode === 'apex_quant'
+        ? 'Engine Ultimate Hybrid aktif: Unicorn OB+FVG, Fibonacci OTE (0.618-0.786), Volume Absorption, Adaptive SL 0.35 ATR & Structural TP.'
+        : mode === 'craig_10x'
+          ? 'Engine Craig 10x aktif: Asymmetric R:R (min 3R - 10R), Liquidity Sweep, FVG 50% Retest, Micro-SL & Auto-BE.'
+          : mode === 'pro_shield'
+            ? 'Engine proteksi aktif: Buffer SL diperlebar (0.8 ATR) dan validasi candle penolakan diaktifkan.'
+            : 'Engine standar aktif: Setup agresif momentum dan breakout langsung dievaluasi.'
     addToast({
       type: 'info',
       title,

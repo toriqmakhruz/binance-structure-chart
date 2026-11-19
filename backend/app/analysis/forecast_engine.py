@@ -328,7 +328,7 @@ class ForecastEngine:
                                 })
 
                 elif fvg.direction == "BEARISH":
-                    if is_bullish_bos or current_trend == "BEARISH":
+                    if is_bullish_bos or current_trend == "BULLISH":
                         continue
                     tap_idx = None
                     for i in range(lookback_start, len(candles)):
@@ -475,6 +475,19 @@ class ForecastEngine:
         elif setup_mode == "craig_10x":
             from .craig_10x_engine import Craig10xEngine
             active_candidates = Craig10xEngine.evaluate_candidates(
+                candles=candles,
+                current_price=current_price,
+                last_time=last_time,
+                horizon=horizon,
+                confluence_score=confluence_score,
+                smc=smc,
+                patterns=patterns,
+                atr=atr,
+                htf_trend=htf_trend
+            )
+        elif setup_mode == "apex_quant":
+            from .apex_quant_engine import ApexQuantEngine
+            active_candidates = ApexQuantEngine.evaluate_candidates(
                 candles=candles,
                 current_price=current_price,
                 last_time=last_time,

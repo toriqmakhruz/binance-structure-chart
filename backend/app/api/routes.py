@@ -91,7 +91,7 @@ async def get_full_analysis(
     swing_length: int = Query(5, ge=2, le=20),
     fvg_min_pct: float = Query(0.05, ge=0.01, le=1.0),
     forecast_horizon: int = Query(20, ge=5, le=50),
-    setup_mode: str = Query("standard", pattern="^(standard|pro_shield|craig_10x)$")
+    setup_mode: str = Query("standard", pattern="^(standard|pro_shield|craig_10x|apex_quant)$")
 ):
     """
     Execute full analysis: SMC + Classic Patterns + Movement Dynamics + Hybrid Forecasting.
@@ -354,7 +354,7 @@ async def get_valid_setups(
     forecast_horizon: int = Query(20, ge=5, le=50),
     scan_limit: int = Query(24, ge=5, le=40),
     force_refresh: bool = Query(False),
-    setup_mode: str = Query("standard", pattern="^(standard|pro_shield|craig_10x)$")
+    setup_mode: str = Query("standard", pattern="^(standard|pro_shield|craig_10x|apex_quant)$")
 ):
     """
     Scan top traded Binance crypto pairs and return ONLY currently VALID A+ setups,

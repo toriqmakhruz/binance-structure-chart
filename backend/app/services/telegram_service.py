@@ -189,7 +189,15 @@ class TelegramService:
 
         timestamp_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
-        mode_badge = "🛡️ <b>Protection:</b> Pro Shield (Anti-Stop Hunt)\n" if setup.get("setup_mode") == "pro_shield" else ""
+        smode = setup.get("setup_mode")
+        if smode == "apex_quant":
+            mode_badge = "💎 <b>Engine:</b> Apex Quant A++ (Hybrid SMC + Fib OTE)\n"
+        elif smode == "craig_10x":
+            mode_badge = "🎯 <b>Engine:</b> Craig 10x Asymmetric (Min 3R-8R)\n"
+        elif smode == "pro_shield":
+            mode_badge = "🛡️ <b>Protection:</b> Pro Shield (Anti-Stop Hunt)\n"
+        else:
+            mode_badge = ""
 
         msg = (
             f"🎯 <b>NEW SETUP RADAR DETECTED!</b>\n\n"
