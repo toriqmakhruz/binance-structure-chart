@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { Crosshair, Layers } from 'lucide-react'
 import { LightweightChart } from './LightweightChart'
 import { PaneLayerDropdown } from './PaneLayerDropdown'
 import { fetchAnalysis, defaultAppSettings } from '../../services/api'
+import { BinanceWsClient } from '../../services/binanceWs'
 import {
   Candle,
   SmcAnalysisResult,
@@ -25,6 +26,7 @@ interface SubChartProps {
   chartId?: string
   syncCrosshair?: boolean
   primaryForecast?: ForecastResult
+  livePrice?: number
   syncSetup?: boolean
   market: 'spot' | 'futures'
   settings?: AppSettings
@@ -49,6 +51,7 @@ const SubTimeframeChart: React.FC<SubChartProps> = ({
   chartId,
   syncCrosshair,
   primaryForecast,
+  livePrice,
   syncSetup = true,
   market,
   settings,
@@ -67,16 +70,24 @@ const SubTimeframeChart: React.FC<SubChartProps> = ({
   onToggleLayer
 }) => {
   const [data, setData] = useState<FullAnalysisResponse | null>(null)
+  const [subCandles, setSubCandles] = useState<Candle[]>([])
   const [loading, setLoading] = useState(true)
+  const settingsRef = useRef<AppSettings | undefined>(settings)
 
   useEffect(() => {
+    settingsRef.current = settings
+  }, [settings])
+
+  // 1. Initial & reactive analysis fetch
+  useEffect(() => {
     let cancelled = false
-    setLoading(true)
+    setLoading((prev) => (subCandles.length === 0 ? true : prev))
 
     fetchAnalysis(symbol, timeframe, market, settings || defaultAppSettings)
       .then((res) => {
         if (!cancelled) {
           setData(res)
+          setSubCandles(res.candles || [])
           setLoading(false)
         }
       })
@@ -89,6 +100,61 @@ const SubTimeframeChart: React.FC<SubChartProps> = ({
       cancelled = true
     }
   }, [symbol, timeframe, market, settings])
+
+  // 2. Dedicated Real-Time WebSocket Stream for this Pane's Timeframe
+  useEffect(() => {
+    const wsClient = new BinanceWsClient(symbol, timeframe, market, {
+      onCandle: (liveCandle, isClosed, candleSym) => {
+        if (candleSym.toUpperCase() !== symbol.toUpperCase()) return
+
+        setSubCandles((prev) => {
+          if (prev.length === 0) return prev
+          const last = prev[prev.length - 1]
+          if (last.time === liveCandle.time) {
+            const updated = [...prev]
+            updated[updated.length - 1] = liveCandle
+            return updated
+          } else if (liveCandle.time > last.time) {
+            return [...prev.slice(1), liveCandle]
+          }
+          return prev
+        })
+
+        // Silent background re-analysis when candle closes on this timeframe
+        if (isClosed) {
+          fetchAnalysis(symbol, timeframe, market, settingsRef.current || defaultAppSettings)
+            .then((res) => {
+              setData(res)
+              setSubCandles(res.candles || [])
+            })
+            .catch(() => {})
+        }
+      }
+    })
+
+    wsClient.connect()
+    return () => {
+      wsClient.disconnect()
+    }
+  }, [symbol, timeframe, market])
+
+  // 3. Instant Zero-Lag Tick Sync from Primary Chart's Live Price
+  useEffect(() => {
+    if (typeof livePrice !== 'number' || !Number.isFinite(livePrice) || livePrice <= 0) return
+    setSubCandles((prev) => {
+      if (prev.length === 0) return prev
+      const last = prev[prev.length - 1]
+      if (last.close === livePrice) return prev
+      const updated = [...prev]
+      updated[updated.length - 1] = {
+        ...last,
+        close: livePrice,
+        high: Math.max(last.high, livePrice),
+        low: Math.min(last.low, livePrice)
+      }
+      return updated
+    })
+  }, [livePrice])
 
   // Synchronize trade setup box: Avoid conflicting signals (e.g. 5m SHORT vs 15m LONG) on the same coin
   const effectiveForecast = useMemo(() => {
@@ -134,7 +200,7 @@ const SubTimeframeChart: React.FC<SubChartProps> = ({
       timeframe={timeframe}
       chartId={chartId}
       syncCrosshair={syncCrosshair}
-      candles={data.candles}
+      candles={subCandles}
       smc={data.smc}
       patterns={data.patterns}
       forecast={effectiveForecast}
@@ -420,7 +486,7 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
         <div className="flex-1 w-full h-full relative">
           {isPrimary ? (
             <LightweightChart
-              key={`${symbol}_${timeframe}_primary`}
+              key={`${symbol}_${timeframe}_${market}_primary`}
               chartId={chartId}
               syncCrosshair={syncCrosshair}
               symbol={symbol}
@@ -453,10 +519,11 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
             />
           ) : (
             <SubTimeframeChart
-              key={`${symbol}_${effectiveTf}_${chartId}`}
+              key={`${symbol}_${effectiveTf}_${market}_${chartId}`}
               chartId={chartId}
               syncCrosshair={syncCrosshair}
               primaryForecast={forecast}
+              livePrice={candles.length > 0 ? candles[candles.length - 1].close : undefined}
               syncSetup={syncSetup}
               symbol={symbol}
               timeframe={effectiveTf}

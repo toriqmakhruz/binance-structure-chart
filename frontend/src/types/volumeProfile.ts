@@ -69,3 +69,4 @@ export const DEFAULT_VOLUME_PROFILE_SETTINGS: VolumeProfileSettings = {
   showLabels: true,
   showHvnLvn: true
 }
+
