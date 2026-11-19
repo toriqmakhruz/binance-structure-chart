@@ -22,6 +22,7 @@ import {
 } from '../../types/analysis'
 import { AutoFibSettings, DEFAULT_AUTO_FIB_SETTINGS } from '../../types/fibonacci'
 import { VolumeProfileSettings, DEFAULT_VOLUME_PROFILE_SETTINGS } from '../../types/volumeProfile'
+import { OrderflowSettings, DEFAULT_ORDERFLOW_SETTINGS } from '../../types/orderflow'
 import { formatPrice, getPricePrecision, formatOpenInterestValue, formatOpenInterest } from '../../utils/formatters'
 import { Crosshair, Clock, Trash2, Move, Palette, Check, X } from 'lucide-react'
 import { OpenInterestPane } from './OpenInterestPane'
@@ -41,6 +42,7 @@ interface LightweightChartProps {
   visibility: LayerVisibility
   autoFibSettings?: AutoFibSettings
   vpvrSettings?: VolumeProfileSettings
+  orderflowSettings?: OrderflowSettings
   activeTool: DrawingToolType
   onSelectTool?: (tool: DrawingToolType) => void
   drawings: DrawingItem[]
@@ -67,6 +69,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
   visibility,
   autoFibSettings,
   vpvrSettings,
+  orderflowSettings,
   activeTool,
   onSelectTool,
   drawings,
@@ -1165,6 +1168,554 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
 
             ctx.restore()
           }
+        }
+      }
+    }
+
+    // 0.6. Liquidation Heatmap (25x / 50x / 100x Un-Swept Leverage Liquidity Pools)
+    if (visibility.liquidationHeatmap && candles.length >= 20) {
+      const ofConfig: OrderflowSettings = orderflowSettings || DEFAULT_ORDERFLOW_SETTINGS
+      const maxChartX = Math.max(40, width - 68)
+      const lookbackCount = Math.max(40, Math.min(candles.length, ofConfig.liqLookbackBars || 160))
+      const sliceStart = candles.length - lookbackCount
+      const lbCandles = candles.slice(sliceStart)
+      const currentPrice = candles[candles.length - 1].close
+
+      const activeTiers: { label: string; dist: number; weight: number }[] = []
+      if (ofConfig.enable100x) activeTiers.push({ label: '100x', dist: 0.0095, weight: 1.35 })
+      if (ofConfig.enable50x) activeTiers.push({ label: '50x', dist: 0.0190, weight: 1.18 })
+      if (ofConfig.enable25x) activeTiers.push({ label: '25x', dist: 0.0385, weight: 1.0 })
+      if (ofConfig.enable10x) activeTiers.push({ label: '10x', dist: 0.0950, weight: 0.85 })
+
+      if (activeTiers.length > 0 && lbCandles.length >= 10) {
+        const n = lbCandles.length
+        // Suffix max High & min Low untuk cek cepat apakah level likuidasi sudah tersapu (swept)
+        const suffixMaxHigh = new Array<number>(n).fill(-Infinity)
+        const suffixMinLow = new Array<number>(n).fill(Infinity)
+        let runMax = -Infinity
+        let runMin = Infinity
+        for (let i = n - 1; i >= 0; i--) {
+          suffixMaxHigh[i] = runMax
+          suffixMinLow[i] = runMin
+          if (lbCandles[i].high > runMax) runMax = lbCandles[i].high
+          if (lbCandles[i].low < runMin) runMin = lbCandles[i].low
+        }
+
+        const minLow = runMin * 0.965
+        const maxHigh = runMax * 1.035
+        const span = maxHigh - minLow
+        const numBuckets = 56
+        const bucketStep = span / numBuckets
+
+        if (Number.isFinite(span) && span > 0) {
+          interface LiqBucket {
+            lowP: number
+            highP: number
+            midP: number
+            intensity: number
+            originTime: number
+            side: 'SHORT_LIQ' | 'LONG_LIQ'
+            tierCounts: Record<string, number>
+          }
+
+          const buckets: LiqBucket[] = Array.from({ length: numBuckets }, (_, idx) => {
+            const lowP = minLow + idx * bucketStep
+            const highP = lowP + bucketStep
+            const midP = (lowP + highP) / 2
+            return {
+              lowP,
+              highP,
+              midP,
+              intensity: 0,
+              originTime: lbCandles[n - 1].time,
+              side: midP >= currentPrice ? 'SHORT_LIQ' : 'LONG_LIQ',
+              tierCounts: {}
+            }
+          })
+
+          // Hitung rata-rata volume untuk bobot klaster
+          let avgVol = 0
+          for (let i = 0; i < n; i++) avgVol += lbCandles[i].volume || 0
+          avgVol = Math.max(1e-9, avgVol / n)
+
+          for (let i = 0; i < n - 1; i++) {
+            const c = lbCandles[i]
+            const relVol = Math.min(4.0, (c.volume || 0) / avgVol)
+            if (relVol < 0.35) continue
+
+            // Cek apakah candle merupakan lokal swing high/low (bobot likuiditas ekstra)
+            const isLocalHigh =
+              i >= 2 &&
+              i < n - 2 &&
+              c.high >= lbCandles[i - 1].high &&
+              c.high >= lbCandles[i - 2].high &&
+              c.high >= lbCandles[i + 1].high
+            const isLocalLow =
+              i >= 2 &&
+              i < n - 2 &&
+              c.low <= lbCandles[i - 1].low &&
+              c.low <= lbCandles[i - 2].low &&
+              c.low <= lbCandles[i + 1].low
+
+            const pivotBoostHigh = isLocalHigh ? 2.1 : 1.0
+            const pivotBoostLow = isLocalLow ? 2.1 : 1.0
+
+            for (let t = 0; t < activeTiers.length; t++) {
+              const tier = activeTiers[t]
+
+              // 1. Short Liquidation Pool di atas candle High (Short Squeeze Target)
+              const shortLiqPrice = c.high * (1 + tier.dist)
+              if (shortLiqPrice > suffixMaxHigh[i] && shortLiqPrice > currentPrice) {
+                const bIdx = Math.floor((shortLiqPrice - minLow) / bucketStep)
+                if (bIdx >= 0 && bIdx < numBuckets) {
+                  const w = relVol * tier.weight * pivotBoostHigh
+                  buckets[bIdx].intensity += w
+                  buckets[bIdx].side = 'SHORT_LIQ'
+                  if (c.time < buckets[bIdx].originTime) buckets[bIdx].originTime = c.time
+                  buckets[bIdx].tierCounts[tier.label] = (buckets[bIdx].tierCounts[tier.label] || 0) + w
+                }
+              }
+
+              // 2. Long Liquidation Pool di bawah candle Low (Long Squeeze Target)
+              const longLiqPrice = c.low * (1 - tier.dist)
+              if (longLiqPrice < suffixMinLow[i] && longLiqPrice < currentPrice) {
+                const bIdx = Math.floor((longLiqPrice - minLow) / bucketStep)
+                if (bIdx >= 0 && bIdx < numBuckets) {
+                  const w = relVol * tier.weight * pivotBoostLow
+                  buckets[bIdx].intensity += w
+                  buckets[bIdx].side = 'LONG_LIQ'
+                  if (c.time < buckets[bIdx].originTime) buckets[bIdx].originTime = c.time
+                  buckets[bIdx].tierCounts[tier.label] = (buckets[bIdx].tierCounts[tier.label] || 0) + w
+                }
+              }
+            }
+          }
+
+          let maxIntensity = 0
+          for (let i = 0; i < numBuckets; i++) {
+            if (buckets[i].intensity > maxIntensity) maxIntensity = buckets[i].intensity
+          }
+
+          if (maxIntensity > 0) {
+            const getThermalColor = (norm: number): string => {
+              const theme = ofConfig.liqTheme || 'coinglass'
+              if (theme === 'fire') {
+                if (norm >= 0.82) return '#fde047' // Bright Yellow
+                if (norm >= 0.58) return '#f97316' // Orange
+                return '#dc2626' // Red
+              }
+              if (theme === 'cyber') {
+                if (norm >= 0.82) return '#facc15' // Gold
+                if (norm >= 0.55) return '#10b981' // Emerald
+                return '#0284c7' // Cyber Blue
+              }
+              // Default Coinglass Thermal (Purple -> Cyan -> Emerald -> Bright Yellow)
+              if (norm >= 0.82) return '#facc15'
+              if (norm >= 0.62) return '#10b981'
+              if (norm >= 0.42) return '#06b6d4'
+              return '#7c3aed'
+            }
+
+            const minThresh = ofConfig.minIntensityThreshold || 0.25
+            ctx.save()
+
+            // Render pita-pita thermal heatmap
+            for (let i = 0; i < numBuckets; i++) {
+              const b = buckets[i]
+              const norm = b.intensity / maxIntensity
+              if (norm < minThresh) continue
+
+              const yTop = series.priceToCoordinate(b.highP)
+              const yBot = series.priceToCoordinate(b.lowP)
+              if (yTop === null || yBot === null) continue
+
+              const bandY = Math.min(yTop, yBot)
+              const bandH = Math.max(2, Math.abs(yBot - yTop) - 0.5)
+              if (bandY + bandH < 0 || bandY > height) continue
+
+              const pOrigin = resolveCoord(b.originTime, b.midP)
+              const startX = pOrigin ? Math.max(0, Math.min(maxChartX - 40, pOrigin.x)) : 0
+              const bandW = Math.max(20, maxChartX - startX)
+
+              const col = getThermalColor(norm)
+              ctx.fillStyle = col
+              ctx.globalAlpha = Math.min(0.85, (ofConfig.liqOpacity || 0.55) * (0.35 + 0.65 * norm))
+              ctx.fillRect(startX, bandY, bandW, bandH)
+            }
+
+            ctx.globalAlpha = 1.0
+
+            // Cari Top Magnet Short Liq (di atas harga) & Top Magnet Long Liq (di bawah harga)
+            if (ofConfig.showLiqMagnets) {
+              const shortPools = buckets
+                .filter((b) => b.side === 'SHORT_LIQ' && b.intensity / maxIntensity >= minThresh)
+                .sort((a, b) => b.intensity - a.intensity)
+                .slice(0, 2)
+
+              const longPools = buckets
+                .filter((b) => b.side === 'LONG_LIQ' && b.intensity / maxIntensity >= minThresh)
+                .sort((a, b) => b.intensity - a.intensity)
+                .slice(0, 2)
+
+              const drawMagnetPool = (pool: LiqBucket, rank: number) => {
+                const y = series.priceToCoordinate(pool.midP)
+                if (y === null || y < 10 || y > height - 24) return
+
+                const norm = pool.intensity / maxIntensity
+                const pOrigin = resolveCoord(pool.originTime, pool.midP)
+                const startX = pOrigin ? Math.max(0, Math.min(maxChartX - 80, pOrigin.x)) : 0
+
+                // Cari dominant tier label
+                let domTier = '50x'
+                let bestW = -1
+                Object.entries(pool.tierCounts).forEach(([tName, wVal]) => {
+                  if (wVal > bestW) {
+                    bestW = wVal
+                    domTier = tName
+                  }
+                })
+
+                const color = rank === 0 ? '#facc15' : '#22d3ee'
+                ctx.save()
+                ctx.beginPath()
+                ctx.strokeStyle = color
+                ctx.lineWidth = rank === 0 ? 1.6 : 1.1
+                ctx.setLineDash(rank === 0 ? [6, 3] : [3, 3])
+                ctx.moveTo(startX, y)
+                ctx.lineTo(maxChartX, y)
+                ctx.stroke()
+                ctx.setLineDash([])
+
+                if (ofConfig.showLiqLabels) {
+                  const sideTag = pool.side === 'SHORT_LIQ' ? 'SHORT LIQ' : 'LONG LIQ'
+                  const pctDist = Math.abs(((pool.midP - currentPrice) / currentPrice) * 100).toFixed(2)
+                  const labelText = `🔥 ${sideTag} [${domTier}] $${formatPrice(pool.midP)} (${pool.side === 'SHORT_LIQ' ? '+' : '-'}${pctDist}%)`
+                  ctx.font = 'bold 9px Inter, monospace'
+                  const textW = ctx.measureText(labelText).width
+                  const padX = 5
+                  const pillW = textW + padX * 2
+                  const pillH = 14
+                  // Tempatkan di sisi kiri pita magnet agar tidak menumpuk dengan label VPVR di kanan
+                  const pillX = Math.max(8, Math.min(startX + 6, maxChartX - pillW - 12))
+                  const pillY = y - pillH / 2
+
+                  ctx.fillStyle = 'rgba(11, 15, 25, 0.92)'
+                  ctx.strokeStyle = color
+                  ctx.lineWidth = 1
+                  ctx.beginPath()
+                  if (typeof (ctx as any).roundRect === 'function') {
+                    ;(ctx as any).roundRect(pillX, pillY, pillW, pillH, 3)
+                  } else {
+                    ctx.rect(pillX, pillY, pillW, pillH)
+                  }
+                  ctx.fill()
+                  ctx.stroke()
+
+                  ctx.textAlign = 'left'
+                  ctx.fillStyle = norm >= 0.75 ? '#fde047' : color
+                  ctx.fillText(labelText, pillX + padX, pillY + 10)
+                }
+                ctx.restore()
+              }
+
+              shortPools.forEach((p, idx) => drawMagnetPool(p, idx))
+              longPools.forEach((p, idx) => drawMagnetPool(p, idx))
+            }
+
+            ctx.restore()
+          }
+        }
+      }
+    }
+
+    // 0.7. CVD (Cumulative Volume Delta) & Orderflow Divergence Indicator
+    if (visibility.cvdOrderflow && candles.length >= 15) {
+      const ofConfig: OrderflowSettings = orderflowSettings || DEFAULT_ORDERFLOW_SETTINGS
+      const maxChartX = Math.max(40, width - 68)
+
+      // 1. Hitung Per-Bar Volume Delta & Cumulative Volume Delta (CVD)
+      const deltas: number[] = new Array(candles.length).fill(0)
+      const cvdArr: number[] = new Array(candles.length).fill(0)
+      let runningCvd = 0
+      let sumAbsDelta = 0
+
+      for (let i = 0; i < candles.length; i++) {
+        const c = candles[i]
+        const vol = Number(c.volume) || 0
+        let buyVol = 0
+        let sellVol = 0
+
+        if (c.taker_buy_volume && c.taker_buy_volume > 0 && c.taker_buy_volume <= vol) {
+          buyVol = c.taker_buy_volume
+          sellVol = Math.max(0, vol - c.taker_buy_volume)
+        } else {
+          const cRange = c.high - c.low
+          const buyRatio =
+            cRange > 0
+              ? c.close >= c.open
+                ? 0.5 + 0.5 * ((c.close - c.open) / cRange)
+                : 0.5 * ((c.close - c.low) / cRange)
+              : c.close >= c.open
+                ? 1
+                : 0
+          buyVol = vol * buyRatio
+          sellVol = vol * (1 - buyRatio)
+        }
+
+        const delta = buyVol - sellVol
+        deltas[i] = delta
+        runningCvd += delta
+        cvdArr[i] = runningCvd
+        sumAbsDelta += Math.abs(delta)
+      }
+
+      const avgAbsDelta = Math.max(1e-9, sumAbsDelta / candles.length)
+
+      // 2. Whale Aggressor Delta Imbalance Markers pada Candle
+      if (ofConfig.showDeltaImbalance) {
+        const mult = ofConfig.deltaImbalanceMultiplier || 2.2
+        const startScan = Math.max(0, candles.length - 120)
+        ctx.save()
+        for (let i = startScan; i < candles.length; i++) {
+          const c = candles[i]
+          const d = deltas[i]
+          const absD = Math.abs(d)
+          const vol = Math.max(1e-9, c.volume || 0)
+          const domRatio = absD / vol
+
+          if (absD >= avgAbsDelta * mult && domRatio >= 0.32) {
+            const isBuyImb = d > 0
+            const coord = resolveCoord(c.time, isBuyImb ? c.low : c.high)
+            if (!coord || coord.x < 10 || coord.x > maxChartX - 10) continue
+
+            ctx.fillStyle = isBuyImb ? (ofConfig.cvdBullColor || '#00c087') : (ofConfig.cvdBearColor || '#f6465d')
+            ctx.beginPath()
+            ctx.arc(coord.x, isBuyImb ? coord.y + 8 : coord.y - 8, 2.8, 0, Math.PI * 2)
+            ctx.fill()
+          }
+        }
+        ctx.restore()
+      }
+
+      // 3. Deteksi Otomatis CVD Divergence (Bullish Absorption & Bearish Exhaustion)
+      if (ofConfig.showCvdDivergence && candles.length >= 30) {
+        const lookbackStart = Math.max(3, candles.length - 110)
+        const swingLows: { idx: number; time: number; price: number; cvd: number }[] = []
+        const swingHighs: { idx: number; time: number; price: number; cvd: number }[] = []
+
+        for (let i = lookbackStart; i < candles.length - 2; i++) {
+          const c = candles[i]
+          const isLowPivot =
+            c.low <= candles[i - 1].low &&
+            c.low <= candles[i - 2].low &&
+            c.low <= candles[i - 3].low &&
+            c.low <= candles[i + 1].low &&
+            c.low <= candles[i + 2].low
+          if (isLowPivot) {
+            swingLows.push({ idx: i, time: c.time, price: c.low, cvd: cvdArr[i] })
+          }
+
+          const isHighPivot =
+            c.high >= candles[i - 1].high &&
+            c.high >= candles[i - 2].high &&
+            c.high >= candles[i - 3].high &&
+            c.high >= candles[i + 1].high &&
+            c.high >= candles[i + 2].high
+          if (isHighPivot) {
+            swingHighs.push({ idx: i, time: c.time, price: c.high, cvd: cvdArr[i] })
+          }
+        }
+
+        const drawDivergenceSignal = (
+          p1Time: number,
+          p1Price: number,
+          p2Time: number,
+          p2Price: number,
+          isBull: boolean,
+          label: string
+        ) => {
+          const c1 = resolveCoord(p1Time, p1Price)
+          const c2 = resolveCoord(p2Time, p2Price)
+          if (!c1 || !c2 || c2.x < 10 || c1.x > maxChartX) return
+
+          const color = isBull ? (ofConfig.cvdBullColor || '#00c087') : (ofConfig.cvdBearColor || '#f6465d')
+          ctx.save()
+          ctx.beginPath()
+          ctx.strokeStyle = color
+          ctx.lineWidth = 2
+          ctx.setLineDash([4, 2])
+          ctx.moveTo(c1.x, isBull ? c1.y + 4 : c1.y - 4)
+          ctx.lineTo(c2.x, isBull ? c2.y + 4 : c2.y - 4)
+          ctx.stroke()
+          ctx.setLineDash([])
+
+          // Anchor dots
+          ;[c1, c2].forEach((pt) => {
+            ctx.fillStyle = color
+            ctx.beginPath()
+            ctx.arc(pt.x, isBull ? pt.y + 4 : pt.y - 4, 3, 0, Math.PI * 2)
+            ctx.fill()
+          })
+
+          // Pill badge
+          ctx.font = 'bold 9px Inter, monospace'
+          const textW = ctx.measureText(label).width
+          const padX = 5
+          const pillW = textW + padX * 2
+          const pillH = 14
+          const midX = (c1.x + c2.x) / 2
+          const pillX = Math.max(6, Math.min(maxChartX - pillW - 4, midX - pillW / 2))
+          const pillY = isBull ? Math.max(c1.y, c2.y) + 8 : Math.min(c1.y, c2.y) - pillH - 8
+
+          ctx.fillStyle = 'rgba(11, 15, 25, 0.92)'
+          ctx.strokeStyle = color
+          ctx.lineWidth = 1
+          ctx.beginPath()
+          if (typeof (ctx as any).roundRect === 'function') {
+            ;(ctx as any).roundRect(pillX, pillY, pillW, pillH, 3)
+          } else {
+            ctx.rect(pillX, pillY, pillW, pillH)
+          }
+          ctx.fill()
+          ctx.stroke()
+
+          ctx.textAlign = 'left'
+          ctx.fillStyle = color
+          ctx.fillText(label, pillX + padX, pillY + 10)
+          ctx.restore()
+        }
+
+        // Cek Bullish CVD Divergence terbaru (Harga Lower Low, CVD Higher Low)
+        for (let k = swingLows.length - 1; k >= 1; k--) {
+          const l2 = swingLows[k]
+          const l1 = swingLows[k - 1]
+          if (l2.idx - l1.idx >= 5 && l2.idx - l1.idx <= 55) {
+            if (l2.price < l1.price * 0.9995 && l2.cvd > l1.cvd + avgAbsDelta * 0.8) {
+              drawDivergenceSignal(l1.time, l1.price, l2.time, l2.price, true, 'CVD Bull Div (Absorption)')
+              break
+            }
+          }
+        }
+
+        // Cek Bearish CVD Divergence terbaru (Harga Higher High, CVD Lower High)
+        for (let k = swingHighs.length - 1; k >= 1; k--) {
+          const h2 = swingHighs[k]
+          const h1 = swingHighs[k - 1]
+          if (h2.idx - h1.idx >= 5 && h2.idx - h1.idx <= 55) {
+            if (h2.price > h1.price * 1.0005 && h2.cvd < h1.cvd - avgAbsDelta * 0.8) {
+              drawDivergenceSignal(h1.time, h1.price, h2.time, h2.price, false, 'CVD Bear Div (Exhaustion)')
+              break
+            }
+          }
+        }
+      }
+
+      // 4. Bottom CVD Cumulative Curve & Per-Bar Delta Histogram Ribbon
+      if (ofConfig.showCvdRibbon && height >= 220) {
+        let fromIdx = Math.max(0, candles.length - 120)
+        let toIdx = candles.length - 1
+        try {
+          const logicalRange = chart.timeScale().getVisibleLogicalRange()
+          if (logicalRange) {
+            fromIdx = Math.max(0, Math.floor(logicalRange.from))
+            toIdx = Math.min(candles.length - 1, Math.ceil(logicalRange.to))
+          }
+        } catch {}
+
+        if (toIdx - fromIdx >= 5) {
+          const ribbonH = Math.max(42, Math.min(110, Math.round((height * (ofConfig.cvdRibbonHeightPct || 16)) / 100)))
+          const ribbonBottom = height - 26
+          const ribbonTop = ribbonBottom - ribbonH
+          const ribbonMidY = ribbonTop + ribbonH / 2
+
+          let minCvd = Infinity
+          let maxCvd = -Infinity
+          let maxBarAbsDelta = 1e-9
+          for (let i = fromIdx; i <= toIdx; i++) {
+            if (cvdArr[i] < minCvd) minCvd = cvdArr[i]
+            if (cvdArr[i] > maxCvd) maxCvd = cvdArr[i]
+            const ad = Math.abs(deltas[i])
+            if (ad > maxBarAbsDelta) maxBarAbsDelta = ad
+          }
+          const cvdRange = Math.max(1e-9, maxCvd - minCvd)
+
+          ctx.save()
+          // Translucent Panel Backdrop
+          ctx.fillStyle = 'rgba(11, 14, 20, 0.72)'
+          ctx.fillRect(0, ribbonTop, maxChartX, ribbonH)
+          ctx.strokeStyle = 'rgba(43, 53, 72, 0.65)'
+          ctx.lineWidth = 1
+          ctx.beginPath()
+          ctx.moveTo(0, ribbonTop)
+          ctx.lineTo(maxChartX, ribbonTop)
+          ctx.stroke()
+
+          // Zero baseline for per-bar Delta Histogram
+          ctx.strokeStyle = 'rgba(148, 163, 184, 0.18)'
+          ctx.setLineDash([3, 3])
+          ctx.beginPath()
+          ctx.moveTo(0, ribbonMidY)
+          ctx.lineTo(maxChartX, ribbonMidY)
+          ctx.stroke()
+          ctx.setLineDash([])
+
+          // Per-Candle Delta Histogram Bars
+          const approxBarW = Math.max(1.5, Math.min(7, (maxChartX / Math.max(10, toIdx - fromIdx + 1)) * 0.55))
+          for (let i = fromIdx; i <= toIdx; i++) {
+            const c = candles[i]
+            const pt = resolveCoord(c.time, c.close)
+            if (!pt || pt.x < 2 || pt.x > maxChartX - 2) continue
+
+            const d = deltas[i]
+            const barLen = (Math.abs(d) / maxBarAbsDelta) * (ribbonH * 0.42)
+            ctx.fillStyle = d >= 0 ? (ofConfig.cvdBullColor || '#00c087') : (ofConfig.cvdBearColor || '#f6465d')
+            ctx.globalAlpha = 0.52
+            if (d >= 0) {
+              ctx.fillRect(pt.x - approxBarW / 2, ribbonMidY - barLen, approxBarW, Math.max(1, barLen))
+            } else {
+              ctx.fillRect(pt.x - approxBarW / 2, ribbonMidY, approxBarW, Math.max(1, barLen))
+            }
+          }
+          ctx.globalAlpha = 1.0
+
+          // Smooth Cumulative Volume Delta (CVD) Curve Line
+          ctx.beginPath()
+          ctx.strokeStyle = ofConfig.cvdLineColor || '#38bdf8'
+          ctx.lineWidth = 1.6
+          let started = false
+          for (let i = fromIdx; i <= toIdx; i++) {
+            const c = candles[i]
+            const pt = resolveCoord(c.time, c.close)
+            if (!pt || pt.x < 0 || pt.x > maxChartX) continue
+
+            const normCvd = (cvdArr[i] - minCvd) / cvdRange
+            const yCvd = ribbonBottom - 5 - normCvd * (ribbonH - 12)
+            if (!started) {
+              ctx.moveTo(pt.x, yCvd)
+              started = true
+            } else {
+              ctx.lineTo(pt.x, yCvd)
+            }
+          }
+          if (started) ctx.stroke()
+
+          // Header Badge inside CVD Ribbon
+          const lastDelta = deltas[candles.length - 1] || 0
+          const cvdSlopeBull = cvdArr[toIdx] >= cvdArr[Math.max(fromIdx, toIdx - 10)]
+          const fmtDelta = (val: number) => {
+            const a = Math.abs(val)
+            const sign = val >= 0 ? '+' : '-'
+            if (a >= 1_000_000) return `${sign}${(a / 1_000_000).toFixed(2)}M`
+            if (a >= 1_000) return `${sign}${(a / 1_000).toFixed(1)}K`
+            return `${sign}${a.toFixed(1)}`
+          }
+
+          const statusText = `CVD ORDERFLOW • Δ Bar: ${fmtDelta(lastDelta)} • Trend: ${cvdSlopeBull ? 'BUY ACCUMULATION' : 'SELL DISTRIBUTION'}`
+          ctx.font = 'bold 9px Inter, monospace'
+          ctx.fillStyle = cvdSlopeBull ? (ofConfig.cvdBullColor || '#00c087') : (ofConfig.cvdBearColor || '#f6465d')
+          ctx.textAlign = 'left'
+          ctx.fillText(statusText, 8, ribbonTop + 11)
+          ctx.restore()
         }
       }
     }
@@ -3029,7 +3580,8 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     timeframe,
     candles,
     autoFibSettings,
-    vpvrSettings
+    vpvrSettings,
+    orderflowSettings
   ])
 
   // Always update the ref with the latest redraw function

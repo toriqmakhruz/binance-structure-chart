@@ -9,6 +9,7 @@ import { SettingsDrawer } from './components/Settings/SettingsDrawer'
 import { TelegramAlertModal } from './components/Settings/TelegramAlertModal'
 import { AutoFibModal } from './components/Settings/AutoFibModal'
 import { VpvrModal } from './components/Settings/VpvrModal'
+import { OrderflowModal } from './components/Settings/OrderflowModal'
 import { fetchTelegramSettings } from './services/api'
 import { OpenPositionModal, SetupTradeTarget } from './components/Trade/OpenPositionModal'
 import { TradingDashboardDrawer } from './components/Trade/TradingDashboardDrawer'
@@ -31,6 +32,7 @@ import {
 } from './types/analysis'
 import { AutoFibSettings, DEFAULT_AUTO_FIB_SETTINGS } from './types/fibonacci'
 import { VolumeProfileSettings, DEFAULT_VOLUME_PROFILE_SETTINGS } from './types/volumeProfile'
+import { OrderflowSettings, DEFAULT_ORDERFLOW_SETTINGS } from './types/orderflow'
 
 const DEFAULT_VISIBILITY: LayerVisibility = {
   smcSwings: true,
@@ -48,7 +50,9 @@ const DEFAULT_VISIBILITY: LayerVisibility = {
   openInterest: true,
   fundingRate: true,
   fibonacci: true,
-  volumeProfile: true
+  volumeProfile: true,
+  liquidationHeatmap: true,
+  cvdOrderflow: true
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -209,6 +213,13 @@ export function App() {
     readStoredJson<VolumeProfileSettings>('cp_vpvr_settings', DEFAULT_VOLUME_PROFILE_SETTINGS, true)
   )
   const [isVpvrModalOpen, setIsVpvrModalOpen] = useState(false)
+
+  // Orderflow & Derivatives Intelligence (Liquidation Heatmap & CVD) Configuration
+  const [orderflowSettings, setOrderflowSettings] = useState<OrderflowSettings>(() =>
+    readStoredJson<OrderflowSettings>('cp_orderflow_settings', DEFAULT_ORDERFLOW_SETTINGS, true)
+  )
+  const [isOrderflowModalOpen, setIsOrderflowModalOpen] = useState(false)
+  const [orderflowModalTab, setOrderflowModalTab] = useState<'liquidation' | 'cvd'>('liquidation')
 
   // Notification Toast Stack
   const [toasts, setToasts] = useState<ToastData[]>([])
@@ -462,7 +473,7 @@ export function App() {
         'smcSwings', 'smcEvents', 'orderBlocks', 'fvgs', 'patterns',
         'srLevels', 'marketSessions', 'forecastCone', 'forecastScenarios',
         'entryBoxes', 'htfOverlay', 'volume', 'openInterest', 'fundingRate',
-        'fibonacci', 'volumeProfile'
+        'fibonacci', 'volumeProfile', 'liquidationHeatmap', 'cvdOrderflow'
       ]
       const updatedVis = { ...currentPaneVis }
       allKeys.forEach((k) => {
@@ -490,7 +501,9 @@ export function App() {
         openInterest: enabled,
         fundingRate: enabled,
         fibonacci: enabled,
-        volumeProfile: enabled
+        volumeProfile: enabled,
+        liquidationHeatmap: enabled,
+        cvdOrderflow: enabled
       })
     }
   }, [visibility])
@@ -521,7 +534,9 @@ export function App() {
       openInterest: enabled,
       fundingRate: enabled,
       fibonacci: enabled,
-      volumeProfile: enabled
+      volumeProfile: enabled,
+      liquidationHeatmap: enabled,
+      cvdOrderflow: enabled
     })
     if (layout !== 'single') {
       handleSetAllPaneLayers(activePaneId, enabled)
@@ -936,6 +951,10 @@ export function App() {
         onSetAll={handleSetAllLayers}
         onOpenAutoFibSettings={() => setIsAutoFibModalOpen(true)}
         onOpenVpvrSettings={() => setIsVpvrModalOpen(true)}
+        onOpenOrderflowSettings={(tab) => {
+          setOrderflowModalTab(tab)
+          setIsOrderflowModalOpen(true)
+        }}
         activePaneTitle={
           layout !== 'single'
             ? activePaneId === 'chart-1'
@@ -987,6 +1006,11 @@ export function App() {
               onOpenAutoFibSettings={() => setIsAutoFibModalOpen(true)}
               vpvrSettings={vpvrSettings}
               onOpenVpvrSettings={() => setIsVpvrModalOpen(true)}
+              orderflowSettings={orderflowSettings}
+              onOpenOrderflowSettings={(tab) => {
+                setOrderflowModalTab(tab)
+                setIsOrderflowModalOpen(true)
+              }}
               onTogglePaneLayer={handleTogglePaneLayer}
               onSetAllPaneLayers={handleSetAllPaneLayers}
               activePaneId={activePaneId}
@@ -1193,6 +1217,24 @@ export function App() {
             type: 'success',
             title: 'Pengaturan Volume Profile (VPVR) Disimpan 📊',
             message: `Resolusi ${newSettings.rowSize} rows, Value Area ${newSettings.valueAreaVolumePct}%, dan level POC/VAH/VAL berhasil diperbarui.`,
+            duration: 4000
+          })
+        }}
+      />
+
+      {/* Orderflow & Derivatives Intelligence Settings Modal (Liquidation Heatmap & CVD) */}
+      <OrderflowModal
+        isOpen={isOrderflowModalOpen}
+        initialTab={orderflowModalTab}
+        settings={orderflowSettings}
+        onClose={() => setIsOrderflowModalOpen(false)}
+        onSave={(newSettings) => {
+          setOrderflowSettings(newSettings)
+          writeStorage('cp_orderflow_settings', newSettings)
+          addToast({
+            type: 'success',
+            title: 'Konfigurasi Orderflow & Liquidation Disimpan 🔥',
+            message: 'Parameter Liquidation Heatmap (25x/50x/100x) dan CVD Divergence berhasil diperbarui.',
             duration: 4000
           })
         }}

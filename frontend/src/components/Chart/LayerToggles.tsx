@@ -20,7 +20,8 @@ import {
   Check,
   X,
   Percent,
-  Sliders
+  Sliders,
+  Flame
 } from 'lucide-react'
 
 interface LayerTogglesProps {
@@ -33,6 +34,7 @@ interface LayerTogglesProps {
   activePaneTitle?: string
   onOpenAutoFibSettings?: () => void
   onOpenVpvrSettings?: () => void
+  onOpenOrderflowSettings?: (tab: 'liquidation' | 'cvd') => void
 }
 
 interface LayerItem {
@@ -58,7 +60,8 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
   onSetAll,
   activePaneTitle,
   onOpenAutoFibSettings,
-  onOpenVpvrSettings
+  onOpenVpvrSettings,
+  onOpenOrderflowSettings
 }) => {
   const [isOpen, setIsOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -116,6 +119,8 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
       category: 'Volume & Derivatif',
       items: [
         { key: 'volumeProfile', label: 'Volume Profile (VPVR)', desc: 'POC, VAH, VAL & Distribusi Volume Horizontal (70% VA)', icon: <BarChart2 className="w-3.5 h-3.5 rotate-90" />, color: 'text-cyan-400', bgHover: 'hover:bg-cyan-950/30' },
+        { key: 'liquidationHeatmap', label: 'Liquidation Heatmap (25x/50x/100x)', desc: 'Zona magnet likuidasi leverage Coinglass-style (Short/Long Liq)', icon: <Flame className="w-3.5 h-3.5" />, color: 'text-amber-400', bgHover: 'hover:bg-amber-950/30' },
+        { key: 'cvdOrderflow', label: 'CVD & Orderflow Divergence', desc: 'Kurva Cumulative Volume Delta & Bull/Bear Absorption', icon: <Activity className="w-3.5 h-3.5" />, color: 'text-emerald-400', bgHover: 'hover:bg-emerald-950/30' },
         { key: 'volume', label: 'Volume Delta', desc: 'Tekanan Taker Buy vs Sell bar', icon: <BarChart2 className="w-3.5 h-3.5" />, color: 'text-blue-400', bgHover: 'hover:bg-blue-950/30' },
         { key: 'openInterest', label: 'Open Interest (OI)', desc: 'Total kontrak aktif pasar Futures (Indikator Murni)', icon: <Activity className="w-3.5 h-3.5" />, color: 'text-sky-400', bgHover: 'hover:bg-sky-950/30' },
         { key: 'fundingRate', label: 'Funding Rate [Futures]', desc: 'Tarif pendanaan posisi Long vs Short (Indikator Murni)', icon: <Percent className="w-3.5 h-3.5" />, color: 'text-purple-400', bgHover: 'hover:bg-purple-950/30' },
@@ -128,18 +133,17 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
   const allKeys: (keyof LayerVisibility)[] = [
     'smcEvents', 'orderBlocks', 'fvgs', 'smcSwings',
     'fibonacci', 'patterns', 'srLevels', 'marketSessions', 'forecastCone', 'forecastScenarios',
-    'entryBoxes', 'volumeProfile', 'volume', 'openInterest', 'fundingRate', ...(hasHtf ? ['htfOverlay' as keyof LayerVisibility] : [])
+    'entryBoxes', 'volumeProfile', 'liquidationHeatmap', 'cvdOrderflow', 'volume', 'openInterest', 'fundingRate', ...(hasHtf ? ['htfOverlay' as keyof LayerVisibility] : [])
   ]
   const activeCount = allKeys.filter((k) => visibility[k]).length
   const totalCount = allKeys.length
 
-  // Quick chips for top core indicators
+  // Quick chips for top core indicators (kept minimal in header)
   const quickChips: { key: keyof LayerVisibility; label: string }[] = [
     { key: 'smcEvents', label: 'BOS/CHoCH' },
     { key: 'orderBlocks', label: 'OB' },
     { key: 'fvgs', label: 'FVG' },
     { key: 'fibonacci', label: 'Auto Fib' },
-    { key: 'volumeProfile', label: 'VPVR' },
     { key: 'entryBoxes', label: 'Box Entry' }
   ]
 
@@ -291,6 +295,32 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
                               }}
                               className="p-1.5 rounded-md bg-[#1c2434] hover:bg-[#252f44] text-cyan-400 hover:text-cyan-300 border border-cyan-500/30 transition-all shadow-sm"
                               title="Buka Pengaturan Volume Profile (VPVR)"
+                            >
+                              <Sliders className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {item.key === 'liquidationHeatmap' && onOpenOrderflowSettings && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                onOpenOrderflowSettings('liquidation')
+                              }}
+                              className="p-1.5 rounded-md bg-[#1c2434] hover:bg-[#252f44] text-amber-400 hover:text-amber-300 border border-amber-500/30 transition-all shadow-sm"
+                              title="Buka Pengaturan Liquidation Heatmap (25x/50x/100x)"
+                            >
+                              <Sliders className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {item.key === 'cvdOrderflow' && onOpenOrderflowSettings && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                onOpenOrderflowSettings('cvd')
+                              }}
+                              className="p-1.5 rounded-md bg-[#1c2434] hover:bg-[#252f44] text-emerald-400 hover:text-emerald-300 border border-emerald-500/30 transition-all shadow-sm"
+                              title="Buka Pengaturan CVD & Orderflow Divergence"
                             >
                               <Sliders className="w-3.5 h-3.5" />
                             </button>

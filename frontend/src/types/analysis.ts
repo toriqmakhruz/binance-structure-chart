@@ -232,10 +232,13 @@ export interface LayerVisibility {
   fundingRate: boolean
   fibonacci?: boolean
   volumeProfile?: boolean
+  liquidationHeatmap?: boolean
+  cvdOrderflow?: boolean
 }
 
 export * from './fibonacci'
 export * from './volumeProfile'
+export * from './orderflow'
 
 export type DrawingToolType = 
   | 'cursor' 

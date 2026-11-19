@@ -17,7 +17,8 @@ import {
   OpenInterestData,
   FundingRateData,
   AutoFibSettings,
-  VolumeProfileSettings
+  VolumeProfileSettings,
+  OrderflowSettings
 } from '../../types/analysis'
 
 interface SubChartProps {
@@ -33,6 +34,7 @@ interface SubChartProps {
   visibility: LayerVisibility
   autoFibSettings?: AutoFibSettings
   vpvrSettings?: VolumeProfileSettings
+  orderflowSettings?: OrderflowSettings
   activeTool: DrawingToolType
   onSelectTool?: (tool: DrawingToolType) => void
   drawings: DrawingItem[]
@@ -58,6 +60,7 @@ const SubTimeframeChart: React.FC<SubChartProps> = ({
   visibility,
   autoFibSettings,
   vpvrSettings,
+  orderflowSettings,
   activeTool,
   onSelectTool,
   drawings,
@@ -208,6 +211,7 @@ const SubTimeframeChart: React.FC<SubChartProps> = ({
       visibility={visibility}
       autoFibSettings={autoFibSettings}
       vpvrSettings={vpvrSettings}
+      orderflowSettings={orderflowSettings}
       activeTool={activeTool}
       onSelectTool={onSelectTool}
       drawings={drawings}
@@ -244,6 +248,8 @@ interface ChartContainerProps {
   onOpenAutoFibSettings?: () => void
   vpvrSettings?: VolumeProfileSettings
   onOpenVpvrSettings?: () => void
+  orderflowSettings?: OrderflowSettings
+  onOpenOrderflowSettings?: (tab: 'liquidation' | 'cvd') => void
   onTogglePaneLayer?: (paneId: string, key: keyof LayerVisibility) => void
   onSetAllPaneLayers?: (paneId: string, enabled: boolean) => void
   activePaneId?: string
@@ -291,6 +297,8 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
   onOpenAutoFibSettings,
   vpvrSettings,
   onOpenVpvrSettings,
+  orderflowSettings,
+  onOpenOrderflowSettings,
   onTogglePaneLayer,
   onSetAllPaneLayers,
   activePaneId = 'chart-1',
@@ -405,6 +413,7 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
                 hasHtf={Boolean(htfOverlay)}
                 onOpenAutoFibSettings={onOpenAutoFibSettings}
                 onOpenVpvrSettings={onOpenVpvrSettings}
+                onOpenOrderflowSettings={onOpenOrderflowSettings}
               />
             </div>
 
@@ -499,6 +508,7 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
               visibility={paneVis}
               autoFibSettings={autoFibSettings}
               vpvrSettings={vpvrSettings}
+              orderflowSettings={orderflowSettings}
               activeTool={activeTool}
               onSelectTool={onSelectTool}
               drawings={drawings}
@@ -532,6 +542,7 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
               visibility={paneVis}
               autoFibSettings={autoFibSettings}
               vpvrSettings={vpvrSettings}
+              orderflowSettings={orderflowSettings}
               activeTool={activeTool}
               onSelectTool={onSelectTool}
               drawings={drawings}
