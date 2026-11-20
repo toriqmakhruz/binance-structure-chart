@@ -1897,59 +1897,125 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
       })
     }
 
-    // B4. Order Blocks (OB)
-    if (smc && visibility.orderBlocks) {
-      smc.order_blocks.forEach((ob) => {
+    // B4. Order Blocks (OB) - Clean, Fresh (Unmitigated) & Non-Overlapping
+    if (smc && visibility.orderBlocks && smc.order_blocks && smc.order_blocks.length > 0) {
+      const currentCandle = candles.length > 0 ? candles[candles.length - 1] : null
+      const currentPrice = currentCandle ? currentCandle.close : 0
+
+      // 1. Filter out INVALIDATED order blocks and only keep active, FRESH (Unmitigated) OBs
+      // In professional SMC trading, dead / mitigated / breached OBs create heavy visual clutter
+      const freshOBs = smc.order_blocks.filter((ob) => {
+        // Exclude invalidated OBs
+        if (ob.status === 'INVALIDATED') return false
+        // Exclude already mitigated (consumed) OBs to avoid visual clutter
+        if (ob.mitigated || ob.status === 'MITIGATED') return false
+
+        // Invalidation sanity check against current live price:
+        if (currentPrice > 0) {
+          // If Bullish OB is above current price (meaning price broke downwards through it), it is violated
+          if (ob.direction === 'BULLISH' && currentPrice < ob.bottom) return false
+          // If Bearish OB is below current price (meaning price broke upwards through it), it is violated
+          if (ob.direction === 'BEARISH' && currentPrice > ob.top) return false
+        }
+        return true
+      })
+
+      // 2. Separate into Bullish (Demand/Support) and Bearish (Supply/Resistance)
+      // Sort by recency (newest first)
+      const bullOBs = freshOBs
+        .filter((ob) => ob.direction === 'BULLISH')
+        .sort((a, b) => b.start_time - a.start_time)
+      const bearOBs = freshOBs
+        .filter((ob) => ob.direction === 'BEARISH')
+        .sort((a, b) => b.start_time - a.start_time)
+
+      // 3. Deduplicate overlapping zones of the same direction (prevent stacking boxes)
+      const deduplicateOBs = (list: typeof freshOBs) => {
+        const result: typeof freshOBs = []
+        for (const ob of list) {
+          const overlaps = result.some((existing) => {
+            const overlapTop = Math.min(ob.top, existing.top)
+            const overlapBottom = Math.max(ob.bottom, existing.bottom)
+            if (overlapTop > overlapBottom) {
+              const overlapHeight = overlapTop - overlapBottom
+              const minHeight = Math.min(ob.top - ob.bottom, existing.top - existing.bottom)
+              return minHeight > 0 && (overlapHeight / minHeight) > 0.45
+            }
+            return false
+          })
+          if (!overlaps) {
+            result.push(ob)
+          }
+        }
+        return result
+      }
+
+      // Keep at most the 2 cleanest, most relevant fresh Bullish OBs and 2 fresh Bearish OBs
+      const cleanBullOBs = deduplicateOBs(bullOBs).slice(0, 2)
+      const cleanBearOBs = deduplicateOBs(bearOBs).slice(0, 2)
+      const activeDisplayOBs = [...cleanBullOBs, ...cleanBearOBs]
+
+      activeDisplayOBs.forEach((ob) => {
         const pStart = resolveCoord(ob.start_time, ob.top)
         if (!pStart) return
 
-        const startX = pStart.x
-        let endX = width - 65
-        if (ob.mitigated && ob.mitigated_time) {
-          const pMit = resolveCoord(ob.mitigated_time, ob.top)
-          if (pMit) endX = Math.min(endX, pMit.x)
-        }
+        const startX = Math.max(0, pStart.x)
+        const endX = Math.max(startX + 60, width - 68)
 
         const topY = series.priceToCoordinate(ob.top)
         const botY = series.priceToCoordinate(ob.bottom)
         if (topY === null || botY === null) return
 
         const isBull = ob.direction === 'BULLISH'
-        const obHeight = Math.max(3, Math.abs(botY - topY))
+        const obHeight = Math.max(4, Math.abs(botY - topY))
         const obY = Math.min(topY, botY)
         const obW = Math.max(10, endX - startX)
 
         if (startX + obW < 0 || startX > width) return
 
-        ctx.fillStyle = isBull 
-          ? (ob.mitigated ? 'rgba(0, 192, 135, 0.08)' : 'rgba(0, 192, 135, 0.22)')
-          : (ob.mitigated ? 'rgba(246, 70, 93, 0.08)' : 'rgba(246, 70, 93, 0.22)')
-        ctx.strokeStyle = isBull ? '#00c087' : '#f6465d'
+        ctx.save()
+        // Subtle, elegant semi-transparent fill
+        ctx.fillStyle = isBull ? 'rgba(0, 192, 135, 0.12)' : 'rgba(246, 70, 93, 0.12)'
+        ctx.strokeStyle = isBull ? 'rgba(0, 192, 135, 0.85)' : 'rgba(246, 70, 93, 0.85)'
         ctx.lineWidth = 1
-        ctx.setLineDash(ob.mitigated ? [3, 3] : [])
 
         ctx.fillRect(startX, obY, obW, obHeight)
         ctx.strokeRect(startX, obY, obW, obHeight)
 
-        ctx.setLineDash([])
-        ctx.font = '9px Inter, sans-serif'
-        ctx.fillStyle = isBull ? '#00c087' : '#f6465d'
-        ctx.fillText(
-          `${isBull ? 'Bullish' : 'Bearish'} OB ${ob.mitigated ? '(Mitigated)' : ''}`,
-          Math.max(10, startX + 4),
-          obY + 11
-        )
+        // Pill text badge (TradingView style at the top-left of the zone)
+        const labelText = `${isBull ? 'Bullish' : 'Bearish'} OB`
+        ctx.font = 'bold 9px Inter, sans-serif'
+        const textWidth = ctx.measureText(labelText).width
+        const badgeX = Math.max(10, startX + 4)
+        const badgeY = Math.max(2, obY + 2)
+
+        if (obHeight >= 14) {
+          ctx.fillStyle = isBull ? 'rgba(0, 192, 135, 0.25)' : 'rgba(246, 70, 93, 0.25)'
+          ctx.fillRect(badgeX, badgeY, textWidth + 8, 12)
+          ctx.fillStyle = isBull ? '#00c087' : '#f6465d'
+          ctx.fillText(labelText, badgeX + 4, badgeY + 9)
+        } else {
+          ctx.fillStyle = isBull ? '#00c087' : '#f6465d'
+          ctx.fillText(labelText, badgeX, Math.max(12, obY - 3))
+        }
+
+        ctx.restore()
       })
     }
 
-    // C. Fair Value Gaps (FVG)
-    if (smc && visibility.fvgs) {
-      smc.fvgs.forEach((fvg) => {
+    // C. Fair Value Gaps (FVG) - Clean, Unmitigated Only
+    if (smc && visibility.fvgs && smc.fvgs && smc.fvgs.length > 0) {
+      // Filter out mitigated or filled FVGs to prevent stacking old gap boxes
+      const activeFvgs = smc.fvgs
+        .filter((fvg) => !fvg.mitigated && fvg.status !== 'FILLED')
+        .slice(-4) // Maximum 4 recent active FVGs
+
+      activeFvgs.forEach((fvg) => {
         const pStart = resolveCoord(fvg.time, fvg.top)
         if (!pStart) return
 
         const startX = pStart.x
-        const endX = fvg.mitigated ? startX + 80 : width - 65
+        const endX = Math.max(startX + 60, width - 68)
         const topY = series.priceToCoordinate(fvg.top)
         const botY = series.priceToCoordinate(fvg.bottom)
         if (topY === null || botY === null) return
@@ -1961,8 +2027,9 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
 
         if (startX + fvgW < 0 || startX > width) return
 
-        ctx.fillStyle = isBull ? 'rgba(6, 182, 212, 0.18)' : 'rgba(245, 158, 11, 0.18)'
-        ctx.strokeStyle = isBull ? '#06b6d4' : '#f59e0b'
+        ctx.save()
+        ctx.fillStyle = isBull ? 'rgba(6, 182, 212, 0.12)' : 'rgba(245, 158, 11, 0.12)'
+        ctx.strokeStyle = isBull ? 'rgba(6, 182, 212, 0.8)' : 'rgba(245, 158, 11, 0.8)'
         ctx.lineWidth = 1
         ctx.setLineDash([3, 3])
 
@@ -1970,9 +2037,10 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         ctx.strokeRect(startX, fvgY, fvgW, fvgHeight)
 
         ctx.setLineDash([])
-        ctx.font = '9px Inter, sans-serif'
+        ctx.font = 'bold 9px Inter, sans-serif'
         ctx.fillStyle = isBull ? '#06b6d4' : '#f59e0b'
         ctx.fillText(`FVG ${isBull ? '↑' : '↓'}`, Math.max(10, startX + 4), fvgY + 10)
+        ctx.restore()
       })
     }
 
