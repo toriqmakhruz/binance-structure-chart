@@ -13,6 +13,7 @@ from ..analysis.pattern_engine import PatternEngine
 from ..analysis.movement_engine import MovementEngine
 from ..analysis.forecast_engine import ForecastEngine
 from ..analysis.trend_strength_engine import TrendStrengthEngine
+from ..analysis.smart_risk_engine import SmartRiskEngine
 
 logger = logging.getLogger("api_routes")
 
@@ -92,7 +93,7 @@ async def get_full_analysis(
     swing_length: int = Query(5, ge=2, le=20),
     fvg_min_pct: float = Query(0.05, ge=0.01, le=1.0),
     forecast_horizon: int = Query(20, ge=5, le=50),
-    setup_mode: str = Query("standard", pattern="^(standard|pro_shield|craig_10x|apex_quant)$")
+    setup_mode: str = Query("standard", pattern="^(standard|pro_shield|craig_10x|apex_quant|smart_risk)$")
 ):
     """
     Execute full analysis: SMC + Classic Patterns + Movement Dynamics + Hybrid Forecasting.
@@ -176,6 +177,19 @@ async def get_full_analysis(
             timeframe=tf_clean
         )
 
+        # 5. Smart Risk Institutional SMC Analysis
+        smart_risk_data = None
+        try:
+            smart_risk_engine = SmartRiskEngine()
+            smart_risk_res = smart_risk_engine.analyze(
+                candles=candles,
+                swings=smc_res.swings if smc_res else None,
+                pools=smc_res.liquidity_pools if smc_res else None
+            )
+            smart_risk_data = smart_risk_res.model_dump()
+        except Exception as _sr_err:
+            logger.debug(f"Smart risk analysis calculation skipped: {_sr_err}")
+
         # Fetch Open Interest & Funding Rate if market is futures (purely informational indicators)
         oi_data = None
         funding_data = None
@@ -209,7 +223,8 @@ async def get_full_analysis(
             open_interest=oi_data,
             funding_rate=funding_data,
             setup_mode=setup_mode,
-            trend_strength=trend_res
+            trend_strength=trend_res,
+            smart_risk=smart_risk_data
         )
 
     except DataUnavailableException as e:
@@ -364,7 +379,7 @@ async def get_valid_setups(
     forecast_horizon: int = Query(20, ge=5, le=50),
     scan_limit: int = Query(24, ge=5, le=40),
     force_refresh: bool = Query(False),
-    setup_mode: str = Query("standard", pattern="^(standard|pro_shield|craig_10x|apex_quant)$")
+    setup_mode: str = Query("standard", pattern="^(standard|pro_shield|craig_10x|apex_quant|smart_risk)$")
 ):
     """
     Scan top traded Binance crypto pairs and return ONLY currently VALID A+ setups,

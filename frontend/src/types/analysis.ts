@@ -197,7 +197,7 @@ export interface FundingRateData {
   history?: FundingRatePoint[]
 }
 
-export type SetupMode = 'standard' | 'pro_shield' | 'craig_10x' | 'apex_quant'
+export type SetupMode = 'standard' | 'smart_risk' | 'pro_shield' | 'craig_10x' | 'apex_quant'
 
 export interface MtfTrendItem {
   timeframe: string
@@ -260,6 +260,7 @@ export interface FullAnalysisResponse {
   funding_rate?: FundingRateData
   setup_mode?: SetupMode
   trend_strength?: TrendStrengthMetrics
+  smart_risk?: any
 }
 
 export interface LayerVisibility {

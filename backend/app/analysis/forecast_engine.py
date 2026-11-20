@@ -498,6 +498,19 @@ class ForecastEngine:
                 atr=atr,
                 htf_trend=htf_trend
             )
+        elif setup_mode == "smart_risk":
+            from .smart_risk_engine import SmartRiskEngine
+            active_candidates = SmartRiskEngine.evaluate_candidates(
+                candles=candles,
+                current_price=current_price,
+                last_time=last_time,
+                horizon=horizon,
+                confluence_score=confluence_score,
+                smc=smc,
+                patterns=patterns,
+                atr=atr,
+                htf_trend=htf_trend
+            )
         else:
             active_candidates = self._evaluate_standard_candidates(
                 candles=candles,

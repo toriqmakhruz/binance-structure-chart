@@ -453,6 +453,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
                   <div className="space-y-1">
                     {[
                       { id: 'standard', name: 'Standard', desc: 'Klasik SMC & Pattern Detection' },
+                      { id: 'smart_risk', name: 'Smart Risk SMC', desc: 'Institutional SMC, IDM Traps & 50% EQ Entry' },
                       { id: 'pro_shield', name: 'Pro Shield', desc: 'High Winrate SFP & Invalidation Defense' },
                       { id: 'craig_10x', name: 'Craig 10x', desc: 'Aggressive Confluence & Max R:R' },
                       { id: 'apex_quant', name: 'Apex Quant', desc: 'Multi-Timeframe Algorithmic Engine' }

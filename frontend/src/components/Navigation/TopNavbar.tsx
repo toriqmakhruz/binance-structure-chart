@@ -189,6 +189,7 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
                 className="bg-transparent text-[#f0b90b] font-bold text-[11px] md:text-xs outline-none cursor-pointer pr-0.5"
               >
                 <option value="standard" className="bg-[#121824] text-white">Standard</option>
+                <option value="smart_risk" className="bg-[#121824] text-white">Smart Risk</option>
                 <option value="pro_shield" className="bg-[#121824] text-white">Pro Shield</option>
                 <option value="craig_10x" className="bg-[#121824] text-white">Craig 10x</option>
                 <option value="apex_quant" className="bg-[#121824] text-white">Apex Quant</option>
@@ -551,6 +552,22 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
                       <span>Standar</span>
                     </div>
                     <div className="text-[10px] text-slate-400 mt-0.5">SMC + FVG klasik</div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => onModeChange('smart_risk')}
+                    className={`p-2.5 rounded-lg border text-left transition-all ${
+                      setupMode === 'smart_risk'
+                        ? 'bg-amber-600/20 border-amber-500/60 text-amber-300'
+                        : 'bg-[#161c28] border-[#252f44] text-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-1.5 font-bold text-xs">
+                      <Zap className="w-3.5 h-3.5 text-[#f0b90b]" />
+                      <span>Smart Risk SMC</span>
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-0.5">IDM Traps & 50% Mean Threshold</div>
                   </button>
 
                   <button

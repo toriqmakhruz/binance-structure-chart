@@ -15,7 +15,7 @@ from typing import List, Dict, Any, Optional, Tuple
 from pydantic import BaseModel, Field
 import numpy as np
 
-from ..models.schemas import Candle, SwingPoint, StructureEvent, LiquidityPool
+from ..models.schemas import Candle, SwingPoint, StructureEvent, LiquidityPool, SmcAnalysisResult
 from .utils import dynamic_round
 
 
@@ -851,3 +851,120 @@ class SmartRiskEngine:
             active_setup=active_setup,
             summary=" ".join(summary_parts)
         )
+
+    # ------------------------------------------------------------------------
+    # 7. FORECAST & SETUP RADAR INTEGRATION
+    # ------------------------------------------------------------------------
+    @classmethod
+    def evaluate_candidates(
+        cls,
+        candles: List[Candle],
+        current_price: float,
+        last_time: int,
+        horizon: int,
+        confluence_score: float,
+        smc: Optional[SmcAnalysisResult],
+        patterns: Optional[Any],
+        atr: float,
+        htf_trend: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Pindai dan evaluasi setup Smart Risk untuk Forecast Engine & Setup Radar:
+        1. Menghindari Intermediate OB Trap yang belum menyapu Inducement.
+        2. Mengutamakan Extreme Unmitigated OB dan S/D Flip.
+        3. Menentukan entry presisi 50% Midpoint (Mean Threshold / EQ) dengan R:R >= 2.0.
+        4. Memverifikasi lifecycle (In-Flight vs Pending Retest, discard jika hit SL/TP).
+        """
+        active_candidates: List[Dict[str, Any]] = []
+        if len(candles) < 20:
+            return active_candidates
+
+        engine = cls()
+        swings = smc.swings if smc else None
+        pools = smc.liquidity_pools if smc else None
+        analysis = engine.analyze(candles, swings=swings, pools=pools)
+
+        lookback_candles = 45
+        lookback_start = max(0, len(candles) - lookback_candles)
+
+        for setup in analysis.sniper_setups:
+            # Multi-timeframe trend guard (Video 2: 3-Tier Hierarchy)
+            if setup.direction == "LONG" and htf_trend == "BEARISH" and setup.score < 2:
+                continue
+            if setup.direction == "SHORT" and htf_trend == "BULLISH" and setup.score < 2:
+                continue
+
+            entry_p = setup.entry_price
+            sl = setup.stop_loss
+            tp = setup.take_profit
+            rr = setup.risk_reward_ratio
+
+            ob = next((o for o in analysis.order_blocks if o.id == setup.order_block_id), None)
+            zone_high = ob.top if ob else dynamic_round(entry_p + atr * 0.2)
+            zone_low = ob.bottom if ob else dynamic_round(entry_p - atr * 0.2)
+
+            # Cek apakah harga sudah pernah menyentuh (tap) area entry dalam jendela lookback
+            tap_idx = None
+            for i in range(lookback_start, len(candles)):
+                c = candles[i]
+                if ob and c.time < ob.time:
+                    continue
+                if setup.direction == "LONG":
+                    if c.low <= zone_high and c.high >= zone_low:
+                        tap_idx = i
+                        break
+                else:  # SHORT
+                    if c.high >= zone_low and c.low <= zone_high:
+                        tap_idx = i
+                        break
+
+            if tap_idx is not None:
+                # Setup sudah aktif (in-flight)
+                sub_candles = candles[tap_idx:]
+                if setup.direction == "LONG":
+                    sl_hit = any(c.low <= sl for c in sub_candles)
+                    tp_hit = any(c.high >= tp for c in sub_candles)
+                else:
+                    sl_hit = any(c.high >= sl for c in sub_candles)
+                    tp_hit = any(c.low <= tp for c in sub_candles)
+
+                if not sl_hit and not tp_hit:
+                    weight = min(98.0, 85.0 + (setup.score * 4.0))
+                    if (setup.direction == "LONG" and htf_trend == "BULLISH") or (setup.direction == "SHORT" and htf_trend == "BEARISH"):
+                        weight = min(99.0, weight + 5.0)
+
+                    active_candidates.append({
+                        "direction": setup.direction,
+                        "entry_time": candles[tap_idx].time,
+                        "entry_price": dynamic_round(entry_p),
+                        "entry_zone_high": dynamic_round(zone_high),
+                        "entry_zone_low": dynamic_round(zone_low),
+                        "sl": dynamic_round(sl),
+                        "tp": dynamic_round(tp),
+                        "rr": rr,
+                        "name": f"🏛️ Smart Risk: {setup.setup_name}",
+                        "weight": round(weight, 1),
+                        "setup_mode": "smart_risk",
+                        "status": "VALID_ENTRY"
+                    })
+            else:
+                # Pending limit entry jika harga masih berdekatan dengan zona (jarak <= 1.8 * ATR)
+                dist = abs(current_price - entry_p)
+                if dist <= atr * 1.8 and setup.status == "READY_FOR_ENTRY":
+                    weight = min(95.0, 80.0 + (setup.score * 4.0))
+                    active_candidates.append({
+                        "direction": setup.direction,
+                        "entry_time": last_time,
+                        "entry_price": dynamic_round(entry_p),
+                        "entry_zone_high": dynamic_round(zone_high),
+                        "entry_zone_low": dynamic_round(zone_low),
+                        "sl": dynamic_round(sl),
+                        "tp": dynamic_round(tp),
+                        "rr": rr,
+                        "name": f"🏛️ Smart Risk: {setup.setup_name} (Pending Retest)",
+                        "weight": round(weight, 1),
+                        "setup_mode": "smart_risk",
+                        "status": "VALID_ENTRY"
+                    })
+
+        return active_candidates

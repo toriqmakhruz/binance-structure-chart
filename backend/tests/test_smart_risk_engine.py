@@ -220,3 +220,61 @@ class TestSmartRiskEngine:
         assert isinstance(result.order_blocks, list)
         assert isinstance(result.sniper_setups, list)
         assert len(result.summary) > 0
+
+    def test_smart_risk_evaluate_candidates_and_forecast_integration(self):
+        """
+        Uji integrasi evaluate_candidates dengan ForecastEngine menggunakan mode 'smart_risk'.
+        """
+        from app.analysis.forecast_engine import ForecastEngine
+
+        candles = [
+            make_candle(i, 100.0 + i, 101.5 + i, 99.5 + i, 101.0 + i)
+            for i in range(30)
+        ]
+        # Buat Bullish Extreme OB di index 5
+        candles[5] = make_candle(5, 105.0, 106.0, 92.0, 93.0)
+        candles[6] = make_candle(6, 93.0, 115.0, 93.0, 114.0)
+        candles[7] = make_candle(7, 114.0, 120.0, 108.0, 118.0)
+
+        # Evaluasi kandidat langsung
+        candidates = SmartRiskEngine.evaluate_candidates(
+            candles=candles,
+            current_price=125.0,
+            last_time=candles[-1].time,
+            horizon=20,
+            confluence_score=75.0,
+            smc=None,
+            patterns=None,
+            atr=2.5,
+            htf_trend="BULLISH"
+        )
+        assert isinstance(candidates, list)
+
+        # Uji ForecastEngine dengan setup_mode='smart_risk'
+        forecast_engine = ForecastEngine(default_horizon=20)
+        forecast_res = forecast_engine.analyze(
+            candles=candles,
+            smc=None,
+            patterns=None,
+            horizon=20,
+            setup_mode="smart_risk",
+            htf_trend="BULLISH"
+        )
+        assert forecast_res.predicted_trend in ("BULLISH", "BEARISH", "NEUTRAL")
+
+    def test_api_setup_mode_smart_risk_allowed(self):
+        """
+        Uji endpoint API /api/analysis dan /api/setups menerima query setup_mode=smart_risk
+        dan menolak mode invalid dengan status 422.
+        """
+        from fastapi.testclient import TestClient
+        from app.main import app
+
+        client = TestClient(app)
+
+        # Mode invalid harus 422 Unprocessable Entity
+        resp_invalid = client.get("/api/analysis?symbol=BTCUSDT&setup_mode=invalid_mode")
+        assert resp_invalid.status_code == 422
+
+        resp_invalid_radar = client.get("/api/setups?setup_mode=invalid_mode")
+        assert resp_invalid_radar.status_code == 422

@@ -195,6 +195,7 @@ class FullAnalysisResponse(BaseModel):
     funding_rate: Optional[FundingRateData] = None
     setup_mode: Optional[str] = "standard"
     trend_strength: Optional['TrendStrengthMetrics'] = None
+    smart_risk: Optional[Dict[str, Any]] = None
 
 class MtfTrendItem(BaseModel):
     timeframe: str
