@@ -22,10 +22,12 @@ import {
   Coins,
   PanelRightClose,
   PanelRightOpen,
-  Activity
+  Activity,
+  BookOpen
 } from 'lucide-react'
+import { TradingJournalView } from '../Journal/TradingJournalView'
 
-type RightTab = 'index' | 'setup' | 'positions' | 'calculator' | 'watchlist'
+type RightTab = 'index' | 'setup' | 'positions' | 'calculator' | 'watchlist' | 'journal'
 
 interface RightSidebarProps {
   symbol: string
@@ -83,7 +85,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   const [activeTab, setActiveTab] = useState<RightTab>(() => {
     try {
       const saved = localStorage.getItem('cp_right_sidebar_tab')
-      if (saved === 'calculator' || saved === 'watchlist' || saved === 'setup' || saved === 'index' || saved === 'positions') {
+      if (saved === 'calculator' || saved === 'watchlist' || saved === 'setup' || saved === 'index' || saved === 'positions' || saved === 'journal') {
         return saved
       }
       return 'index'
@@ -236,6 +238,22 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
         >
           <Coins className="w-4 h-4" />
         </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setActiveTab('journal')
+            setIsOpen(true)
+          }}
+          title="Buka Jurnal Trading & Performa"
+          className={`p-2 rounded-lg transition-colors ${
+            activeTab === 'journal'
+              ? 'bg-[#1b2230] text-amber-400 border border-amber-600/50'
+              : 'text-slate-400 hover:text-white hover:bg-[#1e2533]'
+          }`}
+        >
+          <BookOpen className="w-4 h-4" />
+        </button>
       </aside>
       </>
     )
@@ -253,7 +271,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
       <aside className="fixed inset-y-0 right-0 z-50 w-full sm:w-85 max-w-[85vw] md:relative md:inset-auto md:z-20 md:w-80 md:max-w-none bg-[#111620] border-l border-[#21262d] flex flex-col h-full min-h-0 shrink-0 overflow-hidden shadow-2xl md:shadow-none animate-in slide-in-from-right duration-200 md:animate-none">
       {/* Sidebar Navigation Bar + Collapse Toggle */}
       <div className="flex items-center justify-between px-1 py-1.5 bg-[#0d1117] border-b border-[#21262d] shrink-0">
-        <div className="grid grid-cols-5 gap-0.5 flex-1 mr-1">
+        <div className="grid grid-cols-6 gap-0.5 flex-1 mr-1">
           <button
             type="button"
             onClick={() => setActiveTab('index')}
@@ -320,6 +338,19 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           >
             <Coins className={`w-3 h-3 shrink-0 ${activeTab === 'watchlist' ? 'text-[#f0b90b]' : ''}`} />
             <span>Koin</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('journal')}
+            className={`flex items-center justify-center space-x-0.5 py-1.5 px-0.5 rounded-md text-[10px] font-bold transition-all ${
+              activeTab === 'journal'
+                ? 'bg-[#1b2230] text-amber-300 border border-amber-600/50 shadow-sm'
+                : 'text-slate-400 hover:text-amber-300 hover:bg-[#151b26]'
+            }`}
+          >
+            <BookOpen className={`w-3 h-3 shrink-0 ${activeTab === 'journal' ? 'text-amber-400' : ''}`} />
+            <span>Jurnal</span>
           </button>
         </div>
 
@@ -399,6 +430,17 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
             market={market}
             currentSymbol={symbol}
             currentPrice={currentPrice}
+            onSelectSymbol={onSelectSymbol}
+          />
+        </div>
+      )}
+
+      {activeTab === 'journal' && (
+        <div className="flex-1 min-h-0 flex flex-col overflow-y-auto p-2 bg-[#0c1017]">
+          <TradingJournalView
+            market={market}
+            mode={(localStorage.getItem('cp_trade_active_mode') as any) || 'demo'}
+            currentSymbol={symbol}
             onSelectSymbol={onSelectSymbol}
           />
         </div>

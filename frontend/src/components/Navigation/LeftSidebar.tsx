@@ -23,7 +23,8 @@ import {
   Send,
   Cloud,
   Settings as SettingsIcon,
-  Star
+  Star,
+  BookOpen
 } from 'lucide-react'
 import { DrawingToolType, SetupMode } from '../../types/analysis'
 import {
@@ -922,6 +923,21 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
             </div>
           </button>
         )}
+
+        {/* Trading Journal & Performance Shortcut */}
+        <button
+          type="button"
+          title="Buka Jurnal Trading & Performa"
+          onClick={() => {
+            window.dispatchEvent(new CustomEvent('cp_open_journal_tab'))
+          }}
+          className="p-2 rounded-lg text-slate-400 hover:text-amber-300 hover:bg-[#1a202c] transition-all relative group cursor-pointer"
+        >
+          <BookOpen className="w-4 h-4 text-amber-400" />
+          <div className="absolute left-14 top-1/2 -translate-y-1/2 bg-[#1f242c] text-white text-xs px-2.5 py-1 rounded shadow-lg border border-[#30363d] whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
+            Jurnal Trading & Analisa Performa
+          </div>
+        </button>
 
         {/* Telegram Alerts */}
         {onOpenTelegram && (
