@@ -370,11 +370,11 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
             : 'border-[#21262d]'
         }`}
       >
-        {/* Interactive Chart Header for multi-chart view (Dibuat Ringkes, Rapi & Kompak) */}
-        {layout !== 'single' && (
-          <div className="h-7 sm:h-8 bg-[#161b22] px-2 flex items-center justify-between text-[10px] sm:text-[11px] font-mono border-b border-[#21262d] z-20 shrink-0 select-none whitespace-nowrap gap-1.5">
-            {/* Left: Pane Badge + Symbol + Layers Dropdown */}
-            <div className="flex items-center space-x-1.5 min-w-0 shrink">
+        {/* Interactive Chart Header (Dibuat Ringkes, Rapi & Kompak) */}
+        <div className="h-7 sm:h-8 bg-[#161b22] px-2 flex items-center justify-between text-[10px] sm:text-[11px] font-mono border-b border-[#21262d] z-20 shrink-0 select-none whitespace-nowrap gap-1.5">
+          {/* Left: Pane Badge (Hanya jika multi-chart) + Symbol + Layers Dropdown */}
+          <div className="flex items-center space-x-1.5 min-w-0 shrink">
+            {layout !== 'single' && (
               <button
                 type="button"
                 onClick={(e) => {
@@ -390,91 +390,91 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
               >
                 P{chartId.replace(/[^0-9]/g, '') || (chartId === 'chart-main' ? '1' : '1')}
               </button>
-              <span className="font-extrabold text-white tracking-wider text-[11px] shrink-0">
-                {symbol}
-              </span>
+            )}
+            <span className="font-extrabold text-white tracking-wider text-[11px] shrink-0">
+              {symbol}
+            </span>
 
-              {/* Dedicated Per-Pane Independent Layer Toggles */}
-              <PaneLayerDropdown
-                paneTitle={paneTitle}
-                chartId={chartId}
-                visibility={paneVis}
-                onToggleLayer={(key) => {
-                  if (onTogglePaneLayer) {
-                    onTogglePaneLayer(chartId === 'chart-main' ? 'chart-1' : chartId, key)
-                  } else if (onToggleLayer) {
-                    onToggleLayer(key)
-                  }
-                }}
-                onSetAllLayers={(enabled) => {
-                  if (onSetAllPaneLayers) {
-                    onSetAllPaneLayers(chartId === 'chart-main' ? 'chart-1' : chartId, enabled)
-                  }
-                }}
-                market={market}
-                hasHtf={Boolean(htfOverlay)}
-                onOpenAutoFibSettings={onOpenAutoFibSettings}
-                onOpenVpvrSettings={onOpenVpvrSettings}
-                onOpenOrderflowSettings={onOpenOrderflowSettings}
-              />
-            </div>
-
-            {/* Right: Sync Toggles (Icon Only) + Timeframe Dropdown */}
-            <div className="flex items-center space-x-1 sm:space-x-1.5 shrink-0">
-              {onToggleSyncCrosshair && (
-                <button
-                  type="button"
-                  onClick={onToggleSyncCrosshair}
-                  title={
-                    syncCrosshair
-                      ? 'Sinkronisasi Kursor: AKTIF (Kursor bergerak serempak di semua chart)'
-                      : 'Sinkronisasi Kursor: NONAKTIF (Kursor independen)'
-                  }
-                  className={`p-1 rounded border transition-all shrink-0 ${
-                    syncCrosshair
-                      ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 shadow-sm'
-                      : 'bg-[#0b0e14] text-slate-500 hover:text-slate-300 border-[#21262d]'
-                  }`}
-                >
-                  <Crosshair className={`w-3.5 h-3.5 ${syncCrosshair ? 'text-cyan-400' : 'text-slate-500'}`} />
-                </button>
-              )}
-
-              {onToggleSyncSetup && (
-                <button
-                  type="button"
-                  onClick={onToggleSyncSetup}
-                  title={
-                    syncSetup
-                      ? 'Sinkronisasi Setup Box: AKTIF (Semua chart mengikuti setup yang sama)'
-                      : 'Sinkronisasi Setup Box: NONAKTIF (Setup independen)'
-                  }
-                  className={`p-1 rounded border transition-all shrink-0 ${
-                    syncSetup
-                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm'
-                      : 'bg-[#0b0e14] text-slate-500 hover:text-slate-300 border-[#21262d]'
-                  }`}
-                >
-                  <Layers className={`w-3.5 h-3.5 ${syncSetup ? 'text-amber-400' : 'text-slate-500'}`} />
-                </button>
-              )}
-
-              {/* Timeframe Select Dropdown (Ringkas, Rapi & Lengkap) */}
-              <select
-                value={effectiveTf.toLowerCase()}
-                onChange={(e) => handlePaneTfChange(chartId, e.target.value)}
-                className="bg-[#0b0e14] text-[#f0b90b] font-bold text-[10px] px-1.5 py-0.5 rounded border border-[#21262d] outline-none cursor-pointer hover:border-amber-500/50 shrink-0 font-mono"
-                title={`Pilih Timeframe ${paneTitle}`}
-              >
-                {TIMEFRAMES.map((tf) => (
-                  <option key={tf} value={tf} className="bg-[#161b22] text-slate-200">
-                    {tf.toUpperCase()}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {/* Dedicated Per-Pane Independent Layer Toggles */}
+            <PaneLayerDropdown
+              paneTitle={paneTitle}
+              chartId={chartId}
+              visibility={paneVis}
+              onToggleLayer={(key) => {
+                if (onTogglePaneLayer) {
+                  onTogglePaneLayer(chartId === 'chart-main' ? 'chart-1' : chartId, key)
+                } else if (onToggleLayer) {
+                  onToggleLayer(key)
+                }
+              }}
+              onSetAllLayers={(enabled) => {
+                if (onSetAllPaneLayers) {
+                  onSetAllPaneLayers(chartId === 'chart-main' ? 'chart-1' : chartId, enabled)
+                }
+              }}
+              market={market}
+              hasHtf={Boolean(htfOverlay)}
+              onOpenAutoFibSettings={onOpenAutoFibSettings}
+              onOpenVpvrSettings={onOpenVpvrSettings}
+              onOpenOrderflowSettings={onOpenOrderflowSettings}
+            />
           </div>
-        )}
+
+          {/* Right: Sync Toggles (Hanya jika multi-chart) + Timeframe Dropdown */}
+          <div className="flex items-center space-x-1 sm:space-x-1.5 shrink-0">
+            {layout !== 'single' && onToggleSyncCrosshair && (
+              <button
+                type="button"
+                onClick={onToggleSyncCrosshair}
+                title={
+                  syncCrosshair
+                    ? 'Sinkronisasi Kursor: AKTIF (Kursor bergerak serempak di semua chart)'
+                    : 'Sinkronisasi Kursor: NONAKTIF (Kursor independen)'
+                }
+                className={`p-1 rounded border transition-all shrink-0 ${
+                  syncCrosshair
+                    ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 shadow-sm'
+                    : 'bg-[#0b0e14] text-slate-500 hover:text-slate-300 border-[#21262d]'
+                }`}
+              >
+                <Crosshair className={`w-3.5 h-3.5 ${syncCrosshair ? 'text-cyan-400' : 'text-slate-500'}`} />
+              </button>
+            )}
+
+            {layout !== 'single' && onToggleSyncSetup && (
+              <button
+                type="button"
+                onClick={onToggleSyncSetup}
+                title={
+                  syncSetup
+                    ? 'Sinkronisasi Setup Box: AKTIF (Semua chart mengikuti setup yang sama)'
+                    : 'Sinkronisasi Setup Box: NONAKTIF (Setup independen)'
+                }
+                className={`p-1 rounded border transition-all shrink-0 ${
+                  syncSetup
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm'
+                    : 'bg-[#0b0e14] text-slate-500 hover:text-slate-300 border-[#21262d]'
+                }`}
+              >
+                <Layers className={`w-3.5 h-3.5 ${syncSetup ? 'text-amber-400' : 'text-slate-500'}`} />
+              </button>
+            )}
+
+            {/* Timeframe Select Dropdown (Ringkas, Rapi & Lengkap) */}
+            <select
+              value={effectiveTf.toLowerCase()}
+              onChange={(e) => handlePaneTfChange(chartId, e.target.value)}
+              className="bg-[#0b0e14] text-[#f0b90b] font-bold text-[10px] px-1.5 py-0.5 rounded border border-[#21262d] outline-none cursor-pointer hover:border-amber-500/50 shrink-0 font-mono"
+              title={`Pilih Timeframe ${paneTitle}`}
+            >
+              {TIMEFRAMES.map((tf) => (
+                <option key={tf} value={tf} className="bg-[#161b22] text-slate-200">
+                  {tf.toUpperCase()}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
 
         <div className="flex-1 w-full h-full relative">
           {isPrimary ? (

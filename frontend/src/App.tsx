@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { TopNavbar, StreamStatusType } from './components/Navigation/TopNavbar'
 import { SymbolSelector } from './components/Navigation/SymbolSelector'
 import { DrawingToolbar } from './components/Chart/DrawingToolbar'
-import { LayerToggles } from './components/Chart/LayerToggles'
 import { ChartContainer } from './components/Chart/ChartContainer'
 import { RightSidebar } from './components/HUD/RightSidebar'
 import { SettingsDrawer } from './components/Settings/SettingsDrawer'
@@ -941,34 +940,7 @@ export function App() {
         onToggleSyncSetup={() => setSyncSetup((prev) => !prev)}
       />
 
-      {/* 2. Layer Toggles Bar (TradingView Dropdown Style) */}
-      <LayerToggles
-        visibility={layout !== 'single' ? (paneVisibility[activePaneId] || visibility) : (paneVisibility['chart-1'] || visibility)}
-        onToggle={handleToggleLayer}
-        hasHtf={Boolean(analysis?.htf_overlay)}
-        market={market}
-        openInterest={analysis?.open_interest}
-        onSetAll={handleSetAllLayers}
-        onOpenAutoFibSettings={() => setIsAutoFibModalOpen(true)}
-        onOpenVpvrSettings={() => setIsVpvrModalOpen(true)}
-        onOpenOrderflowSettings={(tab) => {
-          setOrderflowModalTab(tab)
-          setIsOrderflowModalOpen(true)
-        }}
-        activePaneTitle={
-          layout !== 'single'
-            ? activePaneId === 'chart-1'
-              ? 'PANE 1'
-              : activePaneId === 'chart-2'
-                ? 'PANE 2'
-                : activePaneId === 'chart-3'
-                  ? 'PANE 3'
-                  : 'PANE 4'
-            : undefined
-        }
-      />
-
-      {/* 3. Main Workspace */}
+      {/* 2. Main Workspace */}
       <div className="flex flex-1 w-full min-h-0 overflow-hidden relative">
         {/* Left: Drawing Toolbar */}
         <DrawingToolbar
