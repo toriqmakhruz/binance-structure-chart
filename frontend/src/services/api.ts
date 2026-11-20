@@ -323,6 +323,52 @@ export async function saveServerCredentials(data: ServerCredentialsData): Promis
   return { success: false }
 }
 
+export interface UserPreferencesPayload {
+  layout?: string
+  market?: 'spot' | 'futures'
+  symbol?: string
+  timeframe?: string
+  setupMode?: string
+  visibility?: any
+  paneVisibility?: any
+  appSettings?: any
+  marketSessionSettings?: any
+  autoFibSettings?: any
+  vpvrSettings?: any
+  orderflowSettings?: any
+  drawingsBySymbol?: any
+  updated_at?: number
+  [key: string]: any
+}
+
+export async function fetchUserPreferences(): Promise<UserPreferencesPayload> {
+  try {
+    const resp = await fetch(`${API_BASE}/user-preferences`)
+    if (resp.ok) {
+      return await resp.json()
+    }
+  } catch (err) {
+    console.warn('Failed to fetch user preferences from server:', err)
+  }
+  return {}
+}
+
+export async function saveUserPreferences(data: UserPreferencesPayload): Promise<{ success: boolean; updated_at?: number }> {
+  try {
+    const resp = await fetch(`${API_BASE}/user-preferences`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    })
+    if (resp.ok) {
+      return await resp.json()
+    }
+  } catch (err) {
+    console.warn('Failed to save user preferences to server:', err)
+  }
+  return { success: false }
+}
+
 
 export interface TradeHistoryItem {
   id: string

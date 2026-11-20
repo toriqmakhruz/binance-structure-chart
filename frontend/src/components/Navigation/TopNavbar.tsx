@@ -21,7 +21,8 @@ import {
   Menu,
   X,
   Radio,
-  Clock
+  Clock,
+  Cloud
 } from 'lucide-react'
 import { formatPrice } from '../../utils/formatters'
 import { SetupMode } from '../../types/analysis'
@@ -57,6 +58,8 @@ interface TopNavbarProps {
   onToggleSyncCrosshair?: () => void
   syncSetup?: boolean
   onToggleSyncSetup?: () => void
+  onCloudSync?: () => void
+  isCloudSyncing?: boolean
 }
 
 const TIMEFRAMES = ['1m', '3m', '5m', '15m', '30m', '1h', '4h', '1d']
@@ -89,7 +92,9 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
   syncCrosshair = true,
   onToggleSyncCrosshair,
   syncSetup = true,
-  onToggleSyncSetup
+  onToggleSyncSetup,
+  onCloudSync,
+  isCloudSyncing = false
 }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
 
@@ -423,6 +428,23 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
               </button>
             )}
 
+            {/* Cloud Sync Status & Manual Save */}
+            {onCloudSync && (
+              <button
+                type="button"
+                onClick={onCloudSync}
+                disabled={isCloudSyncing}
+                title="Sinkronisasi Cloud: Simpan & selaraskan konfigurasi ke HP/Browser lain"
+                className={`p-1.5 rounded transition-all cursor-pointer relative ${
+                  isCloudSyncing
+                    ? 'text-amber-400 bg-amber-500/10'
+                    : 'text-slate-400 hover:text-sky-400 hover:bg-[#1a202c]'
+                }`}
+              >
+                <Cloud className={`w-3.5 h-3.5 ${isCloudSyncing ? 'animate-pulse text-amber-400' : 'text-sky-400'}`} />
+              </button>
+            )}
+
             {/* Settings */}
             <button
               onClick={onOpenSettings}
@@ -735,6 +757,26 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
                     </div>
                     <span className={`text-[10px] px-2 py-0.5 rounded font-mono font-bold ${isTelegramActive ? 'bg-sky-500/20 text-sky-300' : 'text-slate-400'}`}>
                       {isTelegramActive ? 'AKTIF' : 'OFF'}
+                    </span>
+                  </button>
+                )}
+
+                {/* Cloud Sync in Mobile Menu */}
+                {onCloudSync && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMobileMenuOpen(false)
+                      onCloudSync()
+                    }}
+                    className="w-full flex items-center justify-between p-3 rounded-lg bg-[#161c28] hover:bg-[#1e2738] border border-[#252f44] text-xs font-semibold cursor-pointer"
+                  >
+                    <div className="flex items-center space-x-2.5">
+                      <Cloud className={`w-4 h-4 ${isCloudSyncing ? 'text-amber-400 animate-pulse' : 'text-sky-400'}`} />
+                      <span>Sinkronkan Layout ke Cloud</span>
+                    </div>
+                    <span className="text-[10px] text-sky-400 font-bold">
+                      {isCloudSyncing ? 'Menyimpan...' : 'Sync Sekarang ☁️'}
                     </span>
                   </button>
                 )}

@@ -2,7 +2,7 @@ import asyncio
 import time
 import logging
 from typing import Optional, Dict, Any, List, Tuple
-from fastapi import APIRouter, Query, HTTPException, status
+from fastapi import APIRouter, Query, HTTPException, status, Body
 from ..models.schemas import FullAnalysisResponse, Candle, AnalysisMetadata, OpenInterestData, FundingRateData
 from ..services.binance_service import (
     binance_service, DataUnavailableException, DataMalformedException
@@ -460,3 +460,29 @@ async def get_funding_rate(
     Purely an informational indicator for traders - not used in automated entry scoring.
     """
     return await binance_service.get_funding_rate(symbol=symbol)
+
+
+@router.get("/user-preferences")
+async def get_user_preferences():
+    """
+    Get server-stored user layout, indicator configurations, and chart preferences
+    for cross-device synchronization (PC, mobile, tablet, different browsers).
+    """
+    from ..services.preferences_service import preferences_service
+    return preferences_service.get_preferences()
+
+
+@router.post("/user-preferences")
+async def save_user_preferences(payload: Dict[str, Any] = Body(...)):
+    """
+    Persist user layout, indicator settings, and chart preferences on the server
+    so any browser or mobile device will immediately load the user's custom layout.
+    """
+    from ..services.preferences_service import preferences_service
+    res = preferences_service.save_preferences(payload)
+    if not res.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=res.get("message", "Gagal menyimpan konfigurasi ke server.")
+        )
+    return res

@@ -15,7 +15,15 @@ import { OpenPositionModal, SetupTradeTarget } from './components/Trade/OpenPosi
 import { TradingDashboardDrawer } from './components/Trade/TradingDashboardDrawer'
 import { ToastNotification, ToastData } from './components/UI/ToastNotification'
 import { ErrorBoundary } from './components/UI/ErrorBoundary'
-import { fetchAnalysis, fetchOpenPositions, fetchServerCredentials, saveServerCredentials } from './services/api'
+import {
+  fetchAnalysis,
+  fetchOpenPositions,
+  fetchServerCredentials,
+  saveServerCredentials,
+  fetchUserPreferences,
+  saveUserPreferences,
+  UserPreferencesPayload
+} from './services/api'
 import { BinanceWsClient } from './services/binanceWs'
 import {
   Candle,
@@ -237,6 +245,226 @@ export function App() {
   const removeToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id))
   }, [])
+
+  // Cloud Sync Engine (Cross-device PC, Mobile & Browser Synchronization)
+  const [isCloudSyncReady, setIsCloudSyncReady] = useState(false)
+  const [isCloudSyncing, setIsCloudSyncing] = useState(false)
+  const syncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // 1. Initial Load from Server on App Mount
+  useEffect(() => {
+    let isMounted = true
+    async function initCloudPreferences() {
+      try {
+        const prefs = await fetchUserPreferences()
+        if (!isMounted) return
+
+        if (prefs && Object.keys(prefs).length > 0) {
+          // Sync states from server to client
+          if (prefs.layout && ['single', 'split-vertical', 'split-horizontal', 'grid-4'].includes(prefs.layout)) {
+            setLayout(prefs.layout as any)
+            writeStorage('cp_layout', prefs.layout)
+          }
+          if (prefs.market && ['spot', 'futures'].includes(prefs.market)) {
+            setMarket(prefs.market as any)
+            writeStorage('cp_market', prefs.market)
+          }
+          if (prefs.timeframe) {
+            setTimeframe(prefs.timeframe)
+            writeStorage('cp_timeframe', prefs.timeframe)
+          }
+          if (prefs.symbol) {
+            setSymbol(prefs.symbol)
+            writeStorage('cp_active_symbol', prefs.symbol)
+          }
+          if (prefs.setupMode && ['standard', 'pro_shield', 'craig_10x', 'apex_quant'].includes(prefs.setupMode)) {
+            setSetupMode(prefs.setupMode as any)
+            writeStorage('cp_setup_mode', prefs.setupMode)
+          }
+          if (prefs.visibility) {
+            setVisibility((prev) => ({ ...prev, ...prefs.visibility }))
+            writeStorage('cp_layer_visibility', { ...DEFAULT_VISIBILITY, ...prefs.visibility })
+          }
+          if (prefs.paneVisibility) {
+            setPaneVisibility(prefs.paneVisibility as any)
+            writeStorage('cp_pane_visibility', prefs.paneVisibility)
+          }
+          if (prefs.appSettings) {
+            setSettings(prefs.appSettings)
+            writeStorage('cp_app_settings', prefs.appSettings)
+          }
+          if (prefs.marketSessionSettings) {
+            setMarketSessionSettings(prefs.marketSessionSettings)
+            writeStorage('cp_market_session_settings', prefs.marketSessionSettings)
+          }
+          if (prefs.autoFibSettings) {
+            setAutoFibSettings(prefs.autoFibSettings)
+            writeStorage('cp_auto_fib_settings', prefs.autoFibSettings)
+          }
+          if (prefs.vpvrSettings) {
+            setVpvrSettings(prefs.vpvrSettings)
+            writeStorage('cp_vpvr_settings', prefs.vpvrSettings)
+          }
+          if (prefs.orderflowSettings) {
+            setOrderflowSettings(prefs.orderflowSettings)
+            writeStorage('cp_orderflow_settings', prefs.orderflowSettings)
+          }
+          if (prefs.drawingsBySymbol) {
+            setDrawingsBySymbol(prefs.drawingsBySymbol)
+            writeStorage('cp_chart_drawings', prefs.drawingsBySymbol)
+          }
+
+          addToast({
+            type: 'info',
+            title: 'Tersinkronkan dari Cloud Server ☁️',
+            message: 'Layout, sesi pasar, dan konfigurasi indikator Anda telah dimuat otomatis.',
+            duration: 3500
+          })
+        }
+      } catch (err) {
+        console.warn('Failed to load initial cloud preferences:', err)
+      } finally {
+        if (isMounted) setIsCloudSyncReady(true)
+      }
+    }
+
+    initCloudPreferences()
+    return () => {
+      isMounted = false
+    }
+  }, [addToast])
+
+  // 2. Debounced push to server whenever any configuration or layout changes
+  const pushPreferencesToServer = useCallback(
+    (customPatch?: Partial<UserPreferencesPayload>) => {
+      if (!isCloudSyncReady) return
+      if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current)
+      setIsCloudSyncing(true)
+
+      syncTimeoutRef.current = setTimeout(async () => {
+        try {
+          const payload: UserPreferencesPayload = {
+            layout,
+            market,
+            symbol,
+            timeframe,
+            setupMode,
+            visibility,
+            paneVisibility,
+            appSettings: settings,
+            marketSessionSettings,
+            autoFibSettings,
+            vpvrSettings,
+            orderflowSettings,
+            drawingsBySymbol,
+            ...(customPatch || {})
+          }
+          await saveUserPreferences(payload)
+        } catch (e) {
+          console.warn('Auto sync to server error:', e)
+        } finally {
+          setIsCloudSyncing(false)
+        }
+      }, 1200)
+    },
+    [
+      isCloudSyncReady,
+      layout,
+      market,
+      symbol,
+      timeframe,
+      setupMode,
+      visibility,
+      paneVisibility,
+      settings,
+      marketSessionSettings,
+      autoFibSettings,
+      vpvrSettings,
+      orderflowSettings,
+      drawingsBySymbol
+    ]
+  )
+
+  // Trigger auto save when settings change
+  useEffect(() => {
+    if (!isCloudSyncReady) return
+    pushPreferencesToServer()
+  }, [
+    isCloudSyncReady,
+    layout,
+    market,
+    timeframe,
+    setupMode,
+    visibility,
+    paneVisibility,
+    settings,
+    marketSessionSettings,
+    autoFibSettings,
+    vpvrSettings,
+    orderflowSettings
+  ])
+
+  // 3. Manual Cloud Sync Action
+  const handleManualCloudSync = useCallback(async () => {
+    setIsCloudSyncing(true)
+    try {
+      const payload: UserPreferencesPayload = {
+        layout,
+        market,
+        symbol,
+        timeframe,
+        setupMode,
+        visibility,
+        paneVisibility,
+        appSettings: settings,
+        marketSessionSettings,
+        autoFibSettings,
+        vpvrSettings,
+        orderflowSettings,
+        drawingsBySymbol
+      }
+      const res = await saveUserPreferences(payload)
+      if (res.success) {
+        addToast({
+          type: 'success',
+          title: 'Konfigurasi Tersimpan di Cloud! ☁️',
+          message: 'Layout, sesi pasar, dan indikator berhasil disimpan di server. Buka di HP atau browser lain akan langsung sama persis!',
+          duration: 4000
+        })
+      } else {
+        addToast({
+          type: 'error',
+          title: 'Gagal Menyimpan ke Cloud ⚠️',
+          message: 'Periksa koneksi jaringan ke server VPS.',
+          duration: 4000
+        })
+      }
+    } catch {
+      addToast({
+        type: 'error',
+        title: 'Gagal Menyimpan ke Cloud ⚠️',
+        message: 'Koneksi ke server terputus.',
+        duration: 4000
+      })
+    } finally {
+      setIsCloudSyncing(false)
+    }
+  }, [
+    layout,
+    market,
+    symbol,
+    timeframe,
+    setupMode,
+    visibility,
+    paneVisibility,
+    settings,
+    marketSessionSettings,
+    autoFibSettings,
+    vpvrSettings,
+    orderflowSettings,
+    drawingsBySymbol,
+    addToast
+  ])
 
   const handleSetupModeChange = useCallback((mode: SetupMode) => {
     setSetupMode(mode)
@@ -946,6 +1174,8 @@ export function App() {
         onToggleSyncCrosshair={() => setSyncCrosshair((prev) => !prev)}
         syncSetup={syncSetup}
         onToggleSyncSetup={() => setSyncSetup((prev) => !prev)}
+        onCloudSync={handleManualCloudSync}
+        isCloudSyncing={isCloudSyncing}
       />
 
       {/* 2. Main Workspace */}
