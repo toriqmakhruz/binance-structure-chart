@@ -92,11 +92,15 @@ export function extractSessionLines(
   candles: Candle[],
   settings: MarketSessionSettings = DEFAULT_MARKET_SESSION_SETTINGS
 ): SessionLinePoint[] {
-  if (!candles || candles.length === 0 || !settings.enabled || !settings.showVerticalLines) {
+  if (!candles || candles.length === 0 || !settings || !settings.enabled || !settings.showVerticalLines) {
     return []
   }
 
-  const enabledSessions = settings.sessions.filter((s) => s.enabled)
+  const sessionsList = Array.isArray(settings?.sessions) && settings.sessions.length > 0
+    ? settings.sessions
+    : DEFAULT_MARKET_SESSION_SETTINGS.sessions
+
+  const enabledSessions = sessionsList.filter((s) => s && s.enabled)
   if (enabledSessions.length === 0) return []
 
   const lines: SessionLinePoint[] = []
@@ -158,11 +162,15 @@ export function extractSessionZones(
   candles: Candle[],
   settings: MarketSessionSettings = DEFAULT_MARKET_SESSION_SETTINGS
 ): SessionZoneBlock[] {
-  if (!candles || candles.length === 0 || !settings.enabled || !settings.showZoneBackground) {
+  if (!candles || candles.length === 0 || !settings || !settings.enabled || !settings.showZoneBackground) {
     return []
   }
 
-  const enabledSessions = settings.sessions.filter((s) => s.enabled)
+  const sessionsList = Array.isArray(settings?.sessions) && settings.sessions.length > 0
+    ? settings.sessions
+    : DEFAULT_MARKET_SESSION_SETTINGS.sessions
+
+  const enabledSessions = sessionsList.filter((s) => s && s.enabled)
   if (enabledSessions.length === 0) return []
 
   const dayBuckets: Map<string, Candle[]> = new Map()
@@ -220,7 +228,11 @@ export function extractSessionBlocks(
 ): SessionBlock[] {
   if (!candles || candles.length === 0) return []
 
-  const enabledSessions = settings.sessions.filter((s) => s.enabled)
+  const sessionsList = Array.isArray(settings?.sessions) && settings.sessions.length > 0
+    ? settings.sessions
+    : DEFAULT_MARKET_SESSION_SETTINGS.sessions
+
+  const enabledSessions = sessionsList.filter((s) => s && s.enabled)
   const dayBuckets: Map<string, Candle[]> = new Map()
 
   for (const c of candles) {
@@ -288,9 +300,13 @@ export function getCurrentActiveSessions(
   const utcMinutes = now.getUTCMinutes()
   const decTime = utcHours + utcMinutes / 60
   const nowSec = Math.floor(now.getTime() / 1000)
-  const tz = settings.timezone || 'WIB'
+  const tz = settings?.timezone || 'WIB'
 
-  const enabledSessions = settings.sessions.filter((s) => s.enabled)
+  const sessionsList = Array.isArray(settings?.sessions) && settings.sessions.length > 0
+    ? settings.sessions
+    : DEFAULT_MARKET_SESSION_SETTINGS.sessions
+
+  const enabledSessions = sessionsList.filter((s) => s && s.enabled)
   const active: SingleSessionConfig[] = []
 
   for (const sess of enabledSessions) {

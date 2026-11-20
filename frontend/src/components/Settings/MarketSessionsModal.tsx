@@ -55,28 +55,47 @@ export const MarketSessionsModal: React.FC<MarketSessionsModalProps> = ({
   onClose,
   onSave
 }) => {
-  const [form, setForm] = useState<MarketSessionSettings>(settings)
+  const getSafeSettings = (s?: MarketSessionSettings): MarketSessionSettings => {
+    return {
+      ...DEFAULT_MARKET_SESSION_SETTINGS,
+      ...(s || {}),
+      sessions: Array.isArray(s?.sessions) && s.sessions.length > 0
+        ? s.sessions
+        : DEFAULT_MARKET_SESSION_SETTINGS.sessions
+    }
+  }
+
+  const [form, setForm] = useState<MarketSessionSettings>(() => getSafeSettings(settings))
 
   useEffect(() => {
-    setForm(settings)
+    setForm(getSafeSettings(settings))
   }, [settings, isOpen])
 
   if (!isOpen) return null
 
   const handleSessionToggle = (idx: number) => {
-    const updated = [...form.sessions]
+    const currentSessions = Array.isArray(form?.sessions) && form.sessions.length > 0
+      ? form.sessions
+      : DEFAULT_MARKET_SESSION_SETTINGS.sessions
+    const updated = [...currentSessions]
     updated[idx] = { ...updated[idx], enabled: !updated[idx].enabled }
     setForm({ ...form, sessions: updated })
   }
 
   const handleSessionColor = (idx: number, color: string) => {
-    const updated = [...form.sessions]
+    const currentSessions = Array.isArray(form?.sessions) && form.sessions.length > 0
+      ? form.sessions
+      : DEFAULT_MARKET_SESSION_SETTINGS.sessions
+    const updated = [...currentSessions]
     updated[idx] = { ...updated[idx], color }
     setForm({ ...form, sessions: updated })
   }
 
   const handleSessionHours = (idx: number, field: 'startHourUtc' | 'endHourUtc', value: number) => {
-    const updated = [...form.sessions]
+    const currentSessions = Array.isArray(form?.sessions) && form.sessions.length > 0
+      ? form.sessions
+      : DEFAULT_MARKET_SESSION_SETTINGS.sessions
+    const updated = [...currentSessions]
     const clamped = Math.max(0, Math.min(23, value))
     updated[idx] = { ...updated[idx], [field]: clamped }
     setForm({ ...form, sessions: updated })
@@ -342,7 +361,7 @@ export const MarketSessionsModal: React.FC<MarketSessionsModalProps> = ({
             </div>
 
             <div className="space-y-2.5">
-              {form.sessions.map((sess, idx) => {
+              {(Array.isArray(form?.sessions) ? form.sessions : DEFAULT_MARKET_SESSION_SETTINGS.sessions).map((sess, idx) => {
                 const localStart = utcHourToLocalHour(sess.startHourUtc, tz)
                 const localEnd = utcHourToLocalHour(sess.endHourUtc, tz)
 

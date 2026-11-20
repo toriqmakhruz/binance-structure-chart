@@ -231,9 +231,16 @@ export function App() {
   const [orderflowModalTab, setOrderflowModalTab] = useState<'liquidation' | 'cvd'>('liquidation')
 
   // Market Sessions Configuration (Thin Vertical Lines & Active/Upcoming Sessions)
-  const [marketSessionSettings, setMarketSessionSettings] = useState<MarketSessionSettings>(() =>
-    readStoredJson<MarketSessionSettings>('cp_market_session_settings', DEFAULT_MARKET_SESSION_SETTINGS, true)
-  )
+  const [marketSessionSettings, setMarketSessionSettings] = useState<MarketSessionSettings>(() => {
+    const stored = readStoredJson<MarketSessionSettings>('cp_market_session_settings', DEFAULT_MARKET_SESSION_SETTINGS, true)
+    return {
+      ...DEFAULT_MARKET_SESSION_SETTINGS,
+      ...(stored || {}),
+      sessions: Array.isArray(stored?.sessions) && stored.sessions.length > 0
+        ? stored.sessions
+        : DEFAULT_MARKET_SESSION_SETTINGS.sessions
+    }
+  })
   const [isMarketSessionsModalOpen, setIsMarketSessionsModalOpen] = useState(false)
 
   // Notification Toast Stack
@@ -294,20 +301,42 @@ export function App() {
             writeStorage('cp_app_settings', prefs.appSettings)
           }
           if (prefs.marketSessionSettings) {
-            setMarketSessionSettings(prefs.marketSessionSettings)
-            writeStorage('cp_market_session_settings', prefs.marketSessionSettings)
+            const mergedSessions: MarketSessionSettings = {
+              ...DEFAULT_MARKET_SESSION_SETTINGS,
+              ...prefs.marketSessionSettings,
+              sessions: Array.isArray(prefs.marketSessionSettings.sessions) && prefs.marketSessionSettings.sessions.length > 0
+                ? prefs.marketSessionSettings.sessions
+                : DEFAULT_MARKET_SESSION_SETTINGS.sessions
+            }
+            setMarketSessionSettings(mergedSessions)
+            writeStorage('cp_market_session_settings', mergedSessions)
           }
           if (prefs.autoFibSettings) {
-            setAutoFibSettings(prefs.autoFibSettings)
-            writeStorage('cp_auto_fib_settings', prefs.autoFibSettings)
+            const mergedFib: AutoFibSettings = {
+              ...DEFAULT_AUTO_FIB_SETTINGS,
+              ...prefs.autoFibSettings,
+              levels: Array.isArray(prefs.autoFibSettings.levels) && prefs.autoFibSettings.levels.length > 0
+                ? prefs.autoFibSettings.levels
+                : DEFAULT_AUTO_FIB_SETTINGS.levels
+            }
+            setAutoFibSettings(mergedFib)
+            writeStorage('cp_auto_fib_settings', mergedFib)
           }
           if (prefs.vpvrSettings) {
-            setVpvrSettings(prefs.vpvrSettings)
-            writeStorage('cp_vpvr_settings', prefs.vpvrSettings)
+            const mergedVpvr: VolumeProfileSettings = {
+              ...DEFAULT_VOLUME_PROFILE_SETTINGS,
+              ...prefs.vpvrSettings
+            }
+            setVpvrSettings(mergedVpvr)
+            writeStorage('cp_vpvr_settings', mergedVpvr)
           }
           if (prefs.orderflowSettings) {
-            setOrderflowSettings(prefs.orderflowSettings)
-            writeStorage('cp_orderflow_settings', prefs.orderflowSettings)
+            const mergedOf: OrderflowSettings = {
+              ...DEFAULT_ORDERFLOW_SETTINGS,
+              ...prefs.orderflowSettings
+            }
+            setOrderflowSettings(mergedOf)
+            writeStorage('cp_orderflow_settings', mergedOf)
           }
           if (prefs.drawingsBySymbol) {
             setDrawingsBySymbol(prefs.drawingsBySymbol)

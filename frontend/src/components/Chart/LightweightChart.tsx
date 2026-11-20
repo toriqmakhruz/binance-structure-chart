@@ -174,7 +174,16 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
   }, [activeTool])
 
   // Market Sessions extraction & live UTC status
-  const sessionSettings = useMemo(() => marketSessionSettings || DEFAULT_MARKET_SESSION_SETTINGS, [marketSessionSettings])
+  const sessionSettings = useMemo(() => {
+    const base = marketSessionSettings || DEFAULT_MARKET_SESSION_SETTINGS
+    return {
+      ...DEFAULT_MARKET_SESSION_SETTINGS,
+      ...base,
+      sessions: Array.isArray(base?.sessions) && base.sessions.length > 0
+        ? base.sessions
+        : DEFAULT_MARKET_SESSION_SETTINGS.sessions
+    }
+  }, [marketSessionSettings])
   const sessionLines = useMemo(() => extractSessionLines(candles, sessionSettings), [candles, sessionSettings])
   const sessionZones = useMemo(() => extractSessionZones(candles, sessionSettings), [candles, sessionSettings])
   const [activeSessionInfo, setActiveSessionInfo] = useState<ActiveSessionResult>(() => getCurrentActiveSessions(sessionSettings))
