@@ -2610,8 +2610,12 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         // Batasi batas horizontal maksimum agar tidak menembus sumbu harga (priceScale) di sisi kanan
         const maxChartX = Math.max(20, width - 68)
         const startX = Math.max(6, pStart.x)
-        const rawEndX = pEnd ? Math.max(startX + 60, pEnd.x) : startX + 180
-        const endX = Math.min(maxChartX, Math.max(startX + 35, rawEndX))
+
+        // Beri alokasi ruang di sebelah kanan luar box untuk label/badge TP, Entry, dan SL
+        const estimatedBadgeW = 120
+        const maxBoxEndX = Math.max(startX + 35, maxChartX - estimatedBadgeW - 12)
+        const rawEndX = pEnd ? Math.max(startX + 50, pEnd.x) : startX + 160
+        const endX = Math.min(maxBoxEndX, Math.max(startX + 35, rawEndX))
         const boxWidth = Math.max(20, endX - startX)
 
         if (startX >= maxChartX || startX + boxWidth < 0) return
@@ -2661,50 +2665,96 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         ctx.lineTo(startX + boxWidth, yEntry)
         ctx.stroke()
 
-        // 5. Badges & Text Labels (TradingView Style dengan background pill kontras anti-clipping)
+        // 5. Badges & Text Labels (Di Kanan Luar Kotak / TradingView Style)
         const profitPct = Math.abs(((targetPrice - entryPrice) / entryPrice) * 100)
         const lossPct = Math.abs(((invalidationPrice - entryPrice) / entryPrice) * 100)
 
         ctx.save()
         ctx.font = 'bold 9.5px Inter, monospace'
 
-        const isCompact = boxWidth < 170
-        const tpLabel = `TP: $${formatPrice(targetPrice)} (+${profitPct.toFixed(2)}%)`
-        const slLabel = `SL: $${formatPrice(invalidationPrice)} (-${lossPct.toFixed(2)}%)`
+        const isCompact = width < 520
+        const tpLabel = isCompact
+          ? `TP: $${formatPrice(targetPrice)} (+${profitPct.toFixed(1)}%)`
+          : `TP: $${formatPrice(targetPrice)} (+${profitPct.toFixed(2)}%)`
+
+        const slLabel = isCompact
+          ? `SL: $${formatPrice(invalidationPrice)} (-${lossPct.toFixed(1)}%)`
+          : `SL: $${formatPrice(invalidationPrice)} (-${lossPct.toFixed(2)}%)`
+
         const entryText = isLocked
-          ? `🔒 ${isLong ? 'BUY' : 'SELL'}: $${formatPrice(entryPrice)}${isCompact ? '' : ` (1:${sc.risk_reward_ratio})`}`
+          ? `🔒 ${isLong ? 'BUY' : 'SELL'}: $${formatPrice(entryPrice)}`
           : `ENTRY: $${formatPrice(entryPrice)}${isCompact ? '' : ` (1:${sc.risk_reward_ratio})`}`
 
-        // Helper untuk menggambar rounded pill badge agar teks tidak bertabrakan dengan candle
+        // Hitung Y posisi vertikal masing-masing badge di kanan luar kotak
+        // Agar sejajar dengan level harga masing-masing dan tidak saling bertumpuk
+        const minGap = 18
+        let tpBadgeY: number = Number(yTarget)
+        let entryBadgeY: number = Number(yEntry)
+        let slBadgeY: number = Number(yStop)
+
+        if (isLong) {
+          // LONG: yTarget < yEntry < yStop (karena koordinat Y canvas 0 di atas)
+          if (entryBadgeY - tpBadgeY < minGap) {
+            tpBadgeY = entryBadgeY - minGap
+          }
+          if (slBadgeY - entryBadgeY < minGap) {
+            slBadgeY = entryBadgeY + minGap
+          }
+        } else {
+          // SHORT: yStop < yEntry < yTarget
+          if (entryBadgeY - slBadgeY < minGap) {
+            slBadgeY = entryBadgeY - minGap
+          }
+          if (tpBadgeY - entryBadgeY < minGap) {
+            tpBadgeY = entryBadgeY + minGap
+          }
+        }
+
+        // Clamp agar tidak keluar dari batas canvas atas dan bawah
+        const chartTop = 10
+        const chartBottom = height - 25
+        tpBadgeY = Math.max(chartTop, Math.min(chartBottom, tpBadgeY))
+        entryBadgeY = Math.max(chartTop, Math.min(chartBottom, entryBadgeY))
+        slBadgeY = Math.max(chartTop, Math.min(chartBottom, slBadgeY))
+
+        // Helper untuk menggambar rounded pill badge DI KANAN LUAR KOTAK
         const drawSetupBadge = (
           text: string,
           yCenter: number,
+          levelY: number,
           textColor: string,
           borderColor: string,
-          bgColor = 'rgba(11, 15, 25, 0.90)'
+          bgColor = 'rgba(11, 15, 25, 0.94)'
         ) => {
           const textW = ctx.measureText(text).width
-          const padX = 5
+          const padX = 6
           const badgeW = textW + padX * 2
-          const badgeH = 15
+          const badgeH = 16
 
-          // Hitung posisi horizontal badge:
-          // Posisikan merapat ke kanan dalam box jika cukup luas, tapi jangan pernah melewati kiri (startX + 4)
-          // dan jangan melewati batas kanan chart (maxChartX - badgeW - 2)
-          let bX = endX - badgeW - 4
-          if (bX < startX + 4) {
-            bX = Math.max(6, startX + 4)
-          }
+          // Posisi horizontal: PASTI DI KANAN LUAR KOTAK (endX + 8)
+          let bX = endX + 8
+
+          // Proteksi: jangan sampai melewati sumbu harga di sisi kanan canvas
           if (bX + badgeW > maxChartX - 2) {
-            bX = Math.max(6, maxChartX - badgeW - 2)
+            bX = Math.max(startX + 4, maxChartX - badgeW - 2)
           }
 
           const bY = yCenter - badgeH / 2
 
+          // Connector line dari ujung kanan kotak (endX, levelY) ke badge luar kotak (bX, yCenter)
+          if (bX > endX) {
+            ctx.beginPath()
+            ctx.strokeStyle = borderColor
+            ctx.lineWidth = 1.2
+            ctx.moveTo(endX, levelY)
+            ctx.lineTo(bX - 2, yCenter)
+            ctx.stroke()
+          }
+
           // Background pill
           ctx.fillStyle = bgColor
           ctx.strokeStyle = borderColor
-          ctx.lineWidth = 1
+          ctx.lineWidth = 1.2
           ctx.beginPath()
           if (typeof (ctx as any).roundRect === 'function') {
             ;(ctx as any).roundRect(bX, bY, badgeW, badgeH, 3)
@@ -2714,25 +2764,16 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
           ctx.fill()
           ctx.stroke()
 
-          // Teks di dalam pill selalu left-aligned dari bX + padX
+          // Text inside badge
           ctx.textAlign = 'left'
           ctx.fillStyle = textColor
-          ctx.fillText(text, bX + padX, bY + 11)
+          ctx.fillText(text, bX + padX, bY + 11.5)
         }
 
-        // Hitung Y posisi vertikal masing-masing badge agar tidak saling bertabrakan
-        const tpBadgeY = isLong
-          ? Math.max(tpY + 9, Math.min(yTarget, yEntry - 14))
-          : Math.min(tpY + tpHeight - 9, Math.max(yTarget, yEntry + 14))
-
-        const slBadgeY = isLong
-          ? Math.min(slY + slHeight - 9, Math.max(yStop, yEntry + 14))
-          : Math.max(slY + 9, Math.min(yStop, yEntry - 14))
-
-        // Gambar ketiga badge secara terpisah dan kontras
-        drawSetupBadge(tpLabel, tpBadgeY, '#00c087', '#00c087')
-        drawSetupBadge(entryText, yEntry, '#38bdf8', '#38bdf8')
-        drawSetupBadge(slLabel, slBadgeY, '#f6465d', '#f6465d')
+        // Gambar ketiga badge secara terpisah di kanan luar kotak
+        drawSetupBadge(tpLabel, tpBadgeY, yTarget, '#00c087', '#00c087')
+        drawSetupBadge(entryText, entryBadgeY, yEntry, '#38bdf8', '#38bdf8')
+        drawSetupBadge(slLabel, slBadgeY, yStop, '#f6465d', '#f6465d')
 
         ctx.restore()
       })

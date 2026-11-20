@@ -67,10 +67,13 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
 }) => {
   const [isOpen, setIsOpen] = useState<boolean>(() => {
     try {
+      if (typeof window !== 'undefined' && window.innerWidth < 768) {
+        return false
+      }
       const saved = localStorage.getItem('cp_right_sidebar_open')
       return saved === null ? true : saved === 'true'
     } catch {
-      return true
+      return false
     }
   })
 

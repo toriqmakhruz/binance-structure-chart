@@ -372,25 +372,30 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
       >
         {/* Interactive Chart Header for multi-chart view */}
         {layout !== 'single' && (
-          <div className="h-8 bg-[#161b22] px-2 md:px-3 flex items-center justify-between text-[11px] font-mono border-b border-[#21262d] z-20 shrink-0 select-none">
-            <div className="flex items-center space-x-1.5 md:space-x-2">
+          <div className="h-7 sm:h-8 bg-[#161b22] px-1.5 sm:px-2.5 flex items-center justify-between text-[10px] sm:text-[11px] font-mono border-b border-[#21262d] z-20 shrink-0 select-none whitespace-nowrap gap-1">
+            <div className="flex items-center space-x-1 sm:space-x-1.5 min-w-0 shrink">
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation()
                   onSelectPane && onSelectPane(chartId)
                 }}
-                className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded border transition-colors ${
+                className={`text-[9px] sm:text-[10px] font-extrabold px-1 sm:px-1.5 py-0.5 rounded border transition-colors shrink-0 ${
                   isActive
                     ? 'bg-amber-500 text-black border-amber-400 font-black shadow-sm'
                     : 'bg-[#252d3d] text-[#f0b90b] border-amber-500/30 hover:border-amber-400'
                 }`}
                 title={`Klik untuk fokus ke ${paneTitle}`}
               >
-                {paneTitle}
+                <span className="sm:hidden">P{chartId.replace(/[^0-9]/g, '') || (chartId === 'chart-main' ? '1' : '1')}</span>
+                <span className="hidden sm:inline">{paneTitle}</span>
               </button>
-              <span className="font-bold text-white tracking-wider">{symbol}</span>
-              <span className="text-[#00c087] font-bold hidden sm:inline">[{effectiveTf.toUpperCase()}]</span>
+              <span className="font-bold text-white tracking-wider text-[10px] sm:text-[11px] truncate max-w-[55px] sm:max-w-none">
+                {symbol}
+              </span>
+              <span className="text-[#00c087] font-bold hidden md:inline text-[10px]">
+                [{effectiveTf.toUpperCase()}]
+              </span>
 
               {/* Dedicated Per-Pane Independent Layer Toggles */}
               <PaneLayerDropdown
@@ -418,7 +423,7 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
             </div>
 
             {/* Timeframe selector & Crosshair/Setup Sync toggles for THIS pane */}
-            <div className="flex items-center space-x-1 sm:space-x-1.5">
+            <div className="flex items-center space-x-1 sm:space-x-1.5 shrink-0">
               {onToggleSyncCrosshair && (
                 <button
                   type="button"
@@ -428,7 +433,7 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
                       ? 'Sinkronisasi Kursor: AKTIF (Kursor bergerak serempak di semua chart. Klik untuk mematikan)'
                       : 'Sinkronisasi Kursor: NONAKTIF (Klik untuk mengaktifkan)'
                   }
-                  className={`flex items-center space-x-1 px-1.5 py-0.5 rounded border text-[10px] font-bold transition-all ${
+                  className={`hidden sm:flex items-center space-x-1 px-1 sm:px-1.5 py-0.5 rounded border text-[9.5px] sm:text-[10px] font-bold transition-all shrink-0 ${
                     syncCrosshair
                       ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/40 shadow-sm'
                       : 'bg-[#0b0e14] text-slate-500 hover:text-slate-300 border-[#21262d]'
@@ -448,7 +453,7 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
                       ? 'Sinkronisasi Setup Box: AKTIF (Semua chart mengikuti setup yang sama dari Pane 1. Klik untuk mode independen)'
                       : 'Sinkronisasi Setup Box: NONAKTIF (Tiap chart mencari setup sendiri. Klik untuk sinkronkan)'
                   }
-                  className={`flex items-center space-x-1 px-1.5 py-0.5 rounded border text-[10px] font-bold transition-all ${
+                  className={`hidden sm:flex items-center space-x-1 px-1 sm:px-1.5 py-0.5 rounded border text-[9.5px] sm:text-[10px] font-bold transition-all shrink-0 ${
                     syncSetup
                       ? 'bg-amber-500/15 text-amber-300 border-amber-500/40 shadow-sm'
                       : 'bg-[#0b0e14] text-slate-500 hover:text-slate-300 border-[#21262d]'
@@ -459,14 +464,15 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
                 </button>
               )}
 
-              <div className="flex items-center space-x-0.5 bg-[#0b0e14] p-0.5 rounded border border-[#21262d]">
+              {/* Quick Timeframe Buttons (Only on large displays where width allows) */}
+              <div className="hidden lg:flex items-center space-x-0.5 bg-[#0b0e14] p-0.5 rounded border border-[#21262d] shrink-0">
                 {['1m', '5m', '15m', '1h', '4h'].map((tf) => (
                   <button
                     key={tf}
                     type="button"
                     onClick={() => handlePaneTfChange(chartId, tf)}
                     title={`Ubah ${chartId} ke timeframe ${tf.toUpperCase()}`}
-                    className={`px-1.5 py-0.5 text-[10px] rounded font-bold transition-all ${
+                    className={`px-1.5 py-0.5 text-[9.5px] rounded font-bold transition-all ${
                       effectiveTf.toLowerCase() === tf.toLowerCase()
                         ? 'bg-[#f0b90b] text-black shadow-sm font-extrabold'
                         : 'text-slate-400 hover:text-white hover:bg-[#1f2636]'
@@ -476,10 +482,12 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
                   </button>
                 ))}
               </div>
+
+              {/* Timeframe Select Dropdown (Universal & Compact) */}
               <select
                 value={effectiveTf.toLowerCase()}
                 onChange={(e) => handlePaneTfChange(chartId, e.target.value)}
-                className="bg-[#0b0e14] text-[#f0b90b] font-bold text-[10px] px-1.5 py-1 rounded border border-[#21262d] outline-none cursor-pointer hover:border-amber-500/50"
+                className="bg-[#0b0e14] text-[#f0b90b] font-bold text-[9.5px] sm:text-[10px] px-1 sm:px-1.5 py-0.5 rounded border border-[#21262d] outline-none cursor-pointer hover:border-amber-500/50 shrink-0"
                 title={`Pilih Timeframe ${chartId}`}
               >
                 {TIMEFRAMES.map((tf) => (

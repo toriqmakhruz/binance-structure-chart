@@ -223,30 +223,39 @@ export const PaneLayerDropdown: React.FC<PaneLayerDropdownProps> = ({
           e.stopPropagation()
           setIsOpen((prev) => !prev)
         }}
-        className={`flex items-center space-x-1 px-1.5 py-0.5 rounded border text-[10px] font-bold transition-all cursor-pointer ${
+        className={`flex items-center space-x-1 px-1 sm:px-1.5 py-0.5 rounded border text-[9.5px] sm:text-[10px] font-bold transition-all cursor-pointer shrink-0 ${
           isOpen
             ? 'bg-[#252d3d] text-[#f0b90b] border-[#f0b90b]/50 shadow-sm'
             : 'bg-[#0b0e14] hover:bg-[#1a2230] text-slate-300 hover:text-white border-[#21262d]'
         }`}
         title={`Atur Indikator & Lapisan khusus untuk ${paneTitle}`}
       >
-        <SlidersHorizontal className="w-3 h-3 text-[#f0b90b]" />
-        <span className="hidden sm:inline">Layers</span>
-        <span className="px-1 py-0.2 rounded bg-[#161b22] text-[#f0b90b] text-[9px] font-mono">
+        <SlidersHorizontal className="w-3 h-3 text-[#f0b90b] shrink-0" />
+        <span className="hidden md:inline">Layers</span>
+        <span className="px-1 py-0.2 rounded bg-[#161b22] text-[#f0b90b] text-[8.5px] sm:text-[9px] font-mono shrink-0">
           {activeCount}
         </span>
         <ChevronDown
-          className={`w-2.5 h-2.5 text-slate-400 transition-transform duration-150 ${
+          className={`w-2.5 h-2.5 text-slate-400 transition-transform duration-150 hidden sm:inline shrink-0 ${
             isOpen ? 'rotate-180 text-[#f0b90b]' : ''
           }`}
         />
       </button>
 
       {isOpen && (
-        <div
-          onClick={(e) => e.stopPropagation()}
-          className="absolute left-0 top-full mt-1.5 w-64 md:w-72 bg-[#0d1117] border border-[#30363d] rounded-lg shadow-2xl z-50 overflow-hidden font-sans text-xs animate-in fade-in zoom-in-95 duration-100"
-        >
+        <>
+          {/* Backdrop on mobile for easy dismissal */}
+          <div
+            className="sm:hidden fixed inset-0 bg-black/60 z-40 backdrop-blur-sm"
+            onClick={(e) => {
+              e.stopPropagation()
+              setIsOpen(false)
+            }}
+          />
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="fixed sm:absolute inset-x-3 sm:inset-x-auto sm:left-0 top-16 sm:top-full sm:mt-1.5 sm:w-72 max-h-[75vh] overflow-y-auto bg-[#0d1117] border border-[#30363d] rounded-xl shadow-2xl z-50 font-sans text-xs animate-in fade-in zoom-in-95 duration-100"
+          >
           {/* Header */}
           <div className="flex items-center justify-between px-3 py-2 border-b border-[#21262d] bg-[#161b22]">
             <div className="flex items-center space-x-1.5">
@@ -377,6 +386,7 @@ export const PaneLayerDropdown: React.FC<PaneLayerDropdownProps> = ({
             <span className="text-amber-400 font-bold">{activeCount} Aktif</span>
           </div>
         </div>
+        </>
       )}
     </div>
   )

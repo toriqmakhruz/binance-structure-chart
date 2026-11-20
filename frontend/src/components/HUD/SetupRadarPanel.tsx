@@ -209,7 +209,7 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
         .filter((item) =>
           isPriceStillValid(item.current_price, item.direction, item.invalidation_price, item.target_price)
         )
-        .sort((a, b) => (b.entry_time - a.entry_time) || (b.confluence_weight - a.confluence_weight))
+        .sort((a, b) => (b.entry_time - a.entry_time) || (b.confluence_weight - a.confluence_weight) || a.symbol.localeCompare(b.symbol))
 
       setSetups(filtered)
       setScannedCount(resp.scanned_count || 24)
@@ -302,17 +302,32 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
         return prev
       }
 
+      const existingIdx = prev.findIndex((x) => x.symbol.toUpperCase() === activeUpper)
       const livePrice = currentPrice && currentPrice > 0
         ? currentPrice
-        : (prev.find((x) => x.symbol.toUpperCase() === activeUpper)?.current_price || validSc.entry_price)
+        : (existingIdx !== -1 ? prev[existingIdx].current_price : validSc.entry_price)
 
       if (!isPriceStillValid(livePrice, validSc.direction, validSc.invalidation_price, validSc.target_price)) {
         return prev
       }
 
-      const others = prev.filter((item) => item.symbol.toUpperCase() !== activeUpper)
-      const existing = prev.find((x) => x.symbol.toUpperCase() === activeUpper)
-      const upserted: ValidSetupItem = {
+      if (existingIdx !== -1) {
+        // PERBAIKAN STABILITAS: Setup sudah ada dalam list!
+        // JANGAN ubah entry_time, jangan ubah posisinya, dan JANGAN re-sort!
+        // Urutan list harus TETAP STABIL agar user tidak bingung saat klik berpindah koin.
+        const existing = prev[existingIdx]
+        const updated: ValidSetupItem = {
+          ...existing,
+          current_price: livePrice,
+          confluence_score: forecast.confluence_score || existing.confluence_score
+        }
+        const next = [...prev]
+        next[existingIdx] = updated
+        return next // Urutan tetap 100% sama persis!
+      }
+
+      // Hanya jika simbol baru yang dicari manual lewat search dan belum ada di list scanner:
+      const newSetup: ValidSetupItem = {
         symbol: activeUpper,
         baseAsset: activeUpper.replace(/USDT$|BUSD$|USDC$/i, ''),
         market,
@@ -329,12 +344,12 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
         confluence_weight: validSc.confluence_weight,
         confluence_score: forecast.confluence_score,
         current_price: livePrice,
-        price_change_pct: existing?.price_change_pct ?? 0,
-        quote_volume: existing?.quote_volume ?? 0
+        price_change_pct: 0,
+        quote_volume: 0
       }
 
-      return [upserted, ...others].sort(
-        (a, b) => (b.entry_time - a.entry_time) || (b.confluence_weight - a.confluence_weight)
+      return [...prev, newSetup].sort(
+        (a, b) => (b.entry_time - a.entry_time) || (b.confluence_weight - a.confluence_weight) || a.symbol.localeCompare(b.symbol)
       )
     })
   }, [symbol, market, timeframe, forecast, currentPrice])
@@ -434,21 +449,21 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
   const inPositionCount = inPositionSetups.length
 
   const displayedSetups = useMemo(() => {
+    let list = combinedSetups
     if (dirFilter === 'LONG') {
-      return combinedSetups.filter((item) => item.direction === 'LONG')
-    }
-    if (dirFilter === 'SHORT') {
-      return combinedSetups.filter((item) => item.direction === 'SHORT')
-    }
-    if (dirFilter === 'IN_POSITION') {
+      list = combinedSetups.filter((item) => item.direction === 'LONG')
+    } else if (dirFilter === 'SHORT') {
+      list = combinedSetups.filter((item) => item.direction === 'SHORT')
+    } else if (dirFilter === 'IN_POSITION') {
       return inPositionSetups
     }
-    // 'ALL' default: urutkan setup terkunci & posisi aktif ke paling atas
-    return [...combinedSetups].sort((a, b) => {
+
+    // Urutkan konsisten (terbaru di atas, locked/posisi prioritas, stabil tanpa jitter saat diklik):
+    return [...list].sort((a, b) => {
       const aLock = lockedOrInPositionSet.has(a.symbol.toUpperCase()) ? 1 : 0
       const bLock = lockedOrInPositionSet.has(b.symbol.toUpperCase()) ? 1 : 0
       if (bLock !== aLock) return bLock - aLock
-      return (b.entry_time - a.entry_time) || (b.confluence_weight - a.confluence_weight)
+      return (b.entry_time - a.entry_time) || (b.confluence_weight - a.confluence_weight) || a.symbol.localeCompare(b.symbol)
     })
   }, [dirFilter, combinedSetups, inPositionSetups, lockedOrInPositionSet])
 

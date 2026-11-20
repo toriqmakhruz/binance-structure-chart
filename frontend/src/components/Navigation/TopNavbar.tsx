@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { 
   TrendingUp,
   Send, 
@@ -9,8 +9,6 @@ import {
   Rows, 
   Square,
   Search,
-  Wifi,
-  WifiOff,
   Zap,
   Shield,
   Target,
@@ -19,7 +17,11 @@ import {
   Unlock,
   Crosshair,
   Layers,
-  Sparkles
+  Sparkles,
+  Menu,
+  X,
+  Radio,
+  Clock
 } from 'lucide-react'
 import { formatPrice } from '../../utils/formatters'
 import { SetupMode } from '../../types/analysis'
@@ -89,6 +91,8 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
   syncSetup = true,
   onToggleSyncSetup
 }) => {
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+
   const getBadgeConfig = () => {
     switch (streamStatus) {
       case 'LIVE':
@@ -131,345 +135,638 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
 
   const badge = getBadgeConfig()
 
-    return (
-    <header className="h-12 md:h-14 shrink-0 bg-[#111620] border-b border-[#21262d] flex items-center justify-between px-2 md:px-3 z-30 select-none overflow-x-hidden">
-      {/* Left: Branding & Symbol Search */}
-      <div className="flex items-center space-x-1.5 md:space-x-3 shrink-0">
-        <div className="flex items-center space-x-1.5 md:space-x-2 mr-0.5 md:mr-2">
-          <div className="w-7 h-7 md:w-8 md:h-8 rounded-lg bg-gradient-to-tr from-[#f0b90b] to-[#fcd535] flex items-center justify-center shadow-lg shadow-yellow-500/10 shrink-0">
-            <TrendingUp className="w-4 h-4 md:w-5 md:h-5 text-black stroke-[2.5]" />
+  return (
+    <>
+      <header className="h-11 md:h-14 shrink-0 bg-[#111620] border-b border-[#21262d] z-30 select-none flex items-center justify-between px-2 md:px-3">
+        {/* ========================================================================= */}
+        {/* --- LEFT SECTION: Logo, Market, Trading Module, Symbol, Timeframe & Action --- */}
+        {/* ========================================================================= */}
+        <div className="flex items-center space-x-1.5 md:space-x-2.5 min-w-0 shrink-0">
+          {/* Logo (Icon only, website name removed as requested) */}
+          <div className="w-6 h-6 md:w-7 md:h-7 rounded-md bg-gradient-to-tr from-[#f0b90b] to-[#fcd535] flex items-center justify-center shadow-md shadow-yellow-500/10 shrink-0">
+            <TrendingUp className="w-3.5 h-3.5 md:w-4 md:h-4 text-black stroke-[2.5]" />
           </div>
-          <div className="hidden md:block">
-            <span className="font-bold text-sm tracking-wide text-white">STRUKTUR</span>
-            <span className="font-bold text-sm text-[#f0b90b] ml-1">AI</span>
-          </div>
-        </div>
 
-        {/* Market Toggle (Spot vs Futures) */}
-        <div className="flex bg-[#0b0e14] rounded-md p-0.5 border border-[#21262d] text-[10px] md:text-xs shrink-0">
-          <button
-            onClick={() => onMarketChange('futures')}
-            className={`px-1.5 md:px-2.5 py-0.5 md:py-1 rounded font-medium transition-all ${
-              market === 'futures'
-                ? 'bg-[#f0b90b] text-black shadow font-bold'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            FUT
-          </button>
-          <button
-            onClick={() => onMarketChange('spot')}
-            className={`px-1.5 md:px-2.5 py-0.5 md:py-1 rounded font-medium transition-all ${
-              market === 'spot'
-                ? 'bg-[#f0b90b] text-black shadow font-bold'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            SPOT
-          </button>
-        </div>
-
-        {/* Setup Engine Mode Toggle: Standar vs Pro Shield vs Craig 10x vs Apex Quant */}
-        {onModeChange && (
-          <div
-            className="flex bg-[#0b0e14] rounded-md p-0.5 border border-[#21262d] text-[10px] md:text-xs shrink-0"
-            title="Pilih Engine Setup: Standar vs Pro Shield (Proteksi SL) vs Craig 10x (Asymmetric 3R-10R) vs Apex Quant A++ (Hybrid Ultimate SMC + Fib OTE)"
-          >
+          {/* Market Toggle (Spot vs Futures) */}
+          <div className="hidden sm:flex bg-[#0b0e14] rounded-md p-0.5 border border-[#21262d] text-xs shrink-0">
             <button
-              type="button"
-              onClick={() => onModeChange('standard')}
-              className={`flex items-center space-x-1 px-1.5 md:px-2.5 py-0.5 md:py-1 rounded font-medium transition-all ${
-                setupMode === 'standard'
-                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold shadow-sm'
+              onClick={() => onMarketChange('futures')}
+              className={`px-2 py-0.5 md:px-2.5 md:py-1 rounded font-medium transition-all ${
+                market === 'futures'
+                  ? 'bg-[#f0b90b] text-black shadow font-bold'
                   : 'text-slate-400 hover:text-white'
               }`}
             >
-              <Zap className="w-2.5 h-2.5 md:w-3 md:h-3 text-amber-400" />
-              <span className="hidden sm:inline">Standar</span>
-              <span className="sm:hidden">STD</span>
+              FUT
             </button>
             <button
-              type="button"
-              onClick={() => onModeChange('pro_shield')}
-              className={`flex items-center space-x-1 px-1.5 md:px-2.5 py-0.5 md:py-1 rounded font-medium transition-all ${
-                setupMode === 'pro_shield'
-                  ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/50 font-bold shadow-sm'
+              onClick={() => onMarketChange('spot')}
+              className={`px-2 py-0.5 md:px-2.5 md:py-1 rounded font-medium transition-all ${
+                market === 'spot'
+                  ? 'bg-[#f0b90b] text-black shadow font-bold'
                   : 'text-slate-400 hover:text-white'
               }`}
             >
-              <Shield className="w-2.5 h-2.5 md:w-3 md:h-3 text-indigo-400" />
-              <span className="hidden sm:inline">Pro Shield</span>
-              <span className="sm:hidden">SHIELD</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onModeChange('craig_10x')}
-              className={`flex items-center space-x-1 px-1.5 md:px-2.5 py-0.5 md:py-1 rounded font-medium transition-all ${
-                setupMode === 'craig_10x'
-                  ? 'bg-emerald-600/30 text-emerald-300 border border-emerald-500/50 font-bold shadow-sm'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <Target className="w-2.5 h-2.5 md:w-3 md:h-3 text-emerald-400" />
-              <span className="hidden sm:inline">Craig 10x</span>
-              <span className="sm:hidden">10X</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onModeChange('apex_quant')}
-              className={`flex items-center space-x-1 px-1.5 md:px-2.5 py-0.5 md:py-1 rounded font-medium transition-all ${
-                setupMode === 'apex_quant'
-                  ? 'bg-gradient-to-r from-cyan-500/30 to-purple-500/30 text-cyan-200 border border-cyan-400/50 font-bold shadow-sm'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <Sparkles className="w-2.5 h-2.5 md:w-3 md:h-3 text-cyan-400" />
-              <span className="hidden sm:inline">Apex Quant</span>
-              <span className="sm:hidden">APEX</span>
+              SPOT
             </button>
           </div>
-        )}
 
-        {/* Symbol Button */}
-        <button
-          onClick={onSymbolClick}
-          className="flex items-center space-x-1 md:space-x-2 bg-[#1a202c] hover:bg-[#222a3a] px-2 md:px-3 py-1 md:py-1.5 rounded-lg border border-[#2d3748] transition-all group shrink-0"
-        >
-          <Search className="w-3 h-3 md:w-3.5 md:h-3.5 text-slate-400 group-hover:text-[#f0b90b]" />
-          <span className="font-bold text-xs md:text-sm text-white tracking-wider">{symbol}</span>
-          {lastPrice && (
-            <span className="hidden sm:inline text-xs font-mono font-medium text-[#00c087] ml-1">
-              ${formatPrice(lastPrice)}
-            </span>
+          {/* Trading Module Dropdown (Std, Apex, Pro Shield, Craig 10x) */}
+          {onModeChange && (
+            <div
+              className="hidden sm:flex items-center space-x-1 bg-[#0b0e14] px-1.5 py-0.5 md:px-2 md:py-1 rounded-md border border-[#21262d] text-xs shrink-0"
+              title="Pilih Engine Setup / Modul Trading"
+            >
+              <Zap className="w-3 h-3 md:w-3.5 md:h-3.5 text-[#f0b90b] shrink-0" />
+              <select
+                value={setupMode}
+                onChange={(e) => onModeChange(e.target.value as SetupMode)}
+                className="bg-transparent text-[#f0b90b] font-bold text-[11px] md:text-xs outline-none cursor-pointer pr-0.5"
+              >
+                <option value="standard" className="bg-[#121824] text-white">Standard</option>
+                <option value="pro_shield" className="bg-[#121824] text-white">Pro Shield</option>
+                <option value="craig_10x" className="bg-[#121824] text-white">Craig 10x</option>
+                <option value="apex_quant" className="bg-[#121824] text-white">Apex Quant</option>
+              </select>
+            </div>
           )}
-        </button>
 
-        {/* Mobile Timeframe Dropdown (Only visible on screens < lg) */}
-        <div className="flex lg:hidden items-center shrink-0">
-          <select
-            value={timeframe}
-            onChange={(e) => onTimeframeChange(e.target.value)}
-            className="bg-[#0b0e14] border border-[#263040] text-[#f0b90b] text-[11px] font-bold rounded-lg px-2 py-1 outline-none cursor-pointer"
-            title="Pilih Timeframe"
-          >
-            {TIMEFRAMES.map((tf) => (
-              <option key={tf} value={tf} className="bg-[#121824] text-white">
-                {tf.toUpperCase()}
-              </option>
-            ))}
-          </select>
+          {/* Active Pair Symbol & Live Price (Search box removed as requested) */}
+          <div className="flex items-center space-x-1 md:space-x-1.5 shrink-0 px-1">
+            <span className="font-bold text-xs md:text-sm text-white tracking-wider font-mono">
+              {symbol}
+            </span>
+            {lastPrice && (
+              <span className="text-[10px] md:text-xs font-mono font-semibold text-[#00c087]">
+                ${formatPrice(lastPrice)}
+              </span>
+            )}
+          </div>
+
+          {/* Universal Timeframe Dropdown (Replaces 8 buttons & mobile select) */}
+          <div className="flex items-center space-x-1 bg-[#0b0e14] px-1.5 py-0.5 md:px-2 md:py-1 rounded-md border border-[#21262d] text-xs shrink-0">
+            <Clock className="w-3 h-3 md:w-3.5 md:h-3.5 text-[#f0b90b] shrink-0" />
+            <select
+              value={timeframe}
+              onChange={(e) => onTimeframeChange(e.target.value)}
+              className="bg-transparent text-[#f0b90b] font-bold text-[11px] md:text-xs outline-none cursor-pointer pr-0.5"
+              title="Pilih Timeframe"
+            >
+              {TIMEFRAMES.map((tf) => (
+                <option key={tf} value={tf} className="bg-[#121824] text-white font-bold">
+                  {tf.toUpperCase()}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Setup Action Button (Setup Terkunci / Open Posisi) */}
+          <div className="hidden md:flex items-center shrink-0">
+            {isSetupLocked ? (
+              <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/40 text-amber-300 text-xs font-semibold shrink-0">
+                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
+                <span className="font-bold flex items-center space-x-1">
+                  <Lock className="w-3 h-3 text-amber-400 shrink-0" />
+                  <span>Setup Terkunci</span>
+                </span>
+                {onUnlockSetup && (
+                  <button
+                    type="button"
+                    onClick={onUnlockSetup}
+                    title="Lepas Kunci Setup Manual"
+                    className="flex items-center space-x-1 px-2 py-0.5 bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 rounded text-rose-300 hover:text-white text-[10px] font-bold transition-all shadow-sm cursor-pointer ml-1"
+                  >
+                    <Unlock className="w-3 h-3 text-rose-300 shrink-0" />
+                    <span>Lepas Kunci</span>
+                  </button>
+                )}
+              </div>
+            ) : (
+              activeSetup && onOpenTrade && (
+                <button
+                  type="button"
+                  onClick={() => onOpenTrade(activeSetup)}
+                  className={`flex items-center space-x-1 px-2.5 py-1 rounded-lg font-bold text-xs shadow-md transition-all shrink-0 ${
+                    activeSetup.direction === 'LONG'
+                      ? 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-emerald-950/40'
+                      : 'bg-rose-500 hover:bg-rose-400 text-white shadow-rose-950/40'
+                  }`}
+                  title={`Buka Posisi ${activeSetup.direction} untuk setup aktif ini`}
+                >
+                  <Zap className="w-3.5 h-3.5" />
+                  <span>Open Posisi</span>
+                </button>
+              )
+            )}
+          </div>
         </div>
 
-        {/* Quick Open Position Button or Locked Active Setup Indicator */}
-        {isSetupLocked ? (
-          <div className="flex items-center space-x-1.5 px-2 md:px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/40 text-amber-300 text-[10px] md:text-xs font-semibold shrink-0">
-            <span className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
-            <span className="font-bold flex items-center space-x-1">
-              <Lock className="w-3 h-3 text-amber-400 shrink-0" />
-              <span className="hidden sm:inline">Setup Terkunci</span>
-              <span className="sm:hidden font-mono text-[9px]">TERKUNCI</span>
-            </span>
-            {onUnlockSetup && (
+
+        {/* ========================================================================= */}
+        {/* --- RIGHT SECTION: Actions & Mobile Menu Trigger --- */}
+        {/* ========================================================================= */}
+        <div className="flex items-center space-x-1 md:space-x-2 shrink-0">
+          {/* Mobile Quick Trade Button (If active setup exists) */}
+          <div className="flex md:hidden items-center shrink-0">
+            {isSetupLocked ? (
+              <div 
+                className="flex items-center px-1.5 py-1 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-bold"
+                title="Setup Terkunci"
+              >
+                <Lock className="w-3 h-3 text-amber-400" />
+              </div>
+            ) : (
+              activeSetup && onOpenTrade && (
+                <button
+                  type="button"
+                  onClick={() => onOpenTrade(activeSetup)}
+                  className={`flex items-center space-x-1 px-2 py-1 rounded font-bold text-[10px] shadow-sm shrink-0 ${
+                    activeSetup.direction === 'LONG'
+                      ? 'bg-emerald-500 text-black'
+                      : 'bg-rose-500 text-white'
+                  }`}
+                  title={`Open ${activeSetup.direction}`}
+                >
+                  <Zap className="w-3 h-3" />
+                  <span>{activeSetup.direction}</span>
+                </button>
+              )
+            )}
+          </div>
+
+          {/* Multi-Chart Layouts (Desktop / Tablet) */}
+          <div className="hidden sm:flex items-center bg-[#0b0e14] p-0.5 rounded-lg border border-[#21262d]">
+            <button
+              title="Single Chart"
+              onClick={() => onLayoutChange('single')}
+              className={`p-1.5 rounded ${layout === 'single' ? 'bg-[#252d3d] text-[#f0b90b]' : 'text-slate-400 hover:text-white'}`}
+            >
+              <Square className="w-3.5 h-3.5" />
+            </button>
+            <button
+              title="Split Vertical"
+              onClick={() => onLayoutChange('split-vertical')}
+              className={`p-1.5 rounded ${layout === 'split-vertical' ? 'bg-[#252d3d] text-[#f0b90b]' : 'text-slate-400 hover:text-white'}`}
+            >
+              <Columns className="w-3.5 h-3.5" />
+            </button>
+            <button
+              title="Split Horizontal"
+              onClick={() => onLayoutChange('split-horizontal')}
+              className={`p-1.5 rounded ${layout === 'split-horizontal' ? 'bg-[#252d3d] text-[#f0b90b]' : 'text-slate-400 hover:text-white'}`}
+            >
+              <Rows className="w-3.5 h-3.5" />
+            </button>
+            <button
+              title="Grid 4 Charts"
+              onClick={() => onLayoutChange('grid-4')}
+              className={`p-1.5 rounded ${layout === 'grid-4' ? 'bg-[#252d3d] text-[#f0b90b]' : 'text-slate-400 hover:text-white'}`}
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {/* Crosshair Sync Toggle (Desktop) */}
+          {layout !== 'single' && onToggleSyncCrosshair && (
+            <button
+              type="button"
+              onClick={onToggleSyncCrosshair}
+              title="Sinkronisasi Kursor"
+              className={`hidden md:flex items-center space-x-1 px-2 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
+                syncCrosshair
+                  ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/40 shadow-sm'
+                  : 'bg-[#1a202c] hover:bg-[#252d3d] text-slate-400 border-[#2d3748]'
+              }`}
+            >
+              <Crosshair className={`w-3.5 h-3.5 ${syncCrosshair ? 'text-cyan-400' : 'text-slate-400'}`} />
+              <span className="hidden md:inline text-[11px] font-medium">Sync Kursor</span>
+            </button>
+          )}
+
+          {/* Setup Box Sync Toggle (Desktop) */}
+          {layout !== 'single' && onToggleSyncSetup && (
+            <button
+              type="button"
+              onClick={onToggleSyncSetup}
+              title="Sinkronisasi Setup Box"
+              className={`hidden md:flex items-center space-x-1 px-2 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
+                syncSetup
+                  ? 'bg-amber-500/15 text-amber-300 border-amber-500/40 shadow-sm'
+                  : 'bg-[#1a202c] hover:bg-[#252d3d] text-slate-400 border-[#2d3748]'
+              }`}
+            >
+              <Layers className={`w-3.5 h-3.5 ${syncSetup ? 'text-amber-400' : 'text-slate-400'}`} />
+              <span className="hidden md:inline text-[11px] font-medium">Sync Setup</span>
+            </button>
+          )}
+
+          {/* Desktop Live WS Status Badge */}
+          <div 
+            title={badge.title}
+            className={`hidden md:flex items-center space-x-1 px-2.5 py-1 rounded-md text-xs font-mono font-medium ${badge.className}`}
+          >
+            <span className={`w-2 h-2 rounded-full ${badge.dot}`}></span>
+            <span className="hidden xl:inline">{badge.label}</span>
+          </div>
+
+          {/* Desktop Toggle Dashboard Monitor */}
+          {onToggleDashboard && (
+            <button
+              type="button"
+              onClick={onToggleDashboard}
+              title="Buka Dashboard Posisi & Order"
+              className={`hidden md:flex p-2 rounded-lg transition-all border ${
+                isDashboardOpen
+                  ? 'bg-[#1b2230] text-[#f0b90b] border-[#f0b90b]/50 shadow-sm'
+                  : 'bg-[#1a202c] hover:bg-[#252d3d] text-slate-300 hover:text-white border-[#2d3748]'
+              }`}
+            >
+              <Activity className="w-4 h-4" />
+            </button>
+          )}
+
+          {/* Refresh Button (Visible on Mobile & Desktop) */}
+          <button
+            onClick={onRefresh}
+            disabled={isLoading}
+            title="Analisa Ulang Struktur"
+            className="p-1.5 md:p-2 rounded-md md:rounded-lg bg-[#1a202c] hover:bg-[#252d3d] text-slate-300 hover:text-[#f0b90b] transition-all border border-[#2d3748] disabled:opacity-50 shrink-0"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isLoading ? 'animate-spin text-[#f0b90b]' : ''}`} />
+          </button>
+
+          {/* Desktop Telegram Button */}
+          {onOpenTelegram && (
+            <button
+              type="button"
+              onClick={onOpenTelegram}
+              title={isTelegramActive ? "Notifikasi Telegram Aktif" : "Atur Notifikasi Telegram"}
+              className={`hidden md:flex p-2 rounded-lg transition-all border items-center gap-1 ${
+                isTelegramActive
+                  ? 'bg-[#0088cc]/15 text-[#0088cc] border-[#0088cc]/50 shadow-sm'
+                  : 'bg-[#1a202c] hover:bg-[#252d3d] text-slate-300 hover:text-[#0088cc] border-[#2d3748]'
+              }`}
+            >
+              <Send className="w-4 h-4" />
+              {isTelegramActive && (
+                <span className="w-1.5 h-1.5 rounded-full bg-[#0088cc] animate-pulse" />
+              )}
+            </button>
+          )}
+
+          {/* Desktop Settings Button */}
+          <button
+            onClick={onOpenSettings}
+            title="Pengaturan"
+            className="hidden md:flex p-2 rounded-lg bg-[#1a202c] hover:bg-[#252d3d] text-slate-300 hover:text-[#f0b90b] transition-all border border-[#2d3748]"
+          >
+            <SettingsIcon className="w-4 h-4" />
+          </button>
+
+          {/* ================================================================= */}
+          {/* Mobile Master Menu Button (Opens Full Mobile Action Sheet) */}
+          {/* ================================================================= */}
+          <button
+            type="button"
+            onClick={() => setIsMobileMenuOpen(true)}
+            className="flex md:hidden items-center justify-center p-1.5 rounded-md bg-[#1a202c] hover:bg-[#252d3d] text-slate-200 border border-[#2d3748] transition-all shrink-0 relative"
+            title="Buka Menu Kontrol"
+          >
+            <Menu className="w-4 h-4 text-slate-200" />
+            <span className={`absolute top-1 right-1 w-1.5 h-1.5 rounded-full ${badge.dot}`} />
+          </button>
+        </div>
+      </header>
+
+      {/* ========================================================================= */}
+      {/* --- MOBILE ACTION SHEET MODAL (Clean, Modern, Thumb-Friendly) --- */}
+      {/* ========================================================================= */}
+      {isMobileMenuOpen && (
+        <div 
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-150"
+          onClick={() => setIsMobileMenuOpen(false)}
+        >
+          <div 
+            className="w-full max-w-md bg-[#111620] border-t sm:border border-[#2d3748] rounded-t-2xl sm:rounded-xl shadow-2xl p-4 text-slate-100 max-h-[85vh] overflow-y-auto space-y-4 animate-in slide-in-from-bottom duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Sheet Header */}
+            <div className="flex items-center justify-between border-b border-[#21262d] pb-3">
+              <div className="flex items-center space-x-2">
+                <div className="w-6 h-6 rounded-md bg-gradient-to-tr from-[#f0b90b] to-[#fcd535] flex items-center justify-center shadow-md">
+                  <TrendingUp className="w-3.5 h-3.5 text-black stroke-[2.5]" />
+                </div>
+                <span className="font-bold text-sm text-white">Menu Kontrol & Pengaturan</span>
+              </div>
               <button
                 type="button"
-                onClick={onUnlockSetup}
-                title="Lepas Kunci Setup Manual (Kembalikan ke Analisa Dinamis)"
-                className="flex items-center space-x-1 px-1.5 md:px-2 py-0.5 bg-rose-500/20 hover:bg-rose-500/30 active:bg-rose-500/40 border border-rose-500/40 rounded text-rose-300 hover:text-white text-[9px] md:text-[10px] font-bold transition-all shadow-sm cursor-pointer ml-1"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="p-1 rounded-md text-slate-400 hover:text-white hover:bg-[#1a202c]"
               >
-                <Unlock className="w-2.5 h-2.5 md:w-3 md:h-3 text-rose-300 shrink-0" />
-                <span>Lepas Kunci</span>
+                <X className="w-5 h-5" />
               </button>
+            </div>
+
+            {/* Section 1: Market Selection (Futures vs Spot) */}
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Pasar Binance</label>
+              <div className="grid grid-cols-2 gap-2 bg-[#0b0e14] p-1 rounded-lg border border-[#21262d]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onMarketChange('futures')
+                  }}
+                  className={`py-2 rounded-md font-bold text-xs transition-all flex items-center justify-center space-x-1.5 ${
+                    market === 'futures'
+                      ? 'bg-[#f0b90b] text-black shadow-md font-extrabold'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <span>USDT-M FUTURES</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onMarketChange('spot')
+                  }}
+                  className={`py-2 rounded-md font-bold text-xs transition-all flex items-center justify-center space-x-1.5 ${
+                    market === 'spot'
+                      ? 'bg-[#f0b90b] text-black shadow-md font-extrabold'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <span>SPOT MARKET</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Section 2: Setup Engine Mode */}
+            {onModeChange && (
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Mode Engine Analisa & Setup</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onModeChange('standard')}
+                    className={`p-2.5 rounded-lg border text-left transition-all ${
+                      setupMode === 'standard'
+                        ? 'bg-amber-500/15 border-amber-500/50 text-amber-300'
+                        : 'bg-[#161c28] border-[#252f44] text-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-1.5 font-bold text-xs">
+                      <Zap className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Standar</span>
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-0.5">SMC + FVG klasik</div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => onModeChange('pro_shield')}
+                    className={`p-2.5 rounded-lg border text-left transition-all ${
+                      setupMode === 'pro_shield'
+                        ? 'bg-indigo-600/20 border-indigo-500/60 text-indigo-300'
+                        : 'bg-[#161c28] border-[#252f44] text-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-1.5 font-bold text-xs">
+                      <Shield className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>Pro Shield</span>
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-0.5">Proteksi buffer SL 0.8 ATR</div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => onModeChange('craig_10x')}
+                    className={`p-2.5 rounded-lg border text-left transition-all ${
+                      setupMode === 'craig_10x'
+                        ? 'bg-emerald-600/20 border-emerald-500/60 text-emerald-300'
+                        : 'bg-[#161c28] border-[#252f44] text-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-1.5 font-bold text-xs">
+                      <Target className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Craig 10x</span>
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-0.5">Target asimetris 3R - 10R</div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => onModeChange('apex_quant')}
+                    className={`p-2.5 rounded-lg border text-left transition-all ${
+                      setupMode === 'apex_quant'
+                        ? 'bg-cyan-500/20 border-cyan-400/60 text-cyan-200'
+                        : 'bg-[#161c28] border-[#252f44] text-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-1.5 font-bold text-xs">
+                      <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Apex Quant</span>
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-0.5">Hybrid OTE Fibonacci</div>
+                  </button>
+                </div>
+              </div>
             )}
+
+            {/* Section 2.5: Multi-Chart Split Layout Selector */}
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Tata Letak Chart (Multi-View)</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onLayoutChange('single')
+                    setIsMobileMenuOpen(false)
+                  }}
+                  className={`p-2.5 rounded-lg border text-center transition-all flex flex-col items-center justify-center space-y-1 ${
+                    layout === 'single'
+                      ? 'bg-amber-500/20 border-amber-500/60 text-amber-300 font-bold'
+                      : 'bg-[#161c28] border-[#252f44] text-slate-300 hover:text-white'
+                  }`}
+                >
+                  <Square className="w-4 h-4" />
+                  <span className="text-[11px]">1 Layar (Single)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    onLayoutChange('split-horizontal')
+                    setIsMobileMenuOpen(false)
+                  }}
+                  className={`p-2.5 rounded-lg border text-center transition-all flex flex-col items-center justify-center space-y-1 ${
+                    layout === 'split-horizontal'
+                      ? 'bg-amber-500/20 border-amber-500/60 text-amber-300 font-bold'
+                      : 'bg-[#161c28] border-[#252f44] text-slate-300 hover:text-white'
+                  }`}
+                >
+                  <Rows className="w-4 h-4" />
+                  <span className="text-[11px]">2 Baris (Horizontal)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    onLayoutChange('split-vertical')
+                    setIsMobileMenuOpen(false)
+                  }}
+                  className={`p-2.5 rounded-lg border text-center transition-all flex flex-col items-center justify-center space-y-1 ${
+                    layout === 'split-vertical'
+                      ? 'bg-amber-500/20 border-amber-500/60 text-amber-300 font-bold'
+                      : 'bg-[#161c28] border-[#252f44] text-slate-300 hover:text-white'
+                  }`}
+                >
+                  <Columns className="w-4 h-4" />
+                  <span className="text-[11px]">2 Kolom (Vertikal)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    onLayoutChange('grid-4')
+                    setIsMobileMenuOpen(false)
+                  }}
+                  className={`p-2.5 rounded-lg border text-center transition-all flex flex-col items-center justify-center space-y-1 ${
+                    layout === 'grid-4'
+                      ? 'bg-amber-500/20 border-amber-500/60 text-amber-300 font-bold'
+                      : 'bg-[#161c28] border-[#252f44] text-slate-300 hover:text-white'
+                  }`}
+                >
+                  <LayoutGrid className="w-4 h-4" />
+                  <span className="text-[11px]">4 Layar (Grid 2x2)</span>
+                </button>
+              </div>
+
+              {/* Multi-Chart Sync Toggles when split */}
+              {layout !== 'single' && (
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  {onToggleSyncCrosshair && (
+                    <button
+                      type="button"
+                      onClick={onToggleSyncCrosshair}
+                      className={`p-2.5 rounded-lg border text-xs font-semibold flex items-center justify-between transition-all ${
+                        syncCrosshair
+                          ? 'bg-cyan-500/15 border-cyan-500/50 text-cyan-300'
+                          : 'bg-[#161c28] border-[#252f44] text-slate-400'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-1.5">
+                        <Crosshair className="w-3.5 h-3.5 text-cyan-400" />
+                        <span className="text-[11px]">Sync Kursor</span>
+                      </div>
+                      <span className="text-[9.5px] font-mono font-bold px-1.5 py-0.5 rounded bg-[#0b0e14]">
+                        {syncCrosshair ? 'ON' : 'OFF'}
+                      </span>
+                    </button>
+                  )}
+
+                  {onToggleSyncSetup && (
+                    <button
+                      type="button"
+                      onClick={onToggleSyncSetup}
+                      className={`p-2.5 rounded-lg border text-xs font-semibold flex items-center justify-between transition-all ${
+                        syncSetup
+                          ? 'bg-amber-500/15 border-amber-500/50 text-amber-300'
+                          : 'bg-[#161c28] border-[#252f44] text-slate-400'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-1.5">
+                        <Layers className="w-3.5 h-3.5 text-amber-400" />
+                        <span className="text-[11px]">Sync Setup</span>
+                      </div>
+                      <span className="text-[9.5px] font-mono font-bold px-1.5 py-0.5 rounded bg-[#0b0e14]">
+                        {syncSetup ? 'ON' : 'OFF'}
+                      </span>
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Section 3: Navigation & Tools */}
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Fitur & Alat Bantu</label>
+              <div className="space-y-2">
+                {/* Buka Dashboard Monitor */}
+                {onToggleDashboard && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMobileMenuOpen(false)
+                      onToggleDashboard()
+                    }}
+                    className="w-full flex items-center justify-between p-3 rounded-lg bg-[#161c28] hover:bg-[#1e2738] border border-[#252f44] text-xs font-semibold"
+                  >
+                    <div className="flex items-center space-x-2.5">
+                      <Activity className="w-4 h-4 text-[#f0b90b]" />
+                      <span>Monitor Posisi Terbuka & Pending Order</span>
+                    </div>
+                    <span className="text-[10px] text-slate-400">Buka ▾</span>
+                  </button>
+                )}
+
+                {/* Notifikasi Telegram */}
+                {onOpenTelegram && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMobileMenuOpen(false)
+                      onOpenTelegram()
+                    }}
+                    className="w-full flex items-center justify-between p-3 rounded-lg bg-[#161c28] hover:bg-[#1e2738] border border-[#252f44] text-xs font-semibold"
+                  >
+                    <div className="flex items-center space-x-2.5">
+                      <Send className="w-4 h-4 text-[#0088cc]" />
+                      <span>Notifikasi & Bot Telegram</span>
+                    </div>
+                    <span className={`text-[10px] px-2 py-0.5 rounded font-mono font-bold ${isTelegramActive ? 'bg-sky-500/20 text-sky-300' : 'text-slate-400'}`}>
+                      {isTelegramActive ? 'AKTIF' : 'OFF'}
+                    </span>
+                  </button>
+                )}
+
+                {/* Pengaturan Analisa */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMobileMenuOpen(false)
+                    onOpenSettings()
+                  }}
+                  className="w-full flex items-center justify-between p-3 rounded-lg bg-[#161c28] hover:bg-[#1e2738] border border-[#252f44] text-xs font-semibold"
+                >
+                  <div className="flex items-center space-x-2.5">
+                    <SettingsIcon className="w-4 h-4 text-slate-300" />
+                    <span>Pengaturan Sensitivitas Analisa</span>
+                  </div>
+                  <span className="text-[10px] text-slate-400">Ubah ▾</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Status Live Footer */}
+            <div className="pt-2 border-t border-[#21262d] flex items-center justify-between text-xs text-slate-400 font-mono">
+              <span className="flex items-center space-x-2">
+                <span className={`w-2.5 h-2.5 rounded-full ${badge.dot}`} />
+                <span>Status Server: {badge.label}</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMobileMenuOpen(false)
+                  onRefresh()
+                }}
+                className="text-[#f0b90b] font-bold hover:underline"
+              >
+                Refresh Data
+              </button>
+            </div>
           </div>
-        ) : (
-          activeSetup && onOpenTrade && (
-            <button
-              type="button"
-              onClick={() => onOpenTrade(activeSetup)}
-              className={`flex items-center space-x-1 px-2 md:px-3 py-1 md:py-1.5 rounded-lg font-bold text-[10px] md:text-xs shadow-md transition-all shrink-0 ${
-                activeSetup.direction === 'LONG'
-                  ? 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-emerald-950/40'
-                  : 'bg-rose-500 hover:bg-rose-400 text-white shadow-rose-950/40'
-              }`}
-              title={`Buka Posisi ${activeSetup.direction} untuk setup aktif ini`}
-            >
-              <Zap className="w-3 h-3 md:w-3.5 md:h-3.5" />
-              <span className="hidden md:inline">Open Posisi</span>
-            </button>
-          )
-        )}
-      </div>
-
-      {/* Middle: Timeframe Selector (Desktop) */}
-      <div className="hidden lg:flex items-center space-x-1 bg-[#0b0e14] p-1 rounded-lg border border-[#21262d]">
-        {TIMEFRAMES.map((tf) => (
-          <button
-            key={tf}
-            onClick={() => onTimeframeChange(tf)}
-            className={`px-2.5 py-1 text-xs rounded-md font-semibold transition-all ${
-              timeframe === tf
-                ? 'bg-[#252d3d] text-[#f0b90b] shadow-sm'
-                : 'text-slate-400 hover:text-white hover:bg-[#161b22]'
-            }`}
-          >
-            {tf.toUpperCase()}
-          </button>
-        ))}
-      </div>
-
-      {/* Right: Layout Switcher, Refresh, WS Status, Settings */}
-      <div className="flex items-center space-x-1 md:space-x-2 shrink-0">
-        {/* Multi-Chart Layouts */}
-        <div className="hidden sm:flex items-center bg-[#0b0e14] p-0.5 rounded-lg border border-[#21262d]">
-          <button
-            title="Single Chart"
-            onClick={() => onLayoutChange('single')}
-            className={`p-1.5 rounded ${layout === 'single' ? 'bg-[#252d3d] text-[#f0b90b]' : 'text-slate-400 hover:text-white'}`}
-          >
-            <Square className="w-3.5 h-3.5" />
-          </button>
-          <button
-            title="Split Vertical (Side-by-side)"
-            onClick={() => onLayoutChange('split-vertical')}
-            className={`p-1.5 rounded ${layout === 'split-vertical' ? 'bg-[#252d3d] text-[#f0b90b]' : 'text-slate-400 hover:text-white'}`}
-          >
-            <Columns className="w-3.5 h-3.5" />
-          </button>
-          <button
-            title="Split Horizontal (Stacked)"
-            onClick={() => onLayoutChange('split-horizontal')}
-            className={`p-1.5 rounded ${layout === 'split-horizontal' ? 'bg-[#252d3d] text-[#f0b90b]' : 'text-slate-400 hover:text-white'}`}
-          >
-            <Rows className="w-3.5 h-3.5" />
-          </button>
-          <button
-            title="Grid 4 Charts"
-            onClick={() => onLayoutChange('grid-4')}
-            className={`p-1.5 rounded ${layout === 'grid-4' ? 'bg-[#252d3d] text-[#f0b90b]' : 'text-slate-400 hover:text-white'}`}
-          >
-            <LayoutGrid className="w-3.5 h-3.5" />
-          </button>
         </div>
-
-        {/* Crosshair Sync Toggle (Visible when split or grid layout is active) */}
-        {layout !== 'single' && onToggleSyncCrosshair && (
-          <button
-            type="button"
-            onClick={onToggleSyncCrosshair}
-            title={
-              syncCrosshair
-                ? 'Sinkronisasi Kursor Antar Chart: AKTIF (Kursor mengikuti di semua split chart. Klik untuk mematikan)'
-                : 'Sinkronisasi Kursor Antar Chart: NONAKTIF (Klik untuk mengaktifkan)'
-            }
-            className={`flex items-center space-x-1.5 px-2 py-1 md:py-1.5 rounded-lg border text-xs font-semibold transition-all ${
-              syncCrosshair
-                ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/40 shadow-sm shadow-cyan-950/40'
-                : 'bg-[#1a202c] hover:bg-[#252d3d] text-slate-400 hover:text-slate-200 border-[#2d3748]'
-            }`}
-          >
-            <Crosshair className={`w-3.5 h-3.5 ${syncCrosshair ? 'text-cyan-400' : 'text-slate-400'}`} />
-            <span className="hidden md:inline text-[11px] font-medium">Sync Kursor</span>
-            <span
-              className={`text-[9px] px-1 py-0.5 rounded font-mono font-bold ${
-                syncCrosshair ? 'bg-cyan-500/25 text-cyan-200' : 'bg-slate-800 text-slate-400'
-              }`}
-            >
-              {syncCrosshair ? 'ON' : 'OFF'}
-            </span>
-          </button>
-        )}
-
-        {/* Setup Box Sync Toggle (Visible when split or grid layout is active) */}
-        {layout !== 'single' && onToggleSyncSetup && (
-          <button
-            type="button"
-            onClick={onToggleSyncSetup}
-            title={
-              syncSetup
-                ? 'Sinkronisasi Setup Box: AKTIF (Semua split chart menampilkan setup yang sama dari Pane 1. Klik untuk mode independen)'
-                : 'Sinkronisasi Setup Box: NONAKTIF (Tiap chart mencari setup sendiri. Klik untuk sinkronkan)'
-            }
-            className={`flex items-center space-x-1.5 px-2 py-1 md:py-1.5 rounded-lg border text-xs font-semibold transition-all ${
-              syncSetup
-                ? 'bg-amber-500/15 text-amber-300 border-amber-500/40 shadow-sm shadow-amber-950/40'
-                : 'bg-[#1a202c] hover:bg-[#252d3d] text-slate-400 hover:text-slate-200 border-[#2d3748]'
-            }`}
-          >
-            <Layers className={`w-3.5 h-3.5 ${syncSetup ? 'text-amber-400' : 'text-slate-400'}`} />
-            <span className="hidden md:inline text-[11px] font-medium">Sync Setup</span>
-            <span
-              className={`text-[9px] px-1 py-0.5 rounded font-mono font-bold ${
-                syncSetup ? 'bg-amber-500/25 text-amber-200' : 'bg-slate-800 text-slate-400'
-              }`}
-            >
-              {syncSetup ? 'ON' : 'OFF'}
-            </span>
-          </button>
-        )}
-
-        {/* Live WS Status Badge */}
-        <div 
-          title={badge.title}
-          className={`flex items-center space-x-1 px-1.5 md:px-2.5 py-1 rounded-md text-xs font-mono font-medium ${badge.className}`}
-        >
-          <span className={`w-2 h-2 rounded-full ${badge.dot}`}></span>
-          <span className="hidden xl:inline">{badge.label}</span>
-        </div>
-
-        {/* Toggle Dashboard Monitor */}
-        {onToggleDashboard && (
-          <button
-            type="button"
-            onClick={onToggleDashboard}
-            title="Buka / Tutup Dashboard Monitor Posisi & Order"
-            className={`p-1.5 md:p-2 rounded-lg transition-all border ${
-              isDashboardOpen
-                ? 'bg-[#1b2230] text-[#f0b90b] border-[#f0b90b]/50 shadow-sm'
-                : 'bg-[#1a202c] hover:bg-[#252d3d] text-slate-300 hover:text-white border-[#2d3748]'
-            }`}
-          >
-            <Activity className="w-3.5 h-3.5 md:w-4 md:h-4" />
-          </button>
-        )}
-
-        {/* Refresh / Re-analyze Button */}
-        <button
-          onClick={onRefresh}
-          disabled={isLoading}
-          title="Analisa Ulang Struktur & Forecast"
-          className="p-1.5 md:p-2 rounded-lg bg-[#1a202c] hover:bg-[#252d3d] text-slate-300 hover:text-[#f0b90b] transition-all border border-[#2d3748] disabled:opacity-50"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isLoading ? 'animate-spin text-[#f0b90b]' : ''}`} />
-        </button>
-
-        {/* Telegram Alert Settings Button */}
-        {onOpenTelegram && (
-          <button
-            type="button"
-            onClick={onOpenTelegram}
-            title={isTelegramActive ? "Notifikasi Telegram Aktif (Klik untuk ubah)" : "Atur Notifikasi Telegram"}
-            className={`p-1.5 md:p-2 rounded-lg transition-all border flex items-center gap-1.5 ${
-              isTelegramActive
-                ? 'bg-[#0088cc]/15 text-[#0088cc] border-[#0088cc]/50 shadow-sm'
-                : 'bg-[#1a202c] hover:bg-[#252d3d] text-slate-300 hover:text-[#0088cc] border-[#2d3748]'
-            }`}
-          >
-            <Send className="w-3.5 h-3.5 md:w-4 md:h-4" />
-            {isTelegramActive && (
-              <span className="w-1.5 h-1.5 rounded-full bg-[#0088cc] animate-pulse" />
-            )}
-          </button>
-        )}
-
-        {/* Settings Drawer Button */}
-        <button
-          onClick={onOpenSettings}
-          title="Pengaturan Sensitivitas Analisa & Parameter"
-          className="p-1.5 md:p-2 rounded-lg bg-[#1a202c] hover:bg-[#252d3d] text-slate-300 hover:text-[#f0b90b] transition-all border border-[#2d3748]"
-        >
-          <SettingsIcon className="w-3.5 h-3.5 md:w-4 md:h-4" />
-        </button>
-      </div>
-    </header>
+      )}
+    </>
   )
 }

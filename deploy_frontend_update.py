@@ -14,22 +14,19 @@ REMOTE_DIR = "/opt/binance-structure-chart"
 ARCHIVE_NAME = "binance_frontend_update.tar.gz"
 
 def create_archive():
-    print(f"[1/4] Membuat paket update fullstack {ARCHIVE_NAME}...")
-    exclude_dirs = {"node_modules", "dist", ".git", ".gemini", "__pycache__", "data", "venv"}
+    print(f"[1/4] Membuat paket update frontend {ARCHIVE_NAME}...")
+    exclude_dirs = {"node_modules", "dist", ".git", ".gemini"}
     
     with tarfile.open(ARCHIVE_NAME, "w:gz") as tar:
-        for folder in ("frontend", "backend/app"):
-            for root, dirs, files in os.walk(folder):
-                dirs[:] = [d for d in dirs if d not in exclude_dirs]
-                for file in files:
-                    if file.endswith(".pyc"):
-                        continue
-                    file_path = os.path.join(root, file)
-                    arcname = os.path.relpath(file_path, ".").replace("\\", "/")
-                    tar.add(file_path, arcname=arcname)
+        for root, dirs, files in os.walk("frontend"):
+            dirs[:] = [d for d in dirs if d not in exclude_dirs]
+            for file in files:
+                file_path = os.path.join(root, file)
+                arcname = os.path.relpath(file_path, ".")
+                tar.add(file_path, arcname=arcname)
                 
     size_mb = os.path.getsize(ARCHIVE_NAME) / (1024 * 1024)
-    print(f"Paket fullstack berhasil dibuat: {size_mb:.2f} MB")
+    print(f"Paket frontend berhasil dibuat: {size_mb:.2f} MB")
 
 def deploy():
     create_archive()
@@ -59,10 +56,10 @@ def deploy():
     sftp.close()
     print("Unggah selesai!")
 
-    print(f"\n[4/4] Ekstrak & rebuild backend + frontend container...")
+    print(f"\n[4/4] Ekstrak & rebuild frontend container...")
     exec_cmd(f"tar -xzf {remote_archive} -C {REMOTE_DIR}")
-    exec_cmd("docker compose build backend frontend", cwd=REMOTE_DIR)
-    exec_cmd("docker compose up -d backend frontend", cwd=REMOTE_DIR)
+    exec_cmd("docker compose build frontend", cwd=REMOTE_DIR)
+    exec_cmd("docker compose up -d frontend", cwd=REMOTE_DIR)
 
     print("\n--- Status Kontainer ---")
     exec_cmd("docker compose ps", cwd=REMOTE_DIR)
