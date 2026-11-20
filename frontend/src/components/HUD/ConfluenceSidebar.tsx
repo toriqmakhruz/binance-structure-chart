@@ -5,7 +5,8 @@ import {
   ForecastResult,
   ChartPattern,
   OpenInterestData,
-  FundingRateData
+  FundingRateData,
+  TrendStrengthMetrics
 } from '../../types/analysis'
 import { formatPrice, formatOpenInterestValue, formatOpenInterest, formatFundingRate } from '../../utils/formatters'
 import {
@@ -21,11 +22,14 @@ import {
   SlidersHorizontal,
   ChevronRight,
   Lock,
-  Unlock
+  Unlock,
+  Flame,
+  Compass
 } from 'lucide-react'
 
 interface ConfluenceSidebarProps {
   movement?: MovementMetrics
+  trendStrength?: TrendStrengthMetrics
   smc?: SmcAnalysisResult
   forecast?: ForecastResult
   patterns?: ChartPattern[]
@@ -38,6 +42,7 @@ interface ConfluenceSidebarProps {
 
 export const ConfluenceSidebar: React.FC<ConfluenceSidebarProps> = ({
   movement,
+  trendStrength,
   smc,
   forecast,
   patterns = [],
@@ -116,7 +121,163 @@ export const ConfluenceSidebar: React.FC<ConfluenceSidebarProps> = ({
         </p>
       </div>
 
-      {/* 2. Movement & Momentum Dynamics */}
+      {/* 2. Comprehensive Trend Strength Index (TSI) Meter */}
+      {trendStrength && (
+        <div className="p-4 bg-gradient-to-b from-[#141b27] to-[#0f141f] space-y-3">
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-1.5 text-slate-300 font-bold uppercase tracking-wider text-[11px]">
+              <Flame className="w-4 h-4 text-amber-400" />
+              <span>Kekuatan Tren (TSI Meter)</span>
+            </div>
+            <div className="flex items-center space-x-1">
+              <span className={`text-[10px] font-mono font-black px-2 py-0.5 rounded border ${
+                trendStrength.direction === 'BULLISH'
+                  ? 'bg-emerald-950/80 text-emerald-400 border-emerald-600/50'
+                  : trendStrength.direction === 'BEARISH'
+                  ? 'bg-rose-950/80 text-rose-400 border-rose-600/50'
+                  : 'bg-slate-800 text-slate-300 border-slate-600'
+              }`}>
+                {trendStrength.direction}
+              </span>
+              <span className="font-mono text-sm font-extrabold text-white ml-1">
+                {trendStrength.score}%
+              </span>
+            </div>
+          </div>
+
+          {/* TSI Progress Meter Bar */}
+          <div className="w-full bg-[#1e2533] h-2.5 rounded-full overflow-hidden p-0.5 border border-[#30394b]">
+            <div
+              className={`h-full rounded-full transition-all duration-500 ${
+                trendStrength.direction === 'BULLISH'
+                  ? 'bg-gradient-to-r from-emerald-500 to-teal-400'
+                  : trendStrength.direction === 'BEARISH'
+                  ? 'bg-gradient-to-r from-rose-500 to-pink-500'
+                  : 'bg-gradient-to-r from-yellow-500 to-amber-400'
+              }`}
+              style={{ width: `${Math.max(8, trendStrength.score)}%` }}
+            />
+          </div>
+
+          {/* Status Label Banner */}
+          <div className={`p-2 rounded-lg border text-xs font-semibold flex items-center justify-between ${
+            trendStrength.status === 'STRONG_TREND'
+              ? 'bg-emerald-950/40 border-emerald-600/40 text-emerald-300'
+              : trendStrength.status === 'EXHAUSTION_OVEREXTENDED'
+              ? 'bg-purple-950/40 border-purple-600/40 text-purple-300'
+              : trendStrength.status === 'DEVELOPING_TREND'
+              ? 'bg-amber-950/40 border-amber-600/40 text-amber-300'
+              : 'bg-slate-900 border-[#263042] text-slate-300'
+          }`}>
+            <span className="flex items-center space-x-1.5">
+              <span className={`w-2 h-2 rounded-full ${
+                trendStrength.direction === 'BULLISH' ? 'bg-emerald-400 animate-pulse' :
+                trendStrength.direction === 'BEARISH' ? 'bg-rose-400 animate-pulse' : 'bg-slate-400'
+              }`} />
+              <span>{trendStrength.label}</span>
+            </span>
+            <span className="text-[10px] font-mono text-slate-400">{trendStrength.status}</span>
+          </div>
+
+          {/* 4 Pillars Breakdown Grid */}
+          <div className="grid grid-cols-2 gap-2 text-[11px] pt-1">
+            {/* Pilar 1: ADX & DMI */}
+            <div className="bg-[#0b0e14] p-2.5 rounded-lg border border-[#21262d] space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400 text-[10px] font-bold uppercase">Daya Dorong (ADX)</span>
+                <span className={`text-[9px] font-bold px-1 rounded ${
+                  trendStrength.adx >= 25 ? 'bg-emerald-950 text-emerald-400' : 'bg-slate-800 text-slate-400'
+                }`}>
+                  {trendStrength.adx_trend_power.replace(/_/g, ' ')}
+                </span>
+              </div>
+              <div className="flex items-baseline justify-between font-mono">
+                <span className="text-sm font-bold text-white">{trendStrength.adx}</span>
+                <span className="text-[10px] text-slate-400">
+                  <span className="text-emerald-400 font-bold">+{trendStrength.plus_di}</span> / <span className="text-rose-400 font-bold">-{trendStrength.minus_di}</span>
+                </span>
+              </div>
+            </div>
+
+            {/* Pilar 2: EMA Ribbon & Slope */}
+            <div className="bg-[#0b0e14] p-2.5 rounded-lg border border-[#21262d] space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400 text-[10px] font-bold uppercase">Ribbon & Slope</span>
+                <span className="text-[9px] font-bold px-1 rounded bg-[#1f2637] text-amber-400">
+                  {trendStrength.ema_slope_deg > 0 ? '+' : ''}{trendStrength.ema_slope_deg}°
+                </span>
+              </div>
+              <div className="text-[10px] text-slate-300 font-medium truncate" title={trendStrength.ribbon_alignment}>
+                {trendStrength.ribbon_alignment.replace(/_/g, ' ')}
+              </div>
+              <div className="text-[9.5px] text-slate-400 flex justify-between">
+                <span>Spread: {trendStrength.ribbon_dispersion_pct}%</span>
+                <span className="text-amber-400 font-semibold">{trendStrength.dispersion_status}</span>
+              </div>
+            </div>
+
+            {/* Pilar 3: RVOL & Volume Flow */}
+            <div className="bg-[#0b0e14] p-2.5 rounded-lg border border-[#21262d] space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400 text-[10px] font-bold uppercase">Aliran Volume</span>
+                <span className={`text-[9px] font-bold px-1 rounded ${
+                  trendStrength.rvol >= 1.4 ? 'bg-emerald-950 text-emerald-400' : 'bg-slate-800 text-slate-400'
+                }`}>
+                  RVOL {trendStrength.rvol}x
+                </span>
+              </div>
+              <div className="text-[10px] text-slate-300 font-medium truncate">
+                {trendStrength.taker_pressure.replace(/_/g, ' ')}
+              </div>
+              <div className="text-[9.5px] text-slate-400">
+                Tekanan Beli: <span className="text-emerald-400 font-bold font-mono">{trendStrength.buy_ratio_pct}%</span>
+              </div>
+            </div>
+
+            {/* Pilar 4: Multi-Timeframe Alignment */}
+            <div className="bg-[#0b0e14] p-2.5 rounded-lg border border-[#21262d] space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400 text-[10px] font-bold uppercase">Konsensus MTF</span>
+                <span className="text-[9px] font-mono font-bold text-amber-400">
+                  {trendStrength.mtf_consensus}
+                </span>
+              </div>
+              <div className="flex items-center space-x-1 pt-0.5">
+                {trendStrength.mtf_details.map((m, idx) => (
+                  <span
+                    key={idx}
+                    className={`px-1.5 py-0.5 rounded text-[9px] font-bold font-mono ${
+                      m.is_aligned
+                        ? (m.direction === 'BULLISH' ? 'bg-emerald-900/60 text-emerald-300 border border-emerald-700/50' : 'bg-rose-900/60 text-rose-300 border border-rose-700/50')
+                        : 'bg-slate-800 text-slate-400 border border-slate-700'
+                    }`}
+                    title={`${m.timeframe}: ${m.direction} (ADX ${m.adx})`}
+                  >
+                    {m.timeframe} {m.direction === 'BULLISH' ? '▲' : (m.direction === 'BEARISH' ? '▼' : '—')}
+                  </span>
+                ))}
+              </div>
+              <div className="text-[9.5px] text-slate-400">
+                Keselarasan: <span className="text-white font-mono font-bold">{trendStrength.mtf_alignment_score}%</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Actionable Advice Box */}
+          <div className="p-2.5 rounded-lg bg-[#0b0e14] border border-[#263042] space-y-1">
+            <div className="flex items-center space-x-1.5 text-[10px] font-bold text-[#f0b90b] uppercase tracking-wider">
+              <Compass className="w-3 h-3" />
+              <span>Saran Eksekusi Praktis</span>
+            </div>
+            <p className="text-[11px] text-slate-300 leading-relaxed font-sans">
+              {trendStrength.action_advice}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* 3. Movement & Momentum Dynamics */}
       <div className="p-4 space-y-3">
         <div className="flex items-center space-x-1.5 text-slate-400 font-bold uppercase tracking-wider text-[11px]">
           <Activity className="w-4 h-4 text-cyan-400" />

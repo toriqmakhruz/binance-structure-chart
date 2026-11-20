@@ -315,18 +315,21 @@ export const TradingDashboardDrawer: React.FC<TradingDashboardDrawerProps> = ({
 
   // Filtered views
   const displayedPositions = useMemo(() => {
-    if (!filterCurrentSymbol) return positions
-    return positions.filter((p) => p.symbol.toUpperCase() === currentSymbol.toUpperCase())
+    const list = Array.isArray(positions) ? positions : []
+    if (!filterCurrentSymbol) return list
+    return list.filter((p) => (p?.symbol || '').toUpperCase() === currentSymbol.toUpperCase())
   }, [positions, filterCurrentSymbol, currentSymbol])
 
   const displayedOrders = useMemo(() => {
-    if (!filterCurrentSymbol) return orders
-    return orders.filter((o) => o.symbol.toUpperCase() === currentSymbol.toUpperCase())
+    const list = Array.isArray(orders) ? orders : []
+    if (!filterCurrentSymbol) return list
+    return list.filter((o) => (o?.symbol || '').toUpperCase() === currentSymbol.toUpperCase())
   }, [orders, filterCurrentSymbol, currentSymbol])
 
   const displayedHistory = useMemo(() => {
-    if (!filterCurrentSymbol) return history
-    return history.filter((h) => (h.symbol || '').toUpperCase() === currentSymbol.toUpperCase())
+    const list = Array.isArray(history) ? history : []
+    if (!filterCurrentSymbol) return list
+    return list.filter((h) => (h?.symbol || '').toUpperCase() === currentSymbol.toUpperCase())
   }, [history, filterCurrentSymbol, currentSymbol])
 
   const historySummary = useMemo(() => {

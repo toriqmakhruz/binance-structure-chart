@@ -18,7 +18,8 @@ import {
   DrawingToolType,
   DrawingItem,
   OpenInterestData,
-  FundingRateData
+  FundingRateData,
+  TrendStrengthMetrics
 } from '../../types/analysis'
 import { AutoFibSettings, DEFAULT_AUTO_FIB_SETTINGS } from '../../types/fibonacci'
 import { VolumeProfileSettings, DEFAULT_VOLUME_PROFILE_SETTINGS } from '../../types/volumeProfile'
@@ -54,6 +55,7 @@ interface LightweightChartProps {
   orderflowSettings?: OrderflowSettings
   marketSessionSettings?: MarketSessionSettings
   onOpenMarketSessionSettings?: () => void
+  trendStrength?: TrendStrengthMetrics
   activeTool: DrawingToolType
   onSelectTool?: (tool: DrawingToolType) => void
   drawings: DrawingItem[]
@@ -83,6 +85,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
   orderflowSettings,
   marketSessionSettings,
   onOpenMarketSessionSettings,
+  trendStrength,
   activeTool,
   onSelectTool,
   drawings,
@@ -1811,6 +1814,79 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
       }
     }
 
+    // A0. Trend Strength EMA Ribbon (EMA 8, 21, 55, 200) - Ribbon Stack & Trend Corridor
+    if (visibility.trendRibbon && trendStrength?.ribbon_series && trendStrength.ribbon_series.length > 1) {
+      const seriesPoints = trendStrength.ribbon_series
+      const lastPoint = seriesPoints[seriesPoints.length - 1]
+      const isBull = trendStrength.direction === 'BULLISH' || (lastPoint && lastPoint.ema8 >= lastPoint.ema55)
+
+      // 1. Soft Fill Corridor between EMA 8 and EMA 55
+      const coords8: { x: number; y: number }[] = []
+      const coords55: { x: number; y: number }[] = []
+
+      for (let i = 0; i < seriesPoints.length; i++) {
+        const pt = seriesPoints[i]
+        const p8 = resolveCoord(pt.time, pt.ema8)
+        const p55 = resolveCoord(pt.time, pt.ema55)
+        if (p8 && p55) {
+          coords8.push(p8)
+          coords55.push(p55)
+        }
+      }
+
+      if (coords8.length > 1 && coords55.length > 1) {
+        ctx.save()
+        ctx.beginPath()
+        ctx.moveTo(coords8[0].x, coords8[0].y)
+        for (let i = 1; i < coords8.length; i++) {
+          ctx.lineTo(coords8[i].x, coords8[i].y)
+        }
+        for (let i = coords55.length - 1; i >= 0; i--) {
+          ctx.lineTo(coords55[i].x, coords55[i].y)
+        }
+        ctx.closePath()
+        ctx.fillStyle = isBull ? 'rgba(0, 192, 135, 0.08)' : 'rgba(246, 70, 93, 0.08)'
+        ctx.fill()
+        ctx.restore()
+      }
+
+      // 2. Render 4 EMA Ribbon Lines: EMA 8 (#38bdf8), EMA 21 (#f59e0b), EMA 55 (#a855f7), EMA 200 (#ec4899)
+      const ribbonConfigs = [
+        { key: 'ema8' as const, color: 'rgba(56, 189, 248, 0.85)', width: 1.5 },
+        { key: 'ema21' as const, color: 'rgba(245, 158, 11, 0.85)', width: 1.5 },
+        { key: 'ema55' as const, color: 'rgba(168, 85, 247, 0.80)', width: 1.2 },
+        { key: 'ema200' as const, color: 'rgba(236, 72, 153, 0.80)', width: 1.8 }
+      ]
+
+      ribbonConfigs.forEach((cfg) => {
+        ctx.save()
+        ctx.beginPath()
+        ctx.strokeStyle = cfg.color
+        ctx.lineWidth = cfg.width
+        let started = false
+
+        for (let i = 0; i < seriesPoints.length; i++) {
+          const pt = seriesPoints[i]
+          const val = pt[cfg.key]
+          if (typeof val !== 'number') continue
+          const coord = resolveCoord(pt.time, val)
+          if (!coord) continue
+
+          if (!started) {
+            ctx.moveTo(coord.x, coord.y)
+            started = true
+          } else {
+            ctx.lineTo(coord.x, coord.y)
+          }
+        }
+
+        if (started) {
+          ctx.stroke()
+        }
+        ctx.restore()
+      })
+    }
+
     // A. Support & Resistance Levels (Horizontal S/R Lines)
     if (patterns && visibility.srLevels && patterns.support_resistance) {
       patterns.support_resistance.forEach((sr) => {
@@ -1890,8 +1966,8 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         // 1. If CHoCH, render subtle vertical dashed line at reversal pivot candle
         if (isChoch) {
           let pivotTime = ev.level_time
-          if (smc.swings && smc.swings.length > 0) {
-            const candidates = smc.swings.filter(s => s.time >= ev.level_time && s.time <= ev.break_time)
+          if (Array.isArray(smc?.swings) && smc.swings.length > 0) {
+            const candidates = smc.swings.filter(s => s && s.time >= ev.level_time && s.time <= ev.break_time)
             if (candidates.length > 0) {
               if (isBull) {
                 const minLow = candidates.reduce((prev, curr) => curr.price < prev.price ? curr : prev)
@@ -1989,7 +2065,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     }
 
     // B4. Order Blocks (OB) - Clean, Fresh (Unmitigated) & Non-Overlapping
-    if (smc && visibility.orderBlocks && smc.order_blocks && smc.order_blocks.length > 0) {
+    if (smc && visibility.orderBlocks && Array.isArray(smc.order_blocks) && smc.order_blocks.length > 0) {
       const currentCandle = candles.length > 0 ? candles[candles.length - 1] : null
       const currentPrice = currentCandle ? currentCandle.close : 0
 
@@ -2095,10 +2171,10 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     }
 
     // C. Fair Value Gaps (FVG) - Clean, Unmitigated Only
-    if (smc && visibility.fvgs && smc.fvgs && smc.fvgs.length > 0) {
+    if (smc && visibility.fvgs && Array.isArray(smc.fvgs) && smc.fvgs.length > 0) {
       // Filter out mitigated or filled FVGs to prevent stacking old gap boxes
       const activeFvgs = smc.fvgs
-        .filter((fvg) => !fvg.mitigated && fvg.status !== 'FILLED')
+        .filter((fvg) => fvg && !fvg.mitigated && fvg.status !== 'FILLED')
         .slice(-4) // Maximum 4 recent active FVGs
 
       activeFvgs.forEach((fvg) => {
@@ -2372,10 +2448,10 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
       let swingLow: { time: number; price: number } | null = null
 
       // 1. Pivot Detection Strategy:
-      if (fibConfig.source === 'smc_swings' && smc?.swings && smc.swings.length >= 2) {
+      if (fibConfig.source === 'smc_swings' && Array.isArray(smc?.swings) && smc.swings.length >= 2) {
         // Cari Swing High dan Swing Low terkonfirmasi terbaru dari SMC (yang sudah confirmed tanpa repaint)
-        const highSwings = smc.swings.filter((s) => s.type === 'H' || s.type === 'HH' || s.type === 'LH')
-        const lowSwings = smc.swings.filter((s) => s.type === 'L' || s.type === 'LL' || s.type === 'HL')
+        const highSwings = smc.swings.filter((s) => s && (s.type === 'H' || s.type === 'HH' || s.type === 'LH'))
+        const lowSwings = smc.swings.filter((s) => s && (s.type === 'L' || s.type === 'LL' || s.type === 'HL'))
 
         if (highSwings.length > 0 && lowSwings.length > 0) {
           const lastHigh = highSwings[highSwings.length - 1]
@@ -2453,8 +2529,12 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         const priceDiff = highPrice - lowPrice
 
         // Filter level-level yang aktif
-        const activeLevels = fibConfig.levels
-          .filter((lvl) => lvl.enabled)
+        const rawFibLevels = Array.isArray(fibConfig?.levels) && fibConfig.levels.length > 0
+          ? fibConfig.levels
+          : DEFAULT_AUTO_FIB_SETTINGS.levels
+
+        const activeLevels = rawFibLevels
+          .filter((lvl) => lvl && lvl.enabled)
           .map((lvl) => {
             let effLevel = lvl.level
             if (fibConfig.reverse) {
@@ -2712,9 +2792,9 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     // F2. Render Valid Entry Box Area (Position Box: Entry Zone, TP Green Box, SL Red Box, R:R Badge)
     // CRITICAL: Strictly draw ONLY when a setup is genuinely VALID (is_valid === true && R:R >= 1.5 && status === 'VALID_ENTRY')
     // NEVER force or draw fallback boxes when setups are invalid (LOW_RR, COUNTER_TREND, etc.)!
-    if (forecast && visibility.entryBoxes && forecast.scenarios && forecast.scenarios.length > 0) {
+    if (forecast && visibility.entryBoxes && Array.isArray(forecast.scenarios) && forecast.scenarios.length > 0) {
       const validSetups = forecast.scenarios.filter(
-        (s) => s.is_valid === true && (s.risk_reward_ratio || 0) >= 1.5 && s.status === 'VALID_ENTRY'
+        (s) => s && s.is_valid === true && (s.risk_reward_ratio || 0) >= 1.5 && s.status === 'VALID_ENTRY'
       )
 
       // If no valid setup exists, DRAW NOTHING! (Do not force an entry box!)
@@ -4326,6 +4406,68 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
             >
               <X className="w-3.5 h-3.5" />
             </button>
+          </div>
+        )}
+
+        {/* Floating Trend Strength Meter HUD Badge (TSI) */}
+        {visibility.trendStrengthMeter && trendStrength && (
+          <div
+            className="absolute top-2 left-2 sm:left-4 z-20 flex items-center space-x-2 px-2.5 py-1 rounded-md bg-[#0d1117]/90 border border-[#21262d] backdrop-blur-sm shadow-md font-mono text-[11px] select-none pointer-events-auto"
+            title={`Kekuatan Tren: ${trendStrength.label} | Skor: ${trendStrength.score.toFixed(0)}% | ADX: ${trendStrength.adx.toFixed(1)} (${trendStrength.adx_trend_power}) | MTF: ${trendStrength.mtf_consensus}`}
+          >
+            <div className="flex items-center space-x-1.5">
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">TSI</span>
+              <div className="flex items-center space-x-1">
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    trendStrength.score >= 65
+                      ? 'bg-emerald-400 animate-pulse'
+                      : trendStrength.score >= 40
+                      ? 'bg-amber-400'
+                      : 'bg-slate-500'
+                  }`}
+                />
+                <span
+                  className={`font-black text-xs ${
+                    trendStrength.direction === 'BULLISH'
+                      ? 'text-[#00c087]'
+                      : trendStrength.direction === 'BEARISH'
+                      ? 'text-[#f6465d]'
+                      : 'text-slate-400'
+                  }`}
+                >
+                  {trendStrength.score.toFixed(0)}%
+                </span>
+              </div>
+            </div>
+
+            <span className="text-slate-600">|</span>
+
+            <span
+              className={`font-bold text-[10.5px] ${
+                trendStrength.direction === 'BULLISH'
+                  ? 'text-emerald-400'
+                  : trendStrength.direction === 'BEARISH'
+                  ? 'text-rose-400'
+                  : 'text-slate-400'
+              }`}
+            >
+              {trendStrength.label.split('(')[0].trim()}
+            </span>
+
+            <span className="hidden md:inline-flex text-slate-600">|</span>
+
+            <span className="hidden md:inline-flex items-center space-x-1 text-[10px] text-slate-300">
+              <span className="text-slate-500 font-normal">ADX</span>
+              <span className="font-semibold text-amber-400">{trendStrength.adx.toFixed(1)}</span>
+            </span>
+
+            <span className="hidden lg:inline-flex text-slate-600">|</span>
+
+            <span className="hidden lg:inline-flex items-center space-x-1 text-[10px] text-slate-300">
+              <span className="text-slate-500 font-normal">MTF</span>
+              <span className="font-semibold text-cyan-400">{trendStrength.mtf_consensus}</span>
+            </span>
           </div>
         )}
 

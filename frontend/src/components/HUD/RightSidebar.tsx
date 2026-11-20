@@ -7,7 +7,8 @@ import {
   ChartPattern,
   AppSettings,
   OpenInterestData,
-  FundingRateData
+  FundingRateData,
+  TrendStrengthMetrics
 } from '../../types/analysis'
 import { ConfluenceSidebar } from './ConfluenceSidebar'
 import { PositionCalculator } from './PositionCalculator'
@@ -33,6 +34,7 @@ interface RightSidebarProps {
   settings: AppSettings
   candles: Candle[]
   movement?: MovementMetrics
+  trendStrength?: TrendStrengthMetrics
   smc?: SmcAnalysisResult
   forecast?: ForecastResult
   patterns?: ChartPattern[]
@@ -53,6 +55,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   settings,
   candles,
   movement,
+  trendStrength,
   smc,
   forecast,
   patterns = [],
@@ -335,6 +338,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
           <ConfluenceSidebar
             movement={movement}
+            trendStrength={trendStrength}
             smc={smc}
             forecast={forecast}
             patterns={patterns}

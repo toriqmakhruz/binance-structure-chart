@@ -194,3 +194,56 @@ class FullAnalysisResponse(BaseModel):
     open_interest: Optional[OpenInterestData] = None
     funding_rate: Optional[FundingRateData] = None
     setup_mode: Optional[str] = "standard"
+    trend_strength: Optional['TrendStrengthMetrics'] = None
+
+class MtfTrendItem(BaseModel):
+    timeframe: str
+    direction: str          # 'BULLISH', 'BEARISH', 'NEUTRAL'
+    adx: float
+    is_aligned: bool
+
+class RibbonLinePoint(BaseModel):
+    time: int
+    ema8: float
+    ema21: float
+    ema55: float
+    ema200: Optional[float] = None
+
+class TrendStrengthMetrics(BaseModel):
+    score: float                          # 0 to 100
+    direction: str                        # 'BULLISH', 'BEARISH', 'NEUTRAL'
+    status: str                           # 'CHOPPY_RANGING', 'DEVELOPING_TREND', 'STRONG_TREND', 'EXHAUSTION_OVEREXTENDED'
+    label: str                            # e.g. 'Tren Bullish Kuat (Sehat)'
+    action_advice: str                    # Actionable advice in Indonesian
+    
+    # Pillar 1: ADX & DMI
+    adx: float                            # e.g. 34.2
+    plus_di: float                        # e.g. 28.5
+    minus_di: float                       # e.g. 12.1
+    adx_trend_power: str                  # 'WEAK_OR_NO_TREND', 'EMERGING_TREND', 'STRONG_TREND', 'VERY_STRONG_PARABOLIC'
+    
+    # Pillar 2: EMA Ribbon & Slope
+    ribbon_alignment: str                 # 'FULL_BULLISH_STACK', 'BULLISH_STACK', 'WEAK_BULLISH', 'NEUTRAL_COMPRESSED', 'WEAK_BEARISH', 'BEARISH_STACK', 'FULL_BEARISH_STACK'
+    ribbon_dispersion_pct: float          # percentage spread between EMA8 & EMA55
+    dispersion_status: str                # 'EXPANDING', 'STABLE', 'CONTRACTING'
+    ema_slope_deg: float                  # -90 to +90 degrees
+    ema_slope_status: str                 # 'ACCELERATING_UP', 'STEADY_UP', 'FLAT', 'STEADY_DOWN', 'ACCELERATING_DOWN'
+    
+    # Pillar 3: Volume Confirmation & Flow
+    rvol: float                           # Relative Volume
+    rvol_status: str                      # 'HIGH_INSTITUTIONAL_VOLUME', 'NORMAL_VOLUME', 'LOW_VOLUME_CHOP'
+    taker_pressure: str                   # 'STRONG_BUY_PRESSURE', 'BALANCED_PRESSURE', 'STRONG_SELL_PRESSURE'
+    buy_ratio_pct: float                  # e.g. 62.5
+    
+    # Pillar 4: Multi-Timeframe Alignment
+    mtf_consensus: str                    # e.g. '3/4 Bullish'
+    mtf_alignment_score: float            # 0 to 100
+    mtf_details: List[MtfTrendItem] = []
+    
+    # Current values for fast HUD display
+    current_ribbon: Dict[str, float] = {} # {'ema8': ..., 'ema21': ..., 'ema55': ..., 'ema200': ...}
+    ribbon_series: List[RibbonLinePoint] = []
+
+FullAnalysisResponse.model_rebuild()
+
+

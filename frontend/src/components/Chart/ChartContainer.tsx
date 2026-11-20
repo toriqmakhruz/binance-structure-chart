@@ -19,7 +19,8 @@ import {
   AutoFibSettings,
   VolumeProfileSettings,
   OrderflowSettings,
-  MarketSessionSettings
+  MarketSessionSettings,
+  TrendStrengthMetrics
 } from '../../types/analysis'
 
 interface SubChartProps {
@@ -38,6 +39,7 @@ interface SubChartProps {
   orderflowSettings?: OrderflowSettings
   marketSessionSettings?: MarketSessionSettings
   onOpenMarketSessionSettings?: () => void
+  trendStrength?: TrendStrengthMetrics
   activeTool: DrawingToolType
   onSelectTool?: (tool: DrawingToolType) => void
   drawings: DrawingItem[]
@@ -66,6 +68,7 @@ const SubTimeframeChart: React.FC<SubChartProps> = ({
   orderflowSettings,
   marketSessionSettings,
   onOpenMarketSessionSettings,
+  trendStrength,
   activeTool,
   onSelectTool,
   drawings,
@@ -166,13 +169,13 @@ const SubTimeframeChart: React.FC<SubChartProps> = ({
 
   // Synchronize trade setup box: Avoid conflicting signals (e.g. 5m SHORT vs 15m LONG) on the same coin
   const effectiveForecast = useMemo(() => {
-    if (syncSetup && primaryForecast && primaryForecast.scenarios) {
+    if (syncSetup && primaryForecast && Array.isArray(primaryForecast.scenarios)) {
       const validPrimaryScenarios = primaryForecast.scenarios.filter(
         (s) =>
-          (s.is_valid === true && (s.risk_reward_ratio || 0) >= 1.5 && s.status === 'VALID_ENTRY') ||
-          s.name?.includes('[TERKUNCI]') ||
-          s.id?.startsWith('locked_') ||
-          s.id?.startsWith('radar_')
+          (s && s.is_valid === true && (s.risk_reward_ratio || 0) >= 1.5 && s.status === 'VALID_ENTRY') ||
+          s?.name?.includes('[TERKUNCI]') ||
+          s?.id?.startsWith('locked_') ||
+          s?.id?.startsWith('radar_')
       )
 
       if (validPrimaryScenarios.length > 0) {
@@ -219,6 +222,7 @@ const SubTimeframeChart: React.FC<SubChartProps> = ({
       orderflowSettings={orderflowSettings}
       marketSessionSettings={marketSessionSettings}
       onOpenMarketSessionSettings={onOpenMarketSessionSettings}
+      trendStrength={data?.trend_strength || trendStrength}
       activeTool={activeTool}
       onSelectTool={onSelectTool}
       drawings={drawings}
@@ -259,6 +263,7 @@ interface ChartContainerProps {
   onOpenOrderflowSettings?: (tab: 'liquidation' | 'cvd') => void
   marketSessionSettings?: MarketSessionSettings
   onOpenMarketSessionSettings?: () => void
+  trendStrength?: TrendStrengthMetrics
   onTogglePaneLayer?: (paneId: string, key: keyof LayerVisibility) => void
   onSetAllPaneLayers?: (paneId: string, enabled: boolean) => void
   activePaneId?: string
@@ -311,6 +316,7 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
   onOpenOrderflowSettings,
   marketSessionSettings,
   onOpenMarketSessionSettings,
+  trendStrength,
   onTogglePaneLayer,
   onSetAllPaneLayers,
   activePaneId = 'chart-1',
@@ -521,6 +527,7 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
               orderflowSettings={orderflowSettings}
               marketSessionSettings={marketSessionSettings}
               onOpenMarketSessionSettings={onOpenMarketSessionSettings}
+              trendStrength={trendStrength}
               activeTool={activeTool}
               onSelectTool={onSelectTool}
               drawings={drawings}
@@ -557,6 +564,7 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
               orderflowSettings={orderflowSettings}
               marketSessionSettings={marketSessionSettings}
               onOpenMarketSessionSettings={onOpenMarketSessionSettings}
+              trendStrength={trendStrength}
               activeTool={activeTool}
               onSelectTool={onSelectTool}
               drawings={drawings}

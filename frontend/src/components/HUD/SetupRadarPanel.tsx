@@ -437,25 +437,27 @@ export const SetupRadarPanel: React.FC<SetupRadarPanelProps> = ({
   }, [lockedSetups, activePositions])
 
   const freshSetups = useMemo(() => {
-    return combinedSetups.filter((s) => !lockedOrInPositionSet.has(s.symbol.toUpperCase()))
+    const list = Array.isArray(combinedSetups) ? combinedSetups : []
+    return list.filter((s) => s?.symbol && !lockedOrInPositionSet.has(s.symbol.toUpperCase()))
   }, [combinedSetups, lockedOrInPositionSet])
 
   const inPositionSetups = useMemo(() => {
-    return combinedSetups.filter((s) => lockedOrInPositionSet.has(s.symbol.toUpperCase()))
+    const list = Array.isArray(combinedSetups) ? combinedSetups : []
+    return list.filter((s) => s?.symbol && lockedOrInPositionSet.has(s.symbol.toUpperCase()))
   }, [combinedSetups, lockedOrInPositionSet])
 
-  const freshLongCount = useMemo(() => freshSetups.filter((s) => s.direction === 'LONG').length, [freshSetups])
-  const freshShortCount = useMemo(() => freshSetups.filter((s) => s.direction === 'SHORT').length, [freshSetups])
-  const inPositionCount = inPositionSetups.length
+  const freshLongCount = useMemo(() => (Array.isArray(freshSetups) ? freshSetups : []).filter((s) => s?.direction === 'LONG').length, [freshSetups])
+  const freshShortCount = useMemo(() => (Array.isArray(freshSetups) ? freshSetups : []).filter((s) => s?.direction === 'SHORT').length, [freshSetups])
+  const inPositionCount = Array.isArray(inPositionSetups) ? inPositionSetups.length : 0
 
   const displayedSetups = useMemo(() => {
-    let list = combinedSetups
+    let list = Array.isArray(combinedSetups) ? combinedSetups : []
     if (dirFilter === 'LONG') {
-      list = combinedSetups.filter((item) => item.direction === 'LONG')
+      list = list.filter((item) => item?.direction === 'LONG')
     } else if (dirFilter === 'SHORT') {
-      list = combinedSetups.filter((item) => item.direction === 'SHORT')
+      list = list.filter((item) => item?.direction === 'SHORT')
     } else if (dirFilter === 'IN_POSITION') {
-      return inPositionSetups
+      return Array.isArray(inPositionSetups) ? inPositionSetups : []
     }
 
     // Urutkan konsisten (terbaru di atas, locked/posisi prioritas, stabil tanpa jitter saat diklik):

@@ -195,19 +195,20 @@ export const CoinWatchlist: React.FC<CoinWatchlistProps> = ({
   }
 
   const displayedList = useMemo(() => {
-    let list = symbols
+    let list = Array.isArray(symbols) ? symbols : []
 
     if (filter === 'FAV') {
-      list = list.filter((item) => favorites.includes(item.symbol))
+      const favList = Array.isArray(favorites) ? favorites : []
+      list = list.filter((item) => item?.symbol && favList.includes(item.symbol))
     } else if (filter === 'GAINERS') {
-      list = list.filter((item) => item.priceChangePercent > 0)
+      list = list.filter((item) => item && item.priceChangePercent > 0)
     } else if (filter === 'LOSERS') {
-      list = list.filter((item) => item.priceChangePercent < 0)
+      list = list.filter((item) => item && item.priceChangePercent < 0)
     }
 
     const q = searchTerm.trim().toLowerCase()
     if (q) {
-      list = list.filter((item) => item.symbol.toLowerCase().includes(q))
+      list = list.filter((item) => item?.symbol && item.symbol.toLowerCase().includes(q))
     }
 
     const sorted = [...list].sort((a, b) => {

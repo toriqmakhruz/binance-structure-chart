@@ -17,7 +17,8 @@ import {
   Activity,
   Check,
   Minus,
-  Flame
+  Flame,
+  Gauge
 } from 'lucide-react'
 
 interface PaneLayerDropdownProps {
@@ -176,6 +177,20 @@ export const PaneLayerDropdown: React.FC<PaneLayerDropdownProps> = ({
       desc: 'Garis proyeksi lintasan harga ke depan',
       icon: <Compass className="w-3.5 h-3.5" />,
       color: 'text-orange-400'
+    },
+    {
+      key: 'trendRibbon' as keyof LayerVisibility,
+      label: 'Pita Tren (EMA Ribbon)',
+      desc: 'Pita tren dinamis EMA 8, 21, 55, 200',
+      icon: <Activity className="w-3.5 h-3.5" />,
+      color: 'text-amber-400'
+    },
+    {
+      key: 'trendStrengthMeter' as keyof LayerVisibility,
+      label: 'Meter Kekuatan Tren (TSI)',
+      desc: 'Badge ADX, Ribbon & Skor Tren 0-100%',
+      icon: <Gauge className="w-3.5 h-3.5" />,
+      color: 'text-emerald-400'
     },
     {
       key: 'volume',

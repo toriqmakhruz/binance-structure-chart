@@ -60,7 +60,9 @@ const DEFAULT_VISIBILITY: LayerVisibility = {
   fibonacci: true,
   volumeProfile: true,
   liquidationHeatmap: true,
-  cvdOrderflow: true
+  cvdOrderflow: true,
+  trendRibbon: true,
+  trendStrengthMeter: true
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -211,9 +213,16 @@ export function App() {
   const [tradeRefreshSeq, setTradeRefreshSeq] = useState(0)
 
   // Auto Fibonacci Retracement Configuration (TradingView Style)
-  const [autoFibSettings, setAutoFibSettings] = useState<AutoFibSettings>(() =>
-    readStoredJson<AutoFibSettings>('cp_auto_fib_settings', DEFAULT_AUTO_FIB_SETTINGS, true)
-  )
+  const [autoFibSettings, setAutoFibSettings] = useState<AutoFibSettings>(() => {
+    const stored = readStoredJson<AutoFibSettings>('cp_auto_fib_settings', DEFAULT_AUTO_FIB_SETTINGS, true)
+    return {
+      ...DEFAULT_AUTO_FIB_SETTINGS,
+      ...(stored || {}),
+      levels: Array.isArray(stored?.levels) && stored.levels.length > 0
+        ? stored.levels
+        : DEFAULT_AUTO_FIB_SETTINGS.levels
+    }
+  })
   const [isAutoFibModalOpen, setIsAutoFibModalOpen] = useState(false)
 
   // Volume Profile (VPVR) Configuration (TradingView Style)
@@ -1213,9 +1222,10 @@ export function App() {
       {/* 2. Interactive Chart Workspace with Bottom Trading Dashboard */}
       <main className="flex-1 h-full min-h-0 relative overflow-hidden bg-[#0b0e14] flex flex-col">
         <div className="flex-1 w-full h-full min-h-0 relative overflow-hidden">
-          <ChartContainer
-            symbol={symbol}
-            onSymbolClick={() => setIsSymbolModalOpen(true)}
+          <ErrorBoundary fallbackTitle="Chart Workspace Terkendala">
+            <ChartContainer
+              symbol={symbol}
+              onSymbolClick={() => setIsSymbolModalOpen(true)}
               timeframe={timeframe}
               market={market}
               settings={settings}
@@ -1228,10 +1238,10 @@ export function App() {
               smc={analysis?.smc}
               patterns={analysis?.patterns}
               forecast={
-              (analysis?.symbol?.toUpperCase() === symbol.toUpperCase() || Boolean(currentLockedSetup) || Boolean(selectedRadarSetup))
-                ? effectiveForecast
-                : undefined
-            }
+                (analysis?.symbol?.toUpperCase() === symbol.toUpperCase() || Boolean(currentLockedSetup) || Boolean(selectedRadarSetup))
+                  ? effectiveForecast
+                  : undefined
+              }
               htfOverlay={analysis?.htf_overlay}
               visibility={visibility}
               paneVisibility={paneVisibility}
@@ -1246,6 +1256,7 @@ export function App() {
               }}
               marketSessionSettings={marketSessionSettings}
               onOpenMarketSessionSettings={() => setIsMarketSessionsModalOpen(true)}
+              trendStrength={analysis?.trend_strength}
               onTogglePaneLayer={handleTogglePaneLayer}
               onSetAllPaneLayers={handleSetAllPaneLayers}
               activePaneId={activePaneId}
@@ -1262,7 +1273,8 @@ export function App() {
               onToggleLayer={handleToggleLayer}
               onTimeframeChange={handleTimeframeChange}
             />
-          </div>
+          </ErrorBoundary>
+        </div>
 
           {/* Bottom Dock: Trading Dashboard Drawer (Monitor Posisi Terbuka & Order Limit) */}
           <ErrorBoundary fallbackTitle="Dashboard Monitor Terkendala">
@@ -1291,6 +1303,7 @@ export function App() {
             settings={settings}
             candles={candles}
             movement={analysis?.movement}
+            trendStrength={analysis?.trend_strength}
             smc={analysis?.smc}
             forecast={
               (analysis?.symbol?.toUpperCase() === symbol.toUpperCase() || Boolean(currentLockedSetup) || Boolean(selectedRadarSetup))

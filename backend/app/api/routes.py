@@ -12,6 +12,7 @@ from ..analysis.smc_engine import SmcEngine
 from ..analysis.pattern_engine import PatternEngine
 from ..analysis.movement_engine import MovementEngine
 from ..analysis.forecast_engine import ForecastEngine
+from ..analysis.trend_strength_engine import TrendStrengthEngine
 
 logger = logging.getLogger("api_routes")
 
@@ -167,6 +168,14 @@ async def get_full_analysis(
             htf_trend=htf_trend_val
         )
 
+        # 4. Calculate Comprehensive Quantitative Trend Strength (TSI)
+        trend_engine = TrendStrengthEngine()
+        trend_res = trend_engine.analyze(
+            candles=candles,
+            htf_overlay=htf_data,
+            timeframe=tf_clean
+        )
+
         # Fetch Open Interest & Funding Rate if market is futures (purely informational indicators)
         oi_data = None
         funding_data = None
@@ -199,7 +208,8 @@ async def get_full_analysis(
             metadata=metadata,
             open_interest=oi_data,
             funding_rate=funding_data,
-            setup_mode=setup_mode
+            setup_mode=setup_mode,
+            trend_strength=trend_res
         )
 
     except DataUnavailableException as e:

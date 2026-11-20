@@ -21,7 +21,8 @@ import {
   X,
   Percent,
   Sliders,
-  Flame
+  Flame,
+  Gauge
 } from 'lucide-react'
 
 interface LayerTogglesProps {
@@ -118,6 +119,13 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
       ]
     },
     {
+      category: 'Kekuatan Tren & Moving Average',
+      items: [
+        { key: 'trendRibbon', label: 'Pita Tren (EMA Ribbon)', desc: 'Pita tren dinamis EMA 8, 21, 55, 200', icon: <Activity className="w-3.5 h-3.5" />, color: 'text-amber-400', bgHover: 'hover:bg-amber-950/30' },
+        { key: 'trendStrengthMeter', label: 'Meter Kekuatan Tren (TSI)', desc: 'Badge ADX, Ribbon & Skor Tren 0-100%', icon: <Gauge className="w-3.5 h-3.5" />, color: 'text-emerald-400', bgHover: 'hover:bg-emerald-950/30' }
+      ]
+    },
+    {
       category: 'Volume & Derivatif',
       items: [
         { key: 'volumeProfile', label: 'Volume Profile (VPVR)', desc: 'POC, VAH, VAL & Distribusi Volume Horizontal (70% VA)', icon: <BarChart2 className="w-3.5 h-3.5 rotate-90" />, color: 'text-cyan-400', bgHover: 'hover:bg-cyan-950/30' },
@@ -135,7 +143,7 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
   const allKeys: (keyof LayerVisibility)[] = [
     'smcEvents', 'orderBlocks', 'fvgs', 'smcSwings',
     'fibonacci', 'patterns', 'srLevels', 'marketSessions', 'forecastCone', 'forecastScenarios',
-    'entryBoxes', 'volumeProfile', 'liquidationHeatmap', 'cvdOrderflow', 'volume', 'openInterest', 'fundingRate', ...(hasHtf ? ['htfOverlay' as keyof LayerVisibility] : [])
+    'entryBoxes', 'trendRibbon', 'trendStrengthMeter', 'volumeProfile', 'liquidationHeatmap', 'cvdOrderflow', 'volume', 'openInterest', 'fundingRate', ...(hasHtf ? ['htfOverlay' as keyof LayerVisibility] : [])
   ]
   const activeCount = allKeys.filter((k) => visibility[k]).length
   const totalCount = allKeys.length

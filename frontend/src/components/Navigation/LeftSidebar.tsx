@@ -185,7 +185,8 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
   const [favorites, setFavorites] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem('cp_favorite_drawing_tools')
-      return saved ? JSON.parse(saved) : ['trendline', 'horizontal_line', 'ray']
+      const parsed = saved ? JSON.parse(saved) : null
+      return Array.isArray(parsed) && parsed.length > 0 ? parsed : ['trendline', 'horizontal_line', 'ray']
     } catch {
       return ['trendline', 'horizontal_line', 'ray']
     }
@@ -249,7 +250,8 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
   const toggleFavorite = (type: string, e: React.MouseEvent) => {
     e.stopPropagation()
     setFavorites((prev) => {
-      const next = prev.includes(type) ? prev.filter((id) => id !== type) : [...prev, type]
+      const list = Array.isArray(prev) ? prev : []
+      const next = list.includes(type) ? list.filter((id) => id !== type) : [...list, type]
       try {
         localStorage.setItem('cp_favorite_drawing_tools', JSON.stringify(next))
       } catch {}

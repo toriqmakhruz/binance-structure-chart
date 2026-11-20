@@ -37,8 +37,8 @@ export const SymbolSelector: React.FC<SymbolSelectorProps> = ({
 
   if (!isOpen) return null
 
-  const filtered = symbols.filter((s) =>
-    s.symbol.toLowerCase().includes(searchTerm.toLowerCase().trim())
+  const filtered = (Array.isArray(symbols) ? symbols : []).filter((s) =>
+    s?.symbol && s.symbol.toLowerCase().includes(searchTerm.toLowerCase().trim())
   )
 
   return (

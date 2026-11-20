@@ -199,6 +199,52 @@ export interface FundingRateData {
 
 export type SetupMode = 'standard' | 'pro_shield' | 'craig_10x' | 'apex_quant'
 
+export interface MtfTrendItem {
+  timeframe: string
+  direction: 'BULLISH' | 'BEARISH' | 'NEUTRAL'
+  adx: number
+  is_aligned: boolean
+}
+
+export interface RibbonLinePoint {
+  time: number
+  ema8: number
+  ema21: number
+  ema55: number
+  ema200?: number | null
+}
+
+export interface TrendStrengthMetrics {
+  score: number
+  direction: 'BULLISH' | 'BEARISH' | 'NEUTRAL'
+  status: 'CHOPPY_RANGING' | 'DEVELOPING_TREND' | 'STRONG_TREND' | 'EXHAUSTION_OVEREXTENDED'
+  label: string
+  action_advice: string
+  adx: number
+  plus_di: number
+  minus_di: number
+  adx_trend_power: 'WEAK_OR_NO_TREND' | 'EMERGING_TREND' | 'STRONG_TREND' | 'VERY_STRONG_PARABOLIC'
+  ribbon_alignment: string
+  ribbon_dispersion_pct: number
+  dispersion_status: 'EXPANDING' | 'STABLE' | 'CONTRACTING'
+  ema_slope_deg: number
+  ema_slope_status: 'ACCELERATING_UP' | 'STEADY_UP' | 'FLAT' | 'STEADY_DOWN' | 'ACCELERATING_DOWN'
+  rvol: number
+  rvol_status: 'HIGH_INSTITUTIONAL_VOLUME' | 'NORMAL_VOLUME' | 'LOW_VOLUME_CHOP'
+  taker_pressure: 'STRONG_BUY_PRESSURE' | 'BALANCED_PRESSURE' | 'STRONG_SELL_PRESSURE'
+  buy_ratio_pct: number
+  mtf_consensus: string
+  mtf_alignment_score: number
+  mtf_details: MtfTrendItem[]
+  current_ribbon?: {
+    ema8?: number
+    ema21?: number
+    ema55?: number
+    ema200?: number | null
+  }
+  ribbon_series?: RibbonLinePoint[]
+}
+
 export interface FullAnalysisResponse {
   symbol: string
   market: string
@@ -213,6 +259,7 @@ export interface FullAnalysisResponse {
   open_interest?: OpenInterestData
   funding_rate?: FundingRateData
   setup_mode?: SetupMode
+  trend_strength?: TrendStrengthMetrics
 }
 
 export interface LayerVisibility {
@@ -234,6 +281,8 @@ export interface LayerVisibility {
   volumeProfile?: boolean
   liquidationHeatmap?: boolean
   cvdOrderflow?: boolean
+  trendRibbon?: boolean
+  trendStrengthMeter?: boolean
 }
 
 export * from './fibonacci'
