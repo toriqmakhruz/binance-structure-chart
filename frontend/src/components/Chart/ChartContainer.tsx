@@ -18,7 +18,8 @@ import {
   FundingRateData,
   AutoFibSettings,
   VolumeProfileSettings,
-  OrderflowSettings
+  OrderflowSettings,
+  MarketSessionSettings
 } from '../../types/analysis'
 
 interface SubChartProps {
@@ -35,6 +36,8 @@ interface SubChartProps {
   autoFibSettings?: AutoFibSettings
   vpvrSettings?: VolumeProfileSettings
   orderflowSettings?: OrderflowSettings
+  marketSessionSettings?: MarketSessionSettings
+  onOpenMarketSessionSettings?: () => void
   activeTool: DrawingToolType
   onSelectTool?: (tool: DrawingToolType) => void
   drawings: DrawingItem[]
@@ -61,6 +64,8 @@ const SubTimeframeChart: React.FC<SubChartProps> = ({
   autoFibSettings,
   vpvrSettings,
   orderflowSettings,
+  marketSessionSettings,
+  onOpenMarketSessionSettings,
   activeTool,
   onSelectTool,
   drawings,
@@ -212,6 +217,8 @@ const SubTimeframeChart: React.FC<SubChartProps> = ({
       autoFibSettings={autoFibSettings}
       vpvrSettings={vpvrSettings}
       orderflowSettings={orderflowSettings}
+      marketSessionSettings={marketSessionSettings}
+      onOpenMarketSessionSettings={onOpenMarketSessionSettings}
       activeTool={activeTool}
       onSelectTool={onSelectTool}
       drawings={drawings}
@@ -250,6 +257,8 @@ interface ChartContainerProps {
   onOpenVpvrSettings?: () => void
   orderflowSettings?: OrderflowSettings
   onOpenOrderflowSettings?: (tab: 'liquidation' | 'cvd') => void
+  marketSessionSettings?: MarketSessionSettings
+  onOpenMarketSessionSettings?: () => void
   onTogglePaneLayer?: (paneId: string, key: keyof LayerVisibility) => void
   onSetAllPaneLayers?: (paneId: string, enabled: boolean) => void
   activePaneId?: string
@@ -299,6 +308,8 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
   onOpenVpvrSettings,
   orderflowSettings,
   onOpenOrderflowSettings,
+  marketSessionSettings,
+  onOpenMarketSessionSettings,
   onTogglePaneLayer,
   onSetAllPaneLayers,
   activePaneId = 'chart-1',
@@ -417,6 +428,7 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
               onOpenAutoFibSettings={onOpenAutoFibSettings}
               onOpenVpvrSettings={onOpenVpvrSettings}
               onOpenOrderflowSettings={onOpenOrderflowSettings}
+              onOpenMarketSessionSettings={onOpenMarketSessionSettings}
             />
           </div>
 
@@ -493,6 +505,8 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
               autoFibSettings={autoFibSettings}
               vpvrSettings={vpvrSettings}
               orderflowSettings={orderflowSettings}
+              marketSessionSettings={marketSessionSettings}
+              onOpenMarketSessionSettings={onOpenMarketSessionSettings}
               activeTool={activeTool}
               onSelectTool={onSelectTool}
               drawings={drawings}
@@ -527,6 +541,8 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
               autoFibSettings={autoFibSettings}
               vpvrSettings={vpvrSettings}
               orderflowSettings={orderflowSettings}
+              marketSessionSettings={marketSessionSettings}
+              onOpenMarketSessionSettings={onOpenMarketSessionSettings}
               activeTool={activeTool}
               onSelectTool={onSelectTool}
               drawings={drawings}

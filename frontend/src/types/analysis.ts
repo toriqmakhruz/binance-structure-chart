@@ -239,6 +239,7 @@ export interface LayerVisibility {
 export * from './fibonacci'
 export * from './volumeProfile'
 export * from './orderflow'
+export * from './marketSessions'
 
 export type DrawingToolType = 
   | 'cursor' 

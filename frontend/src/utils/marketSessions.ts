@@ -1,59 +1,25 @@
 import { Candle } from '../types/analysis'
+import {
+  SingleSessionConfig,
+  MarketSessionSettings,
+  DEFAULT_MARKET_SESSION_SETTINGS,
+  SessionLinePoint,
+  NextSessionInfo,
+  ActiveSessionResult
+} from '../types/marketSessions'
 
-export interface MarketSessionDef {
-  id: 'asia' | 'london' | 'newyork'
-  name: string
-  label: string
+export * from '../types/marketSessions'
+
+// Backward compatibility interface
+export interface MarketSessionDef extends SingleSessionConfig {
   hoursUtc: string
-  startHourUtc: number
-  endHourUtc: number
-  color: string
   fillColor: string
   borderStroke: string
   badgeBg: string
 }
 
-export const MARKET_SESSIONS: MarketSessionDef[] = [
-  {
-    id: 'asia',
-    name: 'Asia / Tokyo',
-    label: 'ASIA',
-    hoursUtc: '00:00 - 08:00 UTC',
-    startHourUtc: 0,
-    endHourUtc: 8,
-    color: '#f59e0b', // Amber-500
-    fillColor: 'rgba(245, 158, 11, 0.06)',
-    borderStroke: 'rgba(245, 158, 11, 0.35)',
-    badgeBg: 'rgba(245, 158, 11, 0.85)'
-  },
-  {
-    id: 'london',
-    name: 'London / Eropa',
-    label: 'LONDON',
-    hoursUtc: '07:00 - 16:00 UTC',
-    startHourUtc: 7,
-    endHourUtc: 16,
-    color: '#38bdf8', // Sky-400
-    fillColor: 'rgba(56, 189, 248, 0.06)',
-    borderStroke: 'rgba(56, 189, 248, 0.35)',
-    badgeBg: 'rgba(56, 189, 248, 0.85)'
-  },
-  {
-    id: 'newyork',
-    name: 'New York / US',
-    label: 'NEW YORK',
-    hoursUtc: '13:00 - 21:00 UTC',
-    startHourUtc: 13,
-    endHourUtc: 21,
-    color: '#10b981', // Emerald-500
-    fillColor: 'rgba(16, 185, 129, 0.06)',
-    borderStroke: 'rgba(16, 185, 129, 0.35)',
-    badgeBg: 'rgba(16, 185, 129, 0.85)'
-  }
-]
-
 export interface SessionBlock {
-  session: MarketSessionDef
+  session: SingleSessionConfig
   dayKey: string
   startTime: number
   endTime: number
@@ -64,12 +30,97 @@ export interface SessionBlock {
 }
 
 /**
- * Identify all market session periods and their High/Low price ranges from candles.
+ * Check if a given UTC decimal hour falls inside the session's active window.
+ * Handles both regular sessions (e.g. 07:00 to 16:00) and midnight-crossing sessions (e.g. 21:00 to 05:00).
  */
-export function extractSessionBlocks(candles: Candle[]): SessionBlock[] {
-  if (!candles || candles.length === 0) return []
+export function isSessionActiveAt(decHour: number, startHour: number, endHour: number): boolean {
+  if (startHour < endHour) {
+    return decHour >= startHour && decHour < endHour
+  } else if (startHour > endHour) {
+    // Crosses midnight (e.g. 21:00 to 05:00)
+    return decHour >= startHour || decHour < endHour
+  } else {
+    // 24 hours if start == end
+    return true
+  }
+}
+
+/**
+ * Extract vertical transition line markers for session starts from candlestick data.
+ * Produces crisp timestamps for thin vertical dashed line rendering.
+ */
+export function extractSessionLines(
+  candles: Candle[],
+  settings: MarketSessionSettings = DEFAULT_MARKET_SESSION_SETTINGS
+): SessionLinePoint[] {
+  if (!candles || candles.length === 0 || !settings.enabled || !settings.showVerticalLines) {
+    return []
+  }
+
+  const enabledSessions = settings.sessions.filter((s) => s.enabled)
+  if (enabledSessions.length === 0) return []
+
+  const lines: SessionLinePoint[] = []
+  const timeStep = candles.length > 1 ? (candles[1].time - candles[0].time) : 900
+  const halfStep = timeStep / 2
 
   // Group candles by calendar UTC date
+  const dayBuckets: Map<string, Candle[]> = new Map()
+
+  for (const c of candles) {
+    const d = new Date(c.time * 1000)
+    const dayKey = `${d.getUTCFullYear()}-${d.getUTCMonth() + 1}-${d.getUTCDate()}`
+    if (!dayBuckets.has(dayKey)) {
+      dayBuckets.set(dayKey, [])
+    }
+    dayBuckets.get(dayKey)!.push(c)
+  }
+
+  dayBuckets.forEach((dayCandles, dayKey) => {
+    const [y, m, d] = dayKey.split('-').map(Number)
+
+    for (const sess of enabledSessions) {
+      const sessStartSec = Date.UTC(y, m - 1, d, sess.startHourUtc, 0, 0) / 1000
+
+      // Find the closest candle to the session start
+      let closestCandle: Candle | null = null
+      let minDiff = Infinity
+
+      for (const c of dayCandles) {
+        const diff = Math.abs(c.time - sessStartSec)
+        if (diff < minDiff && diff <= Math.max(timeStep * 1.5, 3600)) {
+          minDiff = diff
+          closestCandle = c
+        }
+      }
+
+      if (closestCandle) {
+        const pad = (n: number) => String(n).padStart(2, '0')
+        lines.push({
+          session: sess,
+          startTime: sessStartSec,
+          candleTime: closestCandle.time,
+          label: `${sess.label} ${pad(sess.startHourUtc)}:00`
+        })
+      }
+    }
+  })
+
+  // Deduplicate and sort by time
+  lines.sort((a, b) => a.candleTime - b.candleTime)
+  return lines
+}
+
+/**
+ * Backward compatible extractSessionBlocks function.
+ */
+export function extractSessionBlocks(
+  candles: Candle[],
+  settings: MarketSessionSettings = DEFAULT_MARKET_SESSION_SETTINGS
+): SessionBlock[] {
+  if (!candles || candles.length === 0) return []
+
+  const enabledSessions = settings.sessions.filter((s) => s.enabled)
   const dayBuckets: Map<string, Candle[]> = new Map()
 
   for (const c of candles) {
@@ -86,11 +137,17 @@ export function extractSessionBlocks(candles: Candle[]): SessionBlock[] {
   dayBuckets.forEach((dayCandles, dayKey) => {
     const [y, m, d] = dayKey.split('-').map(Number)
 
-    for (const sess of MARKET_SESSIONS) {
+    for (const sess of enabledSessions) {
       const sessStartSec = Date.UTC(y, m - 1, d, sess.startHourUtc, 0, 0) / 1000
-      const sessEndSec = Date.UTC(y, m - 1, d, sess.endHourUtc, 0, 0) / 1000
+      let sessEndSec: number
 
-      // Find candles within this session window
+      if (sess.startHourUtc < sess.endHourUtc) {
+        sessEndSec = Date.UTC(y, m - 1, d, sess.endHourUtc, 0, 0) / 1000
+      } else {
+        // Crosses midnight
+        sessEndSec = Date.UTC(y, m - 1, d + 1, sess.endHourUtc, 0, 0) / 1000
+      }
+
       const inSess = dayCandles.filter(
         (c) => c.time >= sessStartSec && c.time < sessEndSec
       )
@@ -121,40 +178,78 @@ export function extractSessionBlocks(candles: Candle[]): SessionBlock[] {
 }
 
 /**
- * Determine which market session(s) are active right now based on current UTC time.
+ * Determine which market session(s) are active right now, and calculate countdown to next session.
  */
-export function getCurrentActiveSessions(): {
-  activeSessions: MarketSessionDef[]
-  isOverlap: boolean
-  label: string
-  utcTimeString: string
-} {
+export function getCurrentActiveSessions(
+  settings: MarketSessionSettings = DEFAULT_MARKET_SESSION_SETTINGS
+): ActiveSessionResult {
   const now = new Date()
   const utcHours = now.getUTCHours()
   const utcMinutes = now.getUTCMinutes()
   const decTime = utcHours + utcMinutes / 60
+  const nowSec = Math.floor(now.getTime() / 1000)
 
-  const active: MarketSessionDef[] = []
+  const enabledSessions = settings.sessions.filter((s) => s.enabled)
+  const active: SingleSessionConfig[] = []
 
-  // Asia: 00:00 - 08:00 UTC
-  if (decTime >= 0 && decTime < 8) {
-    active.push(MARKET_SESSIONS[0])
-  }
-  // London: 07:00 - 16:00 UTC
-  if (decTime >= 7 && decTime < 16) {
-    active.push(MARKET_SESSIONS[1])
-  }
-  // New York: 13:00 - 21:00 UTC
-  if (decTime >= 13 && decTime < 21) {
-    active.push(MARKET_SESSIONS[2])
+  for (const sess of enabledSessions) {
+    if (isSessionActiveAt(decTime, sess.startHourUtc, sess.endHourUtc)) {
+      active.push(sess)
+    }
   }
 
   const isOverlap = active.length > 1
-  let label = 'Off-Hours (Inter-Session)'
+  let label = 'Inter-Session (Off-Hours)'
   if (active.length === 1) {
-    label = `${active[0].label} Active`
+    label = `${active[0].label} Aktif`
   } else if (active.length > 1) {
-    label = `${active.map((s) => s.label).join(' + ')} Overlap (Peak Vol)`
+    label = `${active.map((s) => s.label).join(' + ')} Overlap`
+  }
+
+  // Calculate Next Upcoming Session
+  let nextSession: NextSessionInfo | null = null
+  let minDiffSec = Infinity
+
+  for (const sess of enabledSessions) {
+    // Compute next start timestamp today or tomorrow
+    let nextStart = new Date(Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate(),
+      sess.startHourUtc,
+      0,
+      0
+    ))
+
+    let nextStartSec = Math.floor(nextStart.getTime() / 1000)
+    if (nextStartSec <= nowSec) {
+      // It has already started today, so next occurrence is tomorrow
+      nextStartSec += 86400
+    }
+
+    const diffSec = nextStartSec - nowSec
+    if (diffSec > 0 && diffSec < minDiffSec) {
+      minDiffSec = diffSec
+      const hoursUntil = Math.floor(diffSec / 3600)
+      const minutesUntil = Math.floor((diffSec % 3600) / 60)
+
+      let countdownStr = ''
+      if (hoursUntil > 0) {
+        countdownStr = `${hoursUntil}j ${minutesUntil}m`
+      } else {
+        countdownStr = `${minutesUntil}m`
+      }
+
+      const pad = (n: number) => String(n).padStart(2, '0')
+      nextSession = {
+        session: sess,
+        startTimeSec: nextStartSec,
+        hoursUntil,
+        minutesUntil,
+        countdownStr,
+        formattedTime: `${pad(sess.startHourUtc)}:00 UTC`
+      }
+    }
   }
 
   const pad = (n: number) => String(n).padStart(2, '0')
@@ -164,6 +259,7 @@ export function getCurrentActiveSessions(): {
     activeSessions: active,
     isOverlap,
     label,
-    utcTimeString
+    utcTimeString,
+    nextSession
   }
 }

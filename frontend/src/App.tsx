@@ -9,6 +9,7 @@ import { TelegramAlertModal } from './components/Settings/TelegramAlertModal'
 import { AutoFibModal } from './components/Settings/AutoFibModal'
 import { VpvrModal } from './components/Settings/VpvrModal'
 import { OrderflowModal } from './components/Settings/OrderflowModal'
+import { MarketSessionsModal } from './components/Settings/MarketSessionsModal'
 import { fetchTelegramSettings } from './services/api'
 import { OpenPositionModal, SetupTradeTarget } from './components/Trade/OpenPositionModal'
 import { TradingDashboardDrawer } from './components/Trade/TradingDashboardDrawer'
@@ -32,6 +33,7 @@ import {
 import { AutoFibSettings, DEFAULT_AUTO_FIB_SETTINGS } from './types/fibonacci'
 import { VolumeProfileSettings, DEFAULT_VOLUME_PROFILE_SETTINGS } from './types/volumeProfile'
 import { OrderflowSettings, DEFAULT_ORDERFLOW_SETTINGS } from './types/orderflow'
+import { MarketSessionSettings, DEFAULT_MARKET_SESSION_SETTINGS } from './types/marketSessions'
 
 const DEFAULT_VISIBILITY: LayerVisibility = {
   smcSwings: true,
@@ -219,6 +221,12 @@ export function App() {
   )
   const [isOrderflowModalOpen, setIsOrderflowModalOpen] = useState(false)
   const [orderflowModalTab, setOrderflowModalTab] = useState<'liquidation' | 'cvd'>('liquidation')
+
+  // Market Sessions Configuration (Thin Vertical Lines & Active/Upcoming Sessions)
+  const [marketSessionSettings, setMarketSessionSettings] = useState<MarketSessionSettings>(() =>
+    readStoredJson<MarketSessionSettings>('cp_market_session_settings', DEFAULT_MARKET_SESSION_SETTINGS, true)
+  )
+  const [isMarketSessionsModalOpen, setIsMarketSessionsModalOpen] = useState(false)
 
   // Notification Toast Stack
   const [toasts, setToasts] = useState<ToastData[]>([])
@@ -983,6 +991,8 @@ export function App() {
                 setOrderflowModalTab(tab)
                 setIsOrderflowModalOpen(true)
               }}
+              marketSessionSettings={marketSessionSettings}
+              onOpenMarketSessionSettings={() => setIsMarketSessionsModalOpen(true)}
               onTogglePaneLayer={handleTogglePaneLayer}
               onSetAllPaneLayers={handleSetAllPaneLayers}
               activePaneId={activePaneId}
@@ -1207,6 +1217,23 @@ export function App() {
             type: 'success',
             title: 'Konfigurasi Orderflow & Liquidation Disimpan 🔥',
             message: 'Parameter Liquidation Heatmap (25x/50x/100x) dan CVD Divergence berhasil diperbarui.',
+            duration: 4000
+          })
+        }}
+      />
+
+      {/* Market Sessions Settings Modal (Thin Vertical Lines & Active/Upcoming Sessions) */}
+      <MarketSessionsModal
+        isOpen={isMarketSessionsModalOpen}
+        settings={marketSessionSettings}
+        onClose={() => setIsMarketSessionsModalOpen(false)}
+        onSave={(newSettings) => {
+          setMarketSessionSettings(newSettings)
+          writeStorage('cp_market_session_settings', newSettings)
+          addToast({
+            type: 'success',
+            title: 'Pengaturan Sesi Pasar Disimpan ⏰',
+            message: 'Konfigurasi garis vertikal tipis, jam sesi UTC, dan penanda sesi berhasil diperbarui.',
             duration: 4000
           })
         }}

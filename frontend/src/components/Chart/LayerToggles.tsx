@@ -35,6 +35,7 @@ interface LayerTogglesProps {
   onOpenAutoFibSettings?: () => void
   onOpenVpvrSettings?: () => void
   onOpenOrderflowSettings?: (tab: 'liquidation' | 'cvd') => void
+  onOpenMarketSessionSettings?: () => void
 }
 
 interface LayerItem {
@@ -61,7 +62,8 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
   activePaneTitle,
   onOpenAutoFibSettings,
   onOpenVpvrSettings,
-  onOpenOrderflowSettings
+  onOpenOrderflowSettings,
+  onOpenMarketSessionSettings
 }) => {
   const [isOpen, setIsOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -309,6 +311,19 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
                               }}
                               className="p-1.5 rounded-md bg-[#1c2434] hover:bg-[#252f44] text-emerald-400 hover:text-emerald-300 border border-emerald-500/30 transition-all shadow-sm"
                               title="Buka Pengaturan CVD & Orderflow Divergence"
+                            >
+                              <Sliders className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {item.key === 'marketSessions' && onOpenMarketSessionSettings && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                onOpenMarketSessionSettings()
+                              }}
+                              className="p-1.5 rounded-md bg-[#1c2434] hover:bg-[#252f44] text-amber-400 hover:text-amber-300 border border-amber-500/30 transition-all shadow-sm"
+                              title="Buka Pengaturan Sesi Pasar (Garis Vertikal Tipis)"
                             >
                               <Sliders className="w-3.5 h-3.5" />
                             </button>

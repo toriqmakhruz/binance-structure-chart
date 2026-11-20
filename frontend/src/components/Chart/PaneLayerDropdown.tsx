@@ -31,6 +31,7 @@ interface PaneLayerDropdownProps {
   onOpenAutoFibSettings?: () => void
   onOpenVpvrSettings?: () => void
   onOpenOrderflowSettings?: (tab: 'liquidation' | 'cvd') => void
+  onOpenMarketSessionSettings?: () => void
 }
 
 interface LayerOption {
@@ -51,7 +52,8 @@ export const PaneLayerDropdown: React.FC<PaneLayerDropdownProps> = ({
   hasHtf = true,
   onOpenAutoFibSettings,
   onOpenVpvrSettings,
-  onOpenOrderflowSettings
+  onOpenOrderflowSettings,
+  onOpenMarketSessionSettings
 }) => {
   const [isOpen, setIsOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -363,6 +365,18 @@ export const PaneLayerDropdown: React.FC<PaneLayerDropdownProps> = ({
                         }}
                         className="p-1 rounded bg-[#202738] hover:bg-[#2b354b] text-emerald-400 hover:text-emerald-300 border border-emerald-500/30 transition-all cursor-pointer"
                         title="Pengaturan CVD & Orderflow Divergence"
+                      >
+                        <Sliders className="w-3 h-3" />
+                      </span>
+                    )}
+                    {opt.key === 'marketSessions' && onOpenMarketSessionSettings && (
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onOpenMarketSessionSettings()
+                        }}
+                        className="p-1 rounded bg-[#202738] hover:bg-[#2b354b] text-amber-400 hover:text-amber-300 border border-amber-500/30 transition-all cursor-pointer"
+                        title="Pengaturan Sesi Pasar (Garis Vertikal Tipis)"
                       >
                         <Sliders className="w-3 h-3" />
                       </span>

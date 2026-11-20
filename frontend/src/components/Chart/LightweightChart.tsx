@@ -24,10 +24,16 @@ import { AutoFibSettings, DEFAULT_AUTO_FIB_SETTINGS } from '../../types/fibonacc
 import { VolumeProfileSettings, DEFAULT_VOLUME_PROFILE_SETTINGS } from '../../types/volumeProfile'
 import { OrderflowSettings, DEFAULT_ORDERFLOW_SETTINGS } from '../../types/orderflow'
 import { formatPrice, getPricePrecision, formatOpenInterestValue, formatOpenInterest } from '../../utils/formatters'
-import { Crosshair, Clock, Trash2, Move, Palette, Check, X } from 'lucide-react'
+import { Crosshair, Clock, Trash2, Move, Palette, Check, X, Sliders } from 'lucide-react'
 import { OpenInterestPane } from './OpenInterestPane'
 import { FundingRatePane } from './FundingRatePane'
-import { extractSessionBlocks, getCurrentActiveSessions, SessionBlock } from '../../utils/marketSessions'
+import {
+  extractSessionLines,
+  getCurrentActiveSessions,
+  MarketSessionSettings,
+  DEFAULT_MARKET_SESSION_SETTINGS,
+  ActiveSessionResult
+} from '../../utils/marketSessions'
 
 interface LightweightChartProps {
   symbol: string
@@ -43,6 +49,8 @@ interface LightweightChartProps {
   autoFibSettings?: AutoFibSettings
   vpvrSettings?: VolumeProfileSettings
   orderflowSettings?: OrderflowSettings
+  marketSessionSettings?: MarketSessionSettings
+  onOpenMarketSessionSettings?: () => void
   activeTool: DrawingToolType
   onSelectTool?: (tool: DrawingToolType) => void
   drawings: DrawingItem[]
@@ -70,6 +78,8 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
   autoFibSettings,
   vpvrSettings,
   orderflowSettings,
+  marketSessionSettings,
+  onOpenMarketSessionSettings,
   activeTool,
   onSelectTool,
   drawings,
@@ -161,15 +171,17 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
   }, [activeTool])
 
   // Market Sessions extraction & live UTC status
-  const sessionBlocks = useMemo(() => extractSessionBlocks(candles), [candles])
-  const [activeSessionInfo, setActiveSessionInfo] = useState(getCurrentActiveSessions)
+  const sessionSettings = useMemo(() => marketSessionSettings || DEFAULT_MARKET_SESSION_SETTINGS, [marketSessionSettings])
+  const sessionLines = useMemo(() => extractSessionLines(candles, sessionSettings), [candles, sessionSettings])
+  const [activeSessionInfo, setActiveSessionInfo] = useState<ActiveSessionResult>(() => getCurrentActiveSessions(sessionSettings))
 
   useEffect(() => {
+    setActiveSessionInfo(getCurrentActiveSessions(sessionSettings))
     const timer = setInterval(() => {
-      setActiveSessionInfo(getCurrentActiveSessions())
-    }, 20000)
+      setActiveSessionInfo(getCurrentActiveSessions(sessionSettings))
+    }, 15000)
     return () => clearInterval(timer)
-  }, [])
+  }, [sessionSettings])
 
   // 1. Initialize Chart
   useEffect(() => {
@@ -759,80 +771,102 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     const height = canvas.height
     ctx.clearRect(0, 0, width, height)
 
-    // 0. Market Sessions (Asia, London, New York background shading & High/Low range levels)
-    if (visibility.marketSessions && sessionBlocks.length > 0) {
+    // 0. Market Sessions - Thin Vertical Dashed Lines with Minimalist Top Badges
+    if (visibility.marketSessions && (sessionSettings.enabled ?? true) && (sessionSettings.showVerticalLines ?? true)) {
       const isIntraday = !['4h', '1d', '3d', '1w'].includes(timeframe.toLowerCase())
-      if (isIntraday) {
-        sessionBlocks.forEach((sb: SessionBlock) => {
-          const pStart = resolveCoord(sb.startTime, sb.high)
-          const pEnd = resolveCoord(sb.endTime, sb.low)
-          if (!pStart || !pEnd) return
+      if (isIntraday && sessionLines.length > 0) {
+        const lineStyle = sessionSettings.lineStyle || 'dashed'
+        const lineDash = lineStyle === 'dashed' ? [4, 4] : lineStyle === 'dotted' ? [2, 2] : []
+        const lineOpacity = sessionSettings.opacity ?? 0.75
+        const showBadges = sessionSettings.showSessionBadges ?? true
 
-          let x1 = pStart.x
-          let x2 = pEnd.x
-          if (x2 < x1) {
-            const tmp = x1
-            x1 = x2
-            x2 = tmp
-          }
-          const boxWidth = Math.max(14, x2 - x1)
-
-          // Offscreen culling
-          if (x1 + boxWidth < 0 || x1 > width) return
-
-          const yHigh = series.priceToCoordinate(sb.high)
-          const yLow = series.priceToCoordinate(sb.low)
-          if (yHigh === null || yLow === null) return
-
-          const boxTop = Math.min(yHigh, yLow)
-          const boxHeight = Math.abs(yLow - yHigh)
+        sessionLines.forEach((sl) => {
+          const p = resolveCoord(sl.candleTime, candles[0]?.close || 1)
+          if (!p) return
+          const x = p.x
+          if (x < -60 || x > width + 60) return
 
           ctx.save()
-          // A. Subtle full-height vertical session column
-          ctx.fillStyle = sb.session.fillColor
-          ctx.fillRect(x1, 0, boxWidth, height)
-
-          // B. Session Range Box (High to Low)
-          ctx.fillStyle = sb.session.fillColor
-          ctx.fillRect(x1, boxTop, boxWidth, boxHeight)
-          ctx.strokeStyle = sb.session.borderStroke
-          ctx.lineWidth = 1
-          ctx.strokeRect(x1, boxTop, boxWidth, boxHeight)
-
-          // C. Session High line
           ctx.beginPath()
-          ctx.setLineDash([3, 3])
-          ctx.strokeStyle = sb.session.color
-          ctx.lineWidth = 1.2
-          ctx.moveTo(x1, yHigh)
-          ctx.lineTo(x1 + boxWidth, yHigh)
-          ctx.stroke()
-
-          // Session High label
-          ctx.fillStyle = sb.session.color
-          ctx.font = 'bold 9px monospace'
-          ctx.fillText(`${sb.session.label} H: $${formatPrice(sb.high)}`, x1 + 4, yHigh > 18 ? yHigh - 3 : yHigh + 11)
-
-          // D. Session Low line
-          ctx.beginPath()
-          ctx.moveTo(x1, yLow)
-          ctx.lineTo(x1 + boxWidth, yLow)
+          ctx.setLineDash(lineDash)
+          ctx.lineWidth = sessionSettings.lineWidth || 1
+          ctx.strokeStyle = sl.session.color
+          ctx.globalAlpha = lineOpacity
+          ctx.moveTo(x, 0)
+          ctx.lineTo(x, height)
           ctx.stroke()
           ctx.setLineDash([])
 
-          // Session Low label
-          ctx.fillText(`${sb.session.label} L: $${formatPrice(sb.low)}`, x1 + 4, yLow + 11)
+          // Minimalist TradingView-Style Badge at top of vertical line
+          if (showBadges) {
+            ctx.globalAlpha = 1.0
+            ctx.font = 'bold 9px monospace'
+            const text = sl.label
+            const textWidth = ctx.measureText(text).width
+            const badgeW = textWidth + 14
+            const badgeH = 15
+            const badgeX = Math.max(4, Math.min(width - badgeW - 4, x - badgeW / 2))
+            const badgeY = 6
 
-          // E. Session Title Badge at the top
-          const badgeWidth = Math.min(boxWidth, 54)
-          ctx.fillStyle = sb.session.badgeBg
-          ctx.fillRect(x1, 4, badgeWidth, 14)
-          ctx.fillStyle = '#ffffff'
-          ctx.font = 'bold 8.5px monospace'
-          ctx.fillText(sb.session.label, x1 + 4, 14)
+            // Badge Background
+            ctx.fillStyle = 'rgba(13, 17, 23, 0.90)'
+            ctx.fillRect(badgeX, badgeY, badgeW, badgeH)
+            ctx.strokeStyle = sl.session.color
+            ctx.lineWidth = 1
+            ctx.strokeRect(badgeX, badgeY, badgeW, badgeH)
+
+            // Small colored dot inside badge
+            ctx.fillStyle = sl.session.color
+            ctx.beginPath()
+            ctx.arc(badgeX + 6, badgeY + badgeH / 2, 2.5, 0, Math.PI * 2)
+            ctx.fill()
+
+            // Badge Text
+            ctx.fillStyle = '#f1f5f9'
+            ctx.fillText(text, badgeX + 12, badgeY + 11)
+          }
 
           ctx.restore()
         })
+
+        // Draw Next Upcoming Session Vertical Dashed Line into future space
+        if (sessionSettings.showUpcomingMarker && activeSessionInfo.nextSession && candles.length > 0) {
+          const nextSess = activeSessionInfo.nextSession
+          const pFuture = resolveCoord(nextSess.startTimeSec, candles[candles.length - 1].close)
+          if (pFuture && pFuture.x > 0 && pFuture.x < width - 10) {
+            const x = pFuture.x
+            ctx.save()
+            ctx.beginPath()
+            ctx.setLineDash([3, 3])
+            ctx.lineWidth = 1
+            ctx.strokeStyle = nextSess.session.color
+            ctx.globalAlpha = 0.8
+            ctx.moveTo(x, 0)
+            ctx.lineTo(x, height)
+            ctx.stroke()
+            ctx.setLineDash([])
+
+            // Top badge for upcoming session
+            ctx.globalAlpha = 1.0
+            ctx.font = 'bold 9px monospace'
+            const upcomingText = `⏳ ${nextSess.session.label} (${nextSess.countdownStr})`
+            const textW = ctx.measureText(upcomingText).width
+            const bW = textW + 10
+            const bH = 15
+            const bX = Math.max(4, Math.min(width - bW - 4, x - bW / 2))
+            const bY = 6
+
+            ctx.fillStyle = 'rgba(13, 17, 23, 0.92)'
+            ctx.fillRect(bX, bY, bW, bH)
+            ctx.strokeStyle = nextSess.session.color
+            ctx.lineWidth = 1
+            ctx.strokeRect(bX, bY, bW, bH)
+
+            ctx.fillStyle = nextSess.session.color
+            ctx.fillText(upcomingText, bX + 5, bY + 11)
+            ctx.restore()
+          }
+        }
       }
     }
 
@@ -3685,7 +3719,9 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     currentMouse,
     activeTool,
     resolveCoord,
-    sessionBlocks,
+    sessionLines,
+    sessionSettings,
+    activeSessionInfo,
     timeframe,
     candles,
     autoFibSettings,
@@ -4236,21 +4272,55 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         )}
 
         {/* Floating Active Market Session Indicator */}
-        {visibility.marketSessions && (
+        {visibility.marketSessions && (sessionSettings.showHudBar ?? true) && (
           <div
-            className="absolute top-2 right-14 z-20 hidden sm:flex items-center space-x-2 px-2.5 py-1 rounded-md bg-[#0d1117]/85 border border-[#21262d] backdrop-blur-sm shadow-md font-mono text-[11px] select-none pointer-events-auto"
-            title="Sesi Pasar: Asia (00:00-08:00 UTC), London (07:00-16:00 UTC), New York (13:00-21:00 UTC)"
+            className="absolute top-2 right-14 z-20 hidden sm:flex items-center space-x-2 px-2.5 py-1 rounded-md bg-[#0d1117]/90 border border-[#21262d] backdrop-blur-sm shadow-md font-mono text-[11px] select-none pointer-events-auto"
+            title="Sesi Pasar: Klik ikon pengaturan untuk mengatur jam dan warna sesi"
           >
             <Clock className="w-3.5 h-3.5 text-amber-400" />
             <span className="text-slate-400 text-[10px]">{activeSessionInfo.utcTimeString}:</span>
-            <span className={`font-semibold flex items-center space-x-1 ${
-              activeSessionInfo.activeSessions.length > 0 ? 'text-amber-400' : 'text-slate-400'
-            }`}>
-              {activeSessionInfo.activeSessions.length > 0 && (
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block mr-1" />
+            <span
+              className={`font-semibold flex items-center space-x-1 ${
+                activeSessionInfo.activeSessions.length > 0 ? 'text-amber-400' : 'text-slate-400'
+              }`}
+            >
+              {activeSessionInfo.activeSessions.length > 0 ? (
+                <>
+                  <span
+                    className="w-1.5 h-1.5 rounded-full animate-pulse inline-block mr-1"
+                    style={{ backgroundColor: activeSessionInfo.activeSessions[0]?.color || '#10b981' }}
+                  />
+                  <span>{activeSessionInfo.label}</span>
+                </>
+              ) : (
+                <span>{activeSessionInfo.label}</span>
               )}
-              <span>{activeSessionInfo.label}</span>
             </span>
+
+            {/* Next Upcoming Session Countdown */}
+            {activeSessionInfo.nextSession && (
+              <span className="text-slate-400 text-[10px] border-l border-[#21262d] pl-2 flex items-center space-x-1">
+                <span className="text-slate-500">Berikutnya:</span>
+                <span className="font-bold" style={{ color: activeSessionInfo.nextSession.session.color }}>
+                  {activeSessionInfo.nextSession.session.label}
+                </span>
+                <span className="text-slate-300 font-bold">
+                  ({activeSessionInfo.nextSession.countdownStr})
+                </span>
+              </span>
+            )}
+
+            {/* Quick Settings Button */}
+            {onOpenMarketSessionSettings && (
+              <button
+                type="button"
+                onClick={onOpenMarketSessionSettings}
+                className="ml-1 p-0.5 rounded hover:bg-[#1f2637] text-slate-400 hover:text-amber-400 transition-colors"
+                title="Buka Pengaturan Sesi Pasar"
+              >
+                <Sliders className="w-3 h-3" />
+              </button>
+            )}
           </div>
         )}
 
