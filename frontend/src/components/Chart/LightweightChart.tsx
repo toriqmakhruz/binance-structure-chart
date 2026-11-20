@@ -29,10 +29,13 @@ import { OpenInterestPane } from './OpenInterestPane'
 import { FundingRatePane } from './FundingRatePane'
 import {
   extractSessionLines,
+  extractSessionZones,
   getCurrentActiveSessions,
+  hexToRgba,
   MarketSessionSettings,
   DEFAULT_MARKET_SESSION_SETTINGS,
-  ActiveSessionResult
+  ActiveSessionResult,
+  SessionZoneBlock
 } from '../../utils/marketSessions'
 
 interface LightweightChartProps {
@@ -173,6 +176,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
   // Market Sessions extraction & live UTC status
   const sessionSettings = useMemo(() => marketSessionSettings || DEFAULT_MARKET_SESSION_SETTINGS, [marketSessionSettings])
   const sessionLines = useMemo(() => extractSessionLines(candles, sessionSettings), [candles, sessionSettings])
+  const sessionZones = useMemo(() => extractSessionZones(candles, sessionSettings), [candles, sessionSettings])
   const [activeSessionInfo, setActiveSessionInfo] = useState<ActiveSessionResult>(() => getCurrentActiveSessions(sessionSettings))
 
   useEffect(() => {
@@ -771,100 +775,144 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     const height = canvas.height
     ctx.clearRect(0, 0, width, height)
 
-    // 0. Market Sessions - Thin Vertical Dashed Lines with Minimalist Top Badges
-    if (visibility.marketSessions && (sessionSettings.enabled ?? true) && (sessionSettings.showVerticalLines ?? true)) {
+    // 0. Market Sessions - Box/Gradient Zones & Thin Vertical Dashed Lines with Minimalist Top Badges
+    if (visibility.marketSessions && (sessionSettings.enabled ?? true)) {
       const isIntraday = !['4h', '1d', '3d', '1w'].includes(timeframe.toLowerCase())
-      if (isIntraday && sessionLines.length > 0) {
-        const lineStyle = sessionSettings.lineStyle || 'dashed'
-        const lineDash = lineStyle === 'dashed' ? [4, 4] : lineStyle === 'dotted' ? [2, 2] : []
-        const lineOpacity = sessionSettings.opacity ?? 0.75
-        const showBadges = sessionSettings.showSessionBadges ?? true
+      if (isIntraday) {
+        // 0A. Subtle Session Zone Background (Box or Linear Gradient)
+        if ((sessionSettings.showZoneBackground ?? true) && sessionZones.length > 0) {
+          const zoneStyle = sessionSettings.zoneStyle || 'gradient'
+          const zoneOpacity = sessionSettings.zoneOpacity || 0.08
 
-        sessionLines.forEach((sl) => {
-          const p = resolveCoord(sl.candleTime, candles[0]?.close || 1)
-          if (!p) return
-          const x = p.x
-          if (x < -60 || x > width + 60) return
+          sessionZones.forEach((zb) => {
+            const pStart = resolveCoord(zb.startTime, candles[0]?.close || 1)
+            const pEnd = resolveCoord(zb.endTime, candles[0]?.close || 1)
+            if (!pStart || !pEnd) return
 
-          ctx.save()
-          ctx.beginPath()
-          ctx.setLineDash(lineDash)
-          ctx.lineWidth = sessionSettings.lineWidth || 1
-          ctx.strokeStyle = sl.session.color
-          ctx.globalAlpha = lineOpacity
-          ctx.moveTo(x, 0)
-          ctx.lineTo(x, height)
-          ctx.stroke()
-          ctx.setLineDash([])
+            const x1 = Math.min(pStart.x, pEnd.x)
+            const x2 = Math.max(pStart.x, pEnd.x)
+            const zoneW = Math.max(8, x2 - x1)
 
-          // Minimalist TradingView-Style Badge at top of vertical line
-          if (showBadges) {
-            ctx.globalAlpha = 1.0
-            ctx.font = 'bold 9px monospace'
-            const text = sl.label
-            const textWidth = ctx.measureText(text).width
-            const badgeW = textWidth + 14
-            const badgeH = 15
-            const badgeX = Math.max(4, Math.min(width - badgeW - 4, x - badgeW / 2))
-            const badgeY = 6
+            if (x1 + zoneW < -50 || x1 > width + 50) return
 
-            // Badge Background
-            ctx.fillStyle = 'rgba(13, 17, 23, 0.90)'
-            ctx.fillRect(badgeX, badgeY, badgeW, badgeH)
-            ctx.strokeStyle = sl.session.color
-            ctx.lineWidth = 1
-            ctx.strokeRect(badgeX, badgeY, badgeW, badgeH)
+            ctx.save()
+            if (zoneStyle === 'gradient') {
+              const grad = ctx.createLinearGradient(0, 0, 0, height)
+              grad.addColorStop(0, hexToRgba(zb.session.color, zoneOpacity * 1.5))
+              grad.addColorStop(0.35, hexToRgba(zb.session.color, zoneOpacity))
+              grad.addColorStop(1, hexToRgba(zb.session.color, zoneOpacity * 0.2))
+              ctx.fillStyle = grad
+              ctx.fillRect(x1, 0, zoneW, height)
+            } else {
+              // Soft translucent box
+              ctx.fillStyle = hexToRgba(zb.session.color, zoneOpacity)
+              ctx.fillRect(x1, 0, zoneW, height)
+              ctx.strokeStyle = hexToRgba(zb.session.color, zoneOpacity * 2.2)
+              ctx.lineWidth = 1
+              ctx.beginPath()
+              ctx.moveTo(x1, 0)
+              ctx.lineTo(x1 + zoneW, 0)
+              ctx.moveTo(x1, height)
+              ctx.lineTo(x1 + zoneW, height)
+              ctx.stroke()
+            }
+            ctx.restore()
+          })
+        }
 
-            // Small colored dot inside badge
-            ctx.fillStyle = sl.session.color
-            ctx.beginPath()
-            ctx.arc(badgeX + 6, badgeY + badgeH / 2, 2.5, 0, Math.PI * 2)
-            ctx.fill()
+        // 0B. Thin Vertical Dashed Lines with Minimalist Top Badges
+        if ((sessionSettings.showVerticalLines ?? true) && sessionLines.length > 0) {
+          const lineStyle = sessionSettings.lineStyle || 'dashed'
+          const lineDash = lineStyle === 'dashed' ? [4, 4] : lineStyle === 'dotted' ? [2, 2] : []
+          const lineOpacity = sessionSettings.opacity ?? 0.75
+          const showBadges = sessionSettings.showSessionBadges ?? true
 
-            // Badge Text
-            ctx.fillStyle = '#f1f5f9'
-            ctx.fillText(text, badgeX + 12, badgeY + 11)
-          }
+          sessionLines.forEach((sl) => {
+            const p = resolveCoord(sl.candleTime, candles[0]?.close || 1)
+            if (!p) return
+            const x = p.x
+            if (x < -60 || x > width + 60) return
 
-          ctx.restore()
-        })
-
-        // Draw Next Upcoming Session Vertical Dashed Line into future space
-        if (sessionSettings.showUpcomingMarker && activeSessionInfo.nextSession && candles.length > 0) {
-          const nextSess = activeSessionInfo.nextSession
-          const pFuture = resolveCoord(nextSess.startTimeSec, candles[candles.length - 1].close)
-          if (pFuture && pFuture.x > 0 && pFuture.x < width - 10) {
-            const x = pFuture.x
             ctx.save()
             ctx.beginPath()
-            ctx.setLineDash([3, 3])
-            ctx.lineWidth = 1
-            ctx.strokeStyle = nextSess.session.color
-            ctx.globalAlpha = 0.8
+            ctx.setLineDash(lineDash)
+            ctx.lineWidth = sessionSettings.lineWidth || 1
+            ctx.strokeStyle = sl.session.color
+            ctx.globalAlpha = lineOpacity
             ctx.moveTo(x, 0)
             ctx.lineTo(x, height)
             ctx.stroke()
             ctx.setLineDash([])
 
-            // Top badge for upcoming session
-            ctx.globalAlpha = 1.0
-            ctx.font = 'bold 9px monospace'
-            const upcomingText = `⏳ ${nextSess.session.label} (${nextSess.countdownStr})`
-            const textW = ctx.measureText(upcomingText).width
-            const bW = textW + 10
-            const bH = 15
-            const bX = Math.max(4, Math.min(width - bW - 4, x - bW / 2))
-            const bY = 6
+            // Minimalist TradingView-Style Badge at top of vertical line
+            if (showBadges) {
+              ctx.globalAlpha = 1.0
+              ctx.font = 'bold 9px monospace'
+              const text = sl.label
+              const textWidth = ctx.measureText(text).width
+              const badgeW = textWidth + 14
+              const badgeH = 15
+              const badgeX = Math.max(4, Math.min(width - badgeW - 4, x - badgeW / 2))
+              const badgeY = 6
 
-            ctx.fillStyle = 'rgba(13, 17, 23, 0.92)'
-            ctx.fillRect(bX, bY, bW, bH)
-            ctx.strokeStyle = nextSess.session.color
-            ctx.lineWidth = 1
-            ctx.strokeRect(bX, bY, bW, bH)
+              // Badge Background
+              ctx.fillStyle = 'rgba(13, 17, 23, 0.90)'
+              ctx.fillRect(badgeX, badgeY, badgeW, badgeH)
+              ctx.strokeStyle = sl.session.color
+              ctx.lineWidth = 1
+              ctx.strokeRect(badgeX, badgeY, badgeW, badgeH)
 
-            ctx.fillStyle = nextSess.session.color
-            ctx.fillText(upcomingText, bX + 5, bY + 11)
+              // Small colored dot inside badge
+              ctx.fillStyle = sl.session.color
+              ctx.beginPath()
+              ctx.arc(badgeX + 6, badgeY + badgeH / 2, 2.5, 0, Math.PI * 2)
+              ctx.fill()
+
+              // Badge Text
+              ctx.fillStyle = '#f1f5f9'
+              ctx.fillText(text, badgeX + 12, badgeY + 11)
+            }
+
             ctx.restore()
+          })
+
+          // Draw Next Upcoming Session Vertical Dashed Line into future space
+          if (sessionSettings.showUpcomingMarker && activeSessionInfo.nextSession && candles.length > 0) {
+            const nextSess = activeSessionInfo.nextSession
+            const pFuture = resolveCoord(nextSess.startTimeSec, candles[candles.length - 1].close)
+            if (pFuture && pFuture.x > 0 && pFuture.x < width - 10) {
+              const x = pFuture.x
+              ctx.save()
+              ctx.beginPath()
+              ctx.setLineDash([3, 3])
+              ctx.lineWidth = 1
+              ctx.strokeStyle = nextSess.session.color
+              ctx.globalAlpha = 0.8
+              ctx.moveTo(x, 0)
+              ctx.lineTo(x, height)
+              ctx.stroke()
+              ctx.setLineDash([])
+
+              // Top badge for upcoming session
+              ctx.globalAlpha = 1.0
+              ctx.font = 'bold 9px monospace'
+              const upcomingText = `⏳ ${nextSess.session.label} (${nextSess.countdownStr})`
+              const textW = ctx.measureText(upcomingText).width
+              const bW = textW + 10
+              const bH = 15
+              const bX = Math.max(4, Math.min(width - bW - 4, x - bW / 2))
+              const bY = 6
+
+              ctx.fillStyle = 'rgba(13, 17, 23, 0.92)'
+              ctx.fillRect(bX, bY, bW, bH)
+              ctx.strokeStyle = nextSess.session.color
+              ctx.lineWidth = 1
+              ctx.strokeRect(bX, bY, bW, bH)
+
+              ctx.fillStyle = nextSess.session.color
+              ctx.fillText(upcomingText, bX + 5, bY + 11)
+              ctx.restore()
+            }
           }
         }
       }
@@ -3720,6 +3768,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     activeTool,
     resolveCoord,
     sessionLines,
+    sessionZones,
     sessionSettings,
     activeSessionInfo,
     timeframe,
@@ -4278,7 +4327,9 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
             title="Sesi Pasar: Klik ikon pengaturan untuk mengatur jam dan warna sesi"
           >
             <Clock className="w-3.5 h-3.5 text-amber-400" />
-            <span className="text-slate-400 text-[10px]">{activeSessionInfo.utcTimeString}:</span>
+            <span className="text-slate-300 font-semibold text-[10.5px]">
+              {activeSessionInfo.clockTimeString || activeSessionInfo.utcTimeString}:
+            </span>
             <span
               className={`font-semibold flex items-center space-x-1 ${
                 activeSessionInfo.activeSessions.length > 0 ? 'text-amber-400' : 'text-slate-400'
@@ -4303,6 +4354,9 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
                 <span className="text-slate-500">Berikutnya:</span>
                 <span className="font-bold" style={{ color: activeSessionInfo.nextSession.session.color }}>
                   {activeSessionInfo.nextSession.session.label}
+                </span>
+                <span className="text-amber-400/90 font-mono font-medium">
+                  {activeSessionInfo.nextSession.formattedTime}
                 </span>
                 <span className="text-slate-300 font-bold">
                   ({activeSessionInfo.nextSession.countdownStr})

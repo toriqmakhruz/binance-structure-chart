@@ -4,8 +4,11 @@ import {
   MarketSessionSettings,
   DEFAULT_MARKET_SESSION_SETTINGS,
   SessionLinePoint,
+  SessionZoneBlock,
   NextSessionInfo,
-  ActiveSessionResult
+  ActiveSessionResult,
+  MarketTimezone,
+  TIMEZONE_OFFSETS
 } from '../types/marketSessions'
 
 export * from '../types/marketSessions'
@@ -30,24 +33,60 @@ export interface SessionBlock {
 }
 
 /**
+ * Convert hex color to rgba string
+ */
+export function hexToRgba(hex: string, alpha: number): string {
+  const clean = hex.replace('#', '')
+  const r = parseInt(clean.substring(0, 2), 16) || 0
+  const g = parseInt(clean.substring(2, 4), 16) || 0
+  const b = parseInt(clean.substring(4, 6), 16) || 0
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
+/**
+ * Convert UTC hour to selected timezone hour
+ */
+export function utcHourToLocalHour(utcHour: number, tz: MarketTimezone = 'WIB'): number {
+  const offset = TIMEZONE_OFFSETS[tz] || 0
+  return (utcHour + offset + 24) % 24
+}
+
+/**
+ * Convert selected timezone hour to UTC hour
+ */
+export function localHourToUtcHour(localHour: number, tz: MarketTimezone = 'WIB'): number {
+  const offset = TIMEZONE_OFFSETS[tz] || 0
+  return (localHour - offset + 24) % 24
+}
+
+/**
+ * Format a Date object to HH:MM in chosen timezone (WIB, WIT, WITA, UTC)
+ */
+export function formatTimezoneClock(date: Date, tz: MarketTimezone = 'WIB'): string {
+  const offset = TIMEZONE_OFFSETS[tz] || 0
+  const utcMs = date.getTime() + date.getTimezoneOffset() * 60000
+  const targetDate = new Date(utcMs + offset * 3600000)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(targetDate.getHours())}:${pad(targetDate.getMinutes())} ${tz}`
+}
+
+/**
  * Check if a given UTC decimal hour falls inside the session's active window.
- * Handles both regular sessions (e.g. 07:00 to 16:00) and midnight-crossing sessions (e.g. 21:00 to 05:00).
  */
 export function isSessionActiveAt(decHour: number, startHour: number, endHour: number): boolean {
   if (startHour < endHour) {
     return decHour >= startHour && decHour < endHour
   } else if (startHour > endHour) {
-    // Crosses midnight (e.g. 21:00 to 05:00)
+    // Crosses midnight (e.g. 21:00 to 05:00 UTC)
     return decHour >= startHour || decHour < endHour
   } else {
-    // 24 hours if start == end
     return true
   }
 }
 
 /**
  * Extract vertical transition line markers for session starts from candlestick data.
- * Produces crisp timestamps for thin vertical dashed line rendering.
+ * Produces crisp timestamps and timezone-aware labels for thin vertical dashed line rendering.
  */
 export function extractSessionLines(
   candles: Candle[],
@@ -62,7 +101,6 @@ export function extractSessionLines(
 
   const lines: SessionLinePoint[] = []
   const timeStep = candles.length > 1 ? (candles[1].time - candles[0].time) : 900
-  const halfStep = timeStep / 2
 
   // Group candles by calendar UTC date
   const dayBuckets: Map<string, Candle[]> = new Map()
@@ -75,6 +113,8 @@ export function extractSessionLines(
     }
     dayBuckets.get(dayKey)!.push(c)
   }
+
+  const tz = settings.timezone || 'WIB'
 
   dayBuckets.forEach((dayCandles, dayKey) => {
     const [y, m, d] = dayKey.split('-').map(Number)
@@ -95,20 +135,80 @@ export function extractSessionLines(
       }
 
       if (closestCandle) {
+        const localHour = utcHourToLocalHour(sess.startHourUtc, tz)
         const pad = (n: number) => String(n).padStart(2, '0')
         lines.push({
           session: sess,
           startTime: sessStartSec,
           candleTime: closestCandle.time,
-          label: `${sess.label} ${pad(sess.startHourUtc)}:00`
+          label: `${sess.label} ${pad(localHour)}:00 ${tz}`
         })
       }
     }
   })
 
-  // Deduplicate and sort by time
   lines.sort((a, b) => a.candleTime - b.candleTime)
   return lines
+}
+
+/**
+ * Extract session span zones (start to end time) for subtle box/gradient rendering.
+ */
+export function extractSessionZones(
+  candles: Candle[],
+  settings: MarketSessionSettings = DEFAULT_MARKET_SESSION_SETTINGS
+): SessionZoneBlock[] {
+  if (!candles || candles.length === 0 || !settings.enabled || !settings.showZoneBackground) {
+    return []
+  }
+
+  const enabledSessions = settings.sessions.filter((s) => s.enabled)
+  if (enabledSessions.length === 0) return []
+
+  const dayBuckets: Map<string, Candle[]> = new Map()
+
+  for (const c of candles) {
+    const d = new Date(c.time * 1000)
+    const dayKey = `${d.getUTCFullYear()}-${d.getUTCMonth() + 1}-${d.getUTCDate()}`
+    if (!dayBuckets.has(dayKey)) {
+      dayBuckets.set(dayKey, [])
+    }
+    dayBuckets.get(dayKey)!.push(c)
+  }
+
+  const zones: SessionZoneBlock[] = []
+
+  dayBuckets.forEach((dayCandles, dayKey) => {
+    const [y, m, d] = dayKey.split('-').map(Number)
+
+    for (const sess of enabledSessions) {
+      const sessStartSec = Date.UTC(y, m - 1, d, sess.startHourUtc, 0, 0) / 1000
+      let sessEndSec: number
+
+      if (sess.startHourUtc < sess.endHourUtc) {
+        sessEndSec = Date.UTC(y, m - 1, d, sess.endHourUtc, 0, 0) / 1000
+      } else {
+        // Crosses midnight
+        sessEndSec = Date.UTC(y, m - 1, d + 1, sess.endHourUtc, 0, 0) / 1000
+      }
+
+      // Check if any candle falls within this session window
+      const hasCandles = dayCandles.some(
+        (c) => c.time >= sessStartSec && c.time < sessEndSec
+      )
+
+      if (hasCandles) {
+        zones.push({
+          session: sess,
+          dayKey,
+          startTime: sessStartSec,
+          endTime: sessEndSec
+        })
+      }
+    }
+  })
+
+  return zones
 }
 
 /**
@@ -144,7 +244,6 @@ export function extractSessionBlocks(
       if (sess.startHourUtc < sess.endHourUtc) {
         sessEndSec = Date.UTC(y, m - 1, d, sess.endHourUtc, 0, 0) / 1000
       } else {
-        // Crosses midnight
         sessEndSec = Date.UTC(y, m - 1, d + 1, sess.endHourUtc, 0, 0) / 1000
       }
 
@@ -179,6 +278,7 @@ export function extractSessionBlocks(
 
 /**
  * Determine which market session(s) are active right now, and calculate countdown to next session.
+ * Supports selected timezone (WIB, WIT, WITA, UTC).
  */
 export function getCurrentActiveSessions(
   settings: MarketSessionSettings = DEFAULT_MARKET_SESSION_SETTINGS
@@ -188,6 +288,7 @@ export function getCurrentActiveSessions(
   const utcMinutes = now.getUTCMinutes()
   const decTime = utcHours + utcMinutes / 60
   const nowSec = Math.floor(now.getTime() / 1000)
+  const tz = settings.timezone || 'WIB'
 
   const enabledSessions = settings.sessions.filter((s) => s.enabled)
   const active: SingleSessionConfig[] = []
@@ -211,7 +312,6 @@ export function getCurrentActiveSessions(
   let minDiffSec = Infinity
 
   for (const sess of enabledSessions) {
-    // Compute next start timestamp today or tomorrow
     let nextStart = new Date(Date.UTC(
       now.getUTCFullYear(),
       now.getUTCMonth(),
@@ -223,7 +323,6 @@ export function getCurrentActiveSessions(
 
     let nextStartSec = Math.floor(nextStart.getTime() / 1000)
     if (nextStartSec <= nowSec) {
-      // It has already started today, so next occurrence is tomorrow
       nextStartSec += 86400
     }
 
@@ -240,6 +339,7 @@ export function getCurrentActiveSessions(
         countdownStr = `${minutesUntil}m`
       }
 
+      const localHour = utcHourToLocalHour(sess.startHourUtc, tz)
       const pad = (n: number) => String(n).padStart(2, '0')
       nextSession = {
         session: sess,
@@ -247,19 +347,22 @@ export function getCurrentActiveSessions(
         hoursUntil,
         minutesUntil,
         countdownStr,
-        formattedTime: `${pad(sess.startHourUtc)}:00 UTC`
+        formattedTime: `${pad(localHour)}:00 ${tz}`
       }
     }
   }
 
   const pad = (n: number) => String(n).padStart(2, '0')
   const utcTimeString = `${pad(utcHours)}:${pad(utcMinutes)} UTC`
+  const clockTimeString = formatTimezoneClock(now, tz)
 
   return {
     activeSessions: active,
     isOverlap,
     label,
+    clockTimeString,
     utcTimeString,
+    timezone: tz,
     nextSession
   }
 }
