@@ -25,7 +25,7 @@ import { AutoFibSettings, DEFAULT_AUTO_FIB_SETTINGS } from '../../types/fibonacc
 import { VolumeProfileSettings, DEFAULT_VOLUME_PROFILE_SETTINGS } from '../../types/volumeProfile'
 import { OrderflowSettings, DEFAULT_ORDERFLOW_SETTINGS } from '../../types/orderflow'
 import { formatPrice, getPricePrecision, formatOpenInterestValue, formatOpenInterest } from '../../utils/formatters'
-import { Crosshair, Clock, Trash2, Move, Palette, Check, X, Sliders } from 'lucide-react'
+import { Crosshair, Clock, Trash2, Move, Palette, Check, X, Sliders, Gauge, ChevronDown } from 'lucide-react'
 import { OpenInterestPane } from './OpenInterestPane'
 import { FundingRatePane } from './FundingRatePane'
 import {
@@ -198,6 +198,25 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     }, 15000)
     return () => clearInterval(timer)
   }, [sessionSettings])
+
+  // Mini Table Trend Strength Index (TSI) collapsed state
+  const [isTsiTableCollapsed, setIsTsiTableCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('cp_tsi_table_collapsed') === 'true'
+    } catch {
+      return false
+    }
+  })
+
+  const toggleTsiTable = useCallback(() => {
+    setIsTsiTableCollapsed((prev) => {
+      const next = !prev
+      try {
+        localStorage.setItem('cp_tsi_table_collapsed', String(next))
+      } catch {}
+      return next
+    })
+  }, [])
 
   // 1. Initialize Chart
   useEffect(() => {
@@ -4409,72 +4428,10 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
           </div>
         )}
 
-        {/* Floating Trend Strength Meter HUD Badge (TSI) */}
-        {visibility.trendStrengthMeter && trendStrength && (
-          <div
-            className="absolute top-2 left-2 sm:left-4 z-20 flex items-center space-x-2 px-2.5 py-1 rounded-md bg-[#0d1117]/90 border border-[#21262d] backdrop-blur-sm shadow-md font-mono text-[11px] select-none pointer-events-auto"
-            title={`Kekuatan Tren: ${trendStrength.label} | Skor: ${trendStrength.score.toFixed(0)}% | ADX: ${trendStrength.adx.toFixed(1)} (${trendStrength.adx_trend_power}) | MTF: ${trendStrength.mtf_consensus}`}
-          >
-            <div className="flex items-center space-x-1.5">
-              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">TSI</span>
-              <div className="flex items-center space-x-1">
-                <span
-                  className={`w-2 h-2 rounded-full ${
-                    trendStrength.score >= 65
-                      ? 'bg-emerald-400 animate-pulse'
-                      : trendStrength.score >= 40
-                      ? 'bg-amber-400'
-                      : 'bg-slate-500'
-                  }`}
-                />
-                <span
-                  className={`font-black text-xs ${
-                    trendStrength.direction === 'BULLISH'
-                      ? 'text-[#00c087]'
-                      : trendStrength.direction === 'BEARISH'
-                      ? 'text-[#f6465d]'
-                      : 'text-slate-400'
-                  }`}
-                >
-                  {trendStrength.score.toFixed(0)}%
-                </span>
-              </div>
-            </div>
-
-            <span className="text-slate-600">|</span>
-
-            <span
-              className={`font-bold text-[10.5px] ${
-                trendStrength.direction === 'BULLISH'
-                  ? 'text-emerald-400'
-                  : trendStrength.direction === 'BEARISH'
-                  ? 'text-rose-400'
-                  : 'text-slate-400'
-              }`}
-            >
-              {trendStrength.label.split('(')[0].trim()}
-            </span>
-
-            <span className="hidden md:inline-flex text-slate-600">|</span>
-
-            <span className="hidden md:inline-flex items-center space-x-1 text-[10px] text-slate-300">
-              <span className="text-slate-500 font-normal">ADX</span>
-              <span className="font-semibold text-amber-400">{trendStrength.adx.toFixed(1)}</span>
-            </span>
-
-            <span className="hidden lg:inline-flex text-slate-600">|</span>
-
-            <span className="hidden lg:inline-flex items-center space-x-1 text-[10px] text-slate-300">
-              <span className="text-slate-500 font-normal">MTF</span>
-              <span className="font-semibold text-cyan-400">{trendStrength.mtf_consensus}</span>
-            </span>
-          </div>
-        )}
-
-        {/* Floating Active Market Session Indicator */}
+        {/* Floating Active Market Session Indicator - Pojok Sebelah Kiri */}
         {visibility.marketSessions && (sessionSettings.showHudBar ?? true) && (
           <div
-            className="absolute top-2 right-14 z-20 hidden sm:flex items-center space-x-2 px-2.5 py-1 rounded-md bg-[#0d1117]/90 border border-[#21262d] backdrop-blur-sm shadow-md font-mono text-[11px] select-none pointer-events-auto"
+            className="absolute top-2 left-2 sm:left-4 z-20 hidden sm:flex items-center space-x-2 px-2.5 py-1 rounded-md bg-[#0d1117]/90 border border-[#21262d] backdrop-blur-sm shadow-md font-mono text-[11px] select-none pointer-events-auto"
             title="Sesi Pasar: Klik ikon pengaturan untuk mengatur jam dan warna sesi"
           >
             <Clock className="w-3.5 h-3.5 text-amber-400" />
@@ -4525,6 +4482,107 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
               >
                 <Sliders className="w-3 h-3" />
               </button>
+            )}
+          </div>
+        )}
+
+        {/* Floating Mini Table: Trend Strength Index (TSI) - Pojok Sebelah Kanan */}
+        {visibility.trendStrengthMeter && trendStrength && (
+          <div
+            className="absolute top-2 right-14 sm:right-16 z-20 bg-[#0d1117]/92 border border-[#21262d] backdrop-blur-md rounded-lg shadow-2xl p-2 select-none font-mono text-[10px] w-48 sm:w-52 pointer-events-auto transition-all"
+            title={`Analisis Kekuatan Tren: ${trendStrength.label}`}
+          >
+            {/* Header / Title Row */}
+            <div
+              className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-[#21262d] cursor-pointer group/hdr"
+              onClick={toggleTsiTable}
+              title={isTsiTableCollapsed ? 'Klik untuk memperluas tabel' : 'Klik untuk meminimalkan tabel'}
+            >
+              <div className="flex items-center space-x-1.5">
+                <Gauge className="w-3.5 h-3.5 text-amber-400" />
+                <span className="font-bold text-white text-[10.5px]">Kekuatan Tren</span>
+              </div>
+              <div className="flex items-center space-x-1.5">
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    trendStrength.score >= 65
+                      ? 'bg-emerald-400 animate-pulse'
+                      : trendStrength.score >= 40
+                      ? 'bg-amber-400'
+                      : 'bg-slate-500'
+                  }`}
+                />
+                <span
+                  className={`font-black text-xs ${
+                    trendStrength.direction === 'BULLISH'
+                      ? 'text-[#00c087]'
+                      : trendStrength.direction === 'BEARISH'
+                      ? 'text-[#f6465d]'
+                      : 'text-slate-400'
+                  }`}
+                >
+                  {trendStrength.score.toFixed(0)}%
+                </span>
+                <ChevronDown
+                  className={`w-3 h-3 text-slate-400 group-hover/hdr:text-white transition-transform ${
+                    isTsiTableCollapsed ? '-rotate-90' : ''
+                  }`}
+                />
+              </div>
+            </div>
+
+            {/* Table Body (Collapsible) */}
+            {!isTsiTableCollapsed && (
+              <div className="space-y-1">
+                <div className="flex items-center justify-between py-0.5 border-b border-[#1f242c]/70">
+                  <span className="text-slate-400">Status</span>
+                  <span
+                    className={`font-bold ${
+                      trendStrength.direction === 'BULLISH'
+                        ? 'text-emerald-400'
+                        : trendStrength.direction === 'BEARISH'
+                        ? 'text-rose-400'
+                        : 'text-slate-300'
+                    }`}
+                  >
+                    {trendStrength.label.split('(')[0].trim()}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between py-0.5 border-b border-[#1f242c]/70">
+                  <span className="text-slate-400">ADX (14)</span>
+                  <span className="font-bold text-amber-400">
+                    {trendStrength.adx.toFixed(1)}{' '}
+                    <span className="text-slate-500 font-normal text-[9px]">
+                      ({trendStrength.adx >= 25 ? 'Kuat' : trendStrength.adx >= 20 ? 'Tumbuh' : 'Lemah'})
+                    </span>
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between py-0.5 border-b border-[#1f242c]/70">
+                  <span className="text-slate-400">Pita EMA</span>
+                  <span className="font-bold text-purple-400 text-[9.5px]">
+                    {trendStrength.ribbon_alignment.replace(/_/g, ' ')}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between py-0.5 border-b border-[#1f242c]/70">
+                  <span className="text-slate-400">RVOL Vol</span>
+                  <span className="font-bold text-cyan-400">
+                    {trendStrength.rvol.toFixed(2)}x{' '}
+                    <span className="text-slate-500 font-normal text-[9px]">
+                      ({trendStrength.buy_ratio_pct.toFixed(0)}% Buy)
+                    </span>
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between py-0.5">
+                  <span className="text-slate-400">Konsensus MTF</span>
+                  <span className="font-bold text-[#38bdf8] bg-sky-950/40 px-1 rounded border border-sky-800/40 text-[9.5px]">
+                    {trendStrength.mtf_consensus}
+                  </span>
+                </div>
+              </div>
             )}
           </div>
         )}
