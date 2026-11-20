@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import asyncio
 import hmac
@@ -63,11 +64,21 @@ class TradeService:
         self._history_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
         self._history_ttl = 15.0  # 15s cache
         self._rate_limit_ban_until: float = 0.0
+        self._last_live_clean_time: float = 0.0
         self._last_known_positions: Dict[str, List[Dict[str, Any]]] = {}
 
         # 24/7 Background OCO and TP/SL Monitor Task
         self._monitor_task: Optional[asyncio.Task] = None
         self._monitor_running: bool = False
+
+    def _handle_rate_limit(self, msg: str):
+        ban_match = re.search(r"banned until (\d+)", str(msg))
+        if ban_match:
+            ban_ms = int(ban_match.group(1))
+            self._rate_limit_ban_until = (ban_ms / 1000.0) + 2.0
+        else:
+            self._rate_limit_ban_until = time.time() + 60.0
+        logger.warning(f"Binance rate limit cooldown active until {self._rate_limit_ban_until}: {msg}")
 
     def _load_paper_data(self) -> None:
         try:
@@ -1351,8 +1362,7 @@ class TradeService:
                         err_payload = resp.json() if resp.text else {}
                         msg = err_payload.get("msg") or f"HTTP {resp.status_code}"
                         if resp.status_code in (418, 429):
-                            self._rate_limit_ban_until = time.time() + 45.0
-                            logger.warning(f"Binance rate limit triggered in get_positions: {msg}")
+                            self._handle_rate_limit(msg)
                         return {
                             "success": False,
                             "message": msg
@@ -1435,6 +1445,18 @@ class TradeService:
 
         if not api_key or not api_secret:
             return {"success": False, "message": "API Key dan Secret Key diperlukan."}
+
+        now = time.time()
+        if now < self._rate_limit_ban_until:
+            wait_sec = int(self._rate_limit_ban_until - now)
+            return {
+                "success": True,
+                "mode": mode_clean,
+                "market": market_clean,
+                "is_simulated": False,
+                "orders": [],
+                "warning": f"Cooldown rate limit Binance aktif ({wait_sec}s tersisa)"
+            }
 
         base_url = self._get_base_url(market_clean, mode_clean)
         headers = {**HEADERS_BASE, "X-MBX-APIKEY": api_key}
@@ -1544,6 +1566,18 @@ class TradeService:
         if not api_key or not api_secret:
             return {"success": False, "message": "API Key dan Secret Key diperlukan."}
 
+        now = time.time()
+        if now < self._rate_limit_ban_until:
+            wait_sec = int(self._rate_limit_ban_until - now)
+            return {
+                "success": True,
+                "mode": mode_clean,
+                "market": market_clean,
+                "is_simulated": False,
+                "orders": [],
+                "warning": f"Cooldown rate limit Binance aktif ({wait_sec}s tersisa)"
+            }
+
         base_url = self._get_base_url(market_clean, mode_clean)
         headers = {**HEADERS_BASE, "X-MBX-APIKEY": api_key}
         timeout = httpx.Timeout(12.0, connect=5.0)
@@ -1609,6 +1643,9 @@ class TradeService:
 
         if not api_key or not api_secret or market_clean != "futures":
             return {"success": False, "message": "API credentials required for futures auto-clean."}
+
+        if time.time() < self._rate_limit_ban_until:
+            return {"success": True, "cancelled": 0, "rate_limited": True}
 
         base_url = self._get_base_url(market_clean, mode_clean)
         headers = {**HEADERS_BASE, "X-MBX-APIKEY": api_key}
@@ -1736,19 +1773,22 @@ class TradeService:
                 # 1. Process simulated paper positions (TP/SL hit check)
                 await self._check_paper_positions_tp_sl()
 
-                # 2. Process live / testnet orphaned bracket cleanup
+                # 2. Process live / testnet orphaned bracket cleanup (throttled to 45s to protect rate limits)
+                now_ts = time.time()
                 server_mode = self._server_credentials.get("mode", "demo")
                 use_sim = self._server_credentials.get("useSimulatedDemo", True)
-                if server_mode == "live" or (server_mode == "demo" and not use_sim):
-                    api_key = self._server_credentials.get("liveApiKey" if server_mode == "live" else "demoApiKey", "")
-                    api_secret = self._server_credentials.get("liveApiSecret" if server_mode == "live" else "demoApiSecret", "")
-                    if api_key and api_secret:
-                        await self.auto_clean_orphaned_brackets(
-                            market="futures",
-                            mode=server_mode,
-                            api_key=api_key,
-                            api_secret=api_secret
-                        )
+                if (server_mode == "live" or (server_mode == "demo" and not use_sim)) and (now_ts > self._rate_limit_ban_until):
+                    if now_ts - self._last_live_clean_time >= 45.0:
+                        api_key = self._server_credentials.get("liveApiKey" if server_mode == "live" else "demoApiKey", "")
+                        api_secret = self._server_credentials.get("liveApiSecret" if server_mode == "live" else "demoApiSecret", "")
+                        if api_key and api_secret:
+                            self._last_live_clean_time = now_ts
+                            await self.auto_clean_orphaned_brackets(
+                                market="futures",
+                                mode=server_mode,
+                                api_key=api_key,
+                                api_secret=api_secret
+                            )
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -1814,6 +1854,18 @@ class TradeService:
 
         if not api_key or not api_secret:
             return {"success": False, "message": "API Key dan Secret Key diperlukan."}
+
+        now = time.time()
+        if now < self._rate_limit_ban_until:
+            wait_sec = int(self._rate_limit_ban_until - now)
+            return {
+                "success": True,
+                "mode": mode_clean,
+                "market": market_clean,
+                "is_simulated": False,
+                "orders": [],
+                "warning": f"Cooldown rate limit Binance aktif ({wait_sec}s tersisa)"
+            }
 
         base_url = self._get_base_url(market_clean, mode_clean)
         headers = {**HEADERS_BASE, "X-MBX-APIKEY": api_key}
@@ -1909,6 +1961,18 @@ class TradeService:
 
         if not api_key or not api_secret:
             return {"success": False, "message": "API Key dan Secret Key diperlukan."}
+
+        now = time.time()
+        if now < self._rate_limit_ban_until:
+            wait_sec = int(self._rate_limit_ban_until - now)
+            return {
+                "success": True,
+                "mode": mode_clean,
+                "market": market_clean,
+                "is_simulated": False,
+                "orders": [],
+                "warning": f"Cooldown rate limit Binance aktif ({wait_sec}s tersisa)"
+            }
 
         base_url = self._get_base_url(market_clean, mode_clean)
         headers = {**HEADERS_BASE, "X-MBX-APIKEY": api_key}
@@ -2294,7 +2358,7 @@ class TradeService:
                         err_payload = resp.json() if resp.text else {}
                         msg = err_payload.get("msg") or f"HTTP {resp.status_code}"
                         if resp.status_code in (418, 429):
-                            self._rate_limit_ban_until = time.time() + 45.0
+                            self._handle_rate_limit(msg)
                         return {"success": False, "message": msg}
                 else:
                     return {
