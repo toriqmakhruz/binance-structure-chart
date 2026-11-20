@@ -55,15 +55,19 @@ class TradeService:
 
         # Rate-limiting protection caches & circuit breaker
         self._positions_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
-        self._positions_ttl = 6.0  # 6s cache
+        self._positions_ttl = 3.0  # 3s cache for snappy OCO updates
         self._orders_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
-        self._orders_ttl = 10.0  # 10s cache
+        self._orders_ttl = 3.0  # 3s cache for snappy OCO updates
         self._conn_test_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
         self._conn_test_ttl = 15.0  # 15s cache
         self._history_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
         self._history_ttl = 15.0  # 15s cache
         self._rate_limit_ban_until: float = 0.0
         self._last_known_positions: Dict[str, List[Dict[str, Any]]] = {}
+
+        # 24/7 Background OCO and TP/SL Monitor Task
+        self._monitor_task: Optional[asyncio.Task] = None
+        self._monitor_running: bool = False
 
     def _load_paper_data(self) -> None:
         try:
@@ -90,6 +94,126 @@ class TradeService:
                 }, f, indent=2)
         except Exception as exc:
             logger.warning(f"Failed saving paper trading data: {exc}")
+
+    def _close_single_paper_position(
+        self,
+        p: Dict[str, Any],
+        close_price: float,
+        reason: str = "Market Close",
+        timestamp_ms: Optional[int] = None
+    ) -> float:
+        """
+        Helper to close a single paper position, calculate realized PnL,
+        update wallet balance, and record trade history.
+        """
+        p["status"] = "CLOSED"
+        margin = float(p.get("margin", 0))
+        entry_p = float(p.get("price", 0))
+        qty = float(p.get("quantity", 0))
+        is_long = (p.get("side") == "BUY")
+
+        diff = (close_price - entry_p) if is_long else (entry_p - close_price)
+        gross_pnl = round(diff * qty, 2)
+        # Realistic Binance Futures taker fee (0.05% of notional)
+        fee = round(close_price * qty * 0.0005, 4)
+        net_pnl = round(gross_pnl - fee, 2)
+        roe = round((net_pnl / margin) * 100, 2) if margin > 0 else 0.0
+
+        ts = timestamp_ms or int(time.time() * 1000)
+        history_item = {
+            "id": p.get("id") or f"paper_{int(time.time()*1000)}",
+            "symbol": p.get("symbol"),
+            "side": "LONG" if is_long else "SHORT",
+            "entryPrice": entry_p,
+            "closePrice": close_price,
+            "quantity": qty,
+            "margin": margin,
+            "leverage": p.get("leverage", 1),
+            "grossPnl": gross_pnl,
+            "fee": fee,
+            "commission": fee,
+            "realizedPnl": net_pnl,
+            "netPnl": net_pnl,
+            "roePct": roe,
+            "time": ts,
+            "reason": reason,
+            "is_simulated": True
+        }
+        self._paper_history.insert(0, history_item)
+        self._paper_wallet["USDT"] = round(self._paper_wallet.get("USDT", 10000.0) + margin + net_pnl, 2)
+        return net_pnl
+
+    async def _check_paper_positions_tp_sl(self) -> int:
+        """
+        Check all active paper trading positions against live market prices.
+        Automatically closes positions and executes Take Profit or Stop Loss
+        when price triggers are hit, updating virtual wallet balance and history.
+        Returns the number of positions closed.
+        """
+        active_pos = [p for p in self._paper_positions if p.get("status") == "FILLED"]
+        if not active_pos:
+            return 0
+
+        # Fetch live prices for active symbols
+        try:
+            from .binance_service import BinanceService
+            bs = BinanceService()
+            tickers = await bs.get_live_ticker_batch(market="futures")
+            price_map = {t["s"]: float(t["c"]) for t in tickers if "s" in t and "c" in t}
+        except Exception as e:
+            logger.debug(f"Failed fetching live prices for paper position TP/SL check: {e}")
+            return 0
+
+        closed_count = 0
+        now_ms = int(time.time() * 1000)
+
+        for p in list(active_pos):
+            sym = p.get("symbol")
+            cur_p = price_map.get(sym)
+            if not cur_p or cur_p <= 0:
+                continue
+
+            entry_p = float(p.get("price", 0))
+            is_long = (p.get("side") == "BUY")
+            sl = float(p.get("stop_loss")) if p.get("stop_loss") else None
+            tp = float(p.get("take_profit")) if p.get("take_profit") else None
+
+            hit_tp = False
+            hit_sl = False
+            close_price = cur_p
+            reason = "Market Close"
+
+            if is_long:
+                if tp is not None and cur_p >= tp:
+                    hit_tp = True
+                    close_price = tp
+                    reason = "Take Profit Hit"
+                elif sl is not None and cur_p <= sl:
+                    hit_sl = True
+                    close_price = sl
+                    reason = "Stop Loss Hit"
+            else:  # Short
+                if tp is not None and cur_p <= tp:
+                    hit_tp = True
+                    close_price = tp
+                    reason = "Take Profit Hit"
+                elif sl is not None and cur_p >= sl:
+                    hit_sl = True
+                    close_price = sl
+                    reason = "Stop Loss Hit"
+
+            if hit_tp or hit_sl:
+                self._close_single_paper_position(p, close_price=close_price, reason=reason, timestamp_ms=now_ms)
+                closed_count += 1
+                logger.info(f"[Paper Trading] Position {sym} auto-closed: {reason} at {close_price}")
+
+        if closed_count > 0:
+            self._save_paper_data()
+            self._positions_cache.clear()
+            self._orders_cache.clear()
+            self._history_cache.clear()
+
+        return closed_count
 
     def _load_credentials(self) -> None:
         try:
@@ -1014,6 +1138,9 @@ class TradeService:
 
         # Simulated Paper Trading
         if self._is_simulated_demo(mode_clean, api_key, api_secret):
+            # 1. Trigger automated TP/SL check before returning positions
+            await self._check_paper_positions_tp_sl()
+
             open_pos = [p for p in self._paper_positions if p.get("status") == "FILLED"]
             if sym_clean:
                 open_pos = [p for p in open_pos if p.get("symbol") == sym_clean]
@@ -1198,6 +1325,25 @@ class TradeService:
                             "total_unrealized_pnl": round(total_unpnl, 2),
                             "positions": formatted_positions
                         }
+
+                        # Auto-OCO check: detect if any symbol's position just closed and cancel hanging brackets
+                        prev_positions = self._last_known_positions.get(cache_key, [])
+                        prev_active_symbols = {p.get("symbol") for p in prev_positions if float(p.get("positionAmt", 0)) != 0}
+                        current_active_symbols = {p.get("symbol") for p in formatted_positions if float(p.get("positionAmt", 0)) != 0}
+                        closed_symbols = prev_active_symbols - current_active_symbols
+
+                        for closed_sym in closed_symbols:
+                            logger.info(f"[Auto-OCO] Position {closed_sym} closed. Auto-cancelling remaining hanging bracket orders...")
+                            asyncio.create_task(
+                                self.cancel_all_symbol_open_orders(
+                                    symbol=closed_sym,
+                                    market=market_clean,
+                                    mode=mode_clean,
+                                    api_key=api_key,
+                                    api_secret=api_secret
+                                )
+                            )
+
                         self._positions_cache[cache_key] = (time.time() + self._positions_ttl, ret)
                         self._last_known_positions[cache_key] = formatted_positions
                         return ret
@@ -1351,6 +1497,37 @@ class TradeService:
                     except Exception as a_err:
                         logger.warning(f"Error fetching openAlgoOrders in get_open_orders: {a_err}")
 
+                # Auto-OCO check: filter out and cancel orphaned exit brackets if position is 0
+                if market_clean == "futures" and formatted_orders:
+                    try:
+                        pos_signed = self._sign_payload({"symbol": sym_clean} if sym_clean else {}, api_secret)
+                        p_resp = await client.get(f"{base_url}/fapi/v2/positionRisk?{pos_signed}")
+                        if p_resp.status_code == 200:
+                            p_data = p_resp.json()
+                            active_syms = {p.get("symbol") for p in p_data if float(p.get("positionAmt", 0)) != 0}
+                            cleaned_orders = []
+                            for ord_item in formatted_orders:
+                                o_type_str = str(ord_item.get("type", "")).upper()
+                                is_exit_bracket = ord_item.get("is_algo") or any(t in o_type_str for t in ("STOP", "PROFIT", "TRAILING"))
+                                ord_sym = ord_item.get("symbol")
+                                if is_exit_bracket and ord_sym not in active_syms:
+                                    logger.info(f"[Auto-OCO] Filtered hanging bracket order #{ord_item.get('orderId')} for {ord_sym} (position is closed). Auto-cancelling on exchange...")
+                                    asyncio.create_task(
+                                        self.cancel_order(
+                                            symbol=ord_sym,
+                                            order_id=ord_item.get("orderId"),
+                                            market="futures",
+                                            mode=mode_clean,
+                                            api_key=api_key,
+                                            api_secret=api_secret
+                                        )
+                                    )
+                                else:
+                                    cleaned_orders.append(ord_item)
+                            formatted_orders = cleaned_orders
+                    except Exception as clean_err:
+                        logger.warning(f"Error checking active positions in get_open_orders: {clean_err}")
+
                 if resp.status_code == 200 or formatted_orders:
                     return {
                         "success": True,
@@ -1364,6 +1541,230 @@ class TradeService:
                     return {"success": False, "message": err_payload.get("msg") or f"HTTP {resp.status_code}"}
             except Exception as exc:
                 return {"success": False, "message": f"Gagal mengambil order: {str(exc)}"}
+
+    async def cancel_all_symbol_open_orders(
+        self,
+        symbol: str,
+        market: str = "futures",
+        mode: str = "demo",
+        api_key: str = "",
+        api_secret: str = ""
+    ) -> Dict[str, Any]:
+        """
+        Cancel all open orders and algo orders for a given symbol.
+        Used when a position is closed (either manually or via TP/SL execution)
+        to prevent orphaned bracket orders from hanging open.
+        """
+        mode, api_key, api_secret = self._resolve_credentials(mode, api_key, api_secret)
+        sym_clean = symbol.upper().strip()
+        market_clean = market.lower().strip()
+        mode_clean = mode.lower().strip()
+
+        if self._is_simulated_demo(mode_clean, api_key, api_secret):
+            for p in self._paper_positions:
+                if p.get("symbol") == sym_clean:
+                    p["stop_loss"] = None
+                    p["take_profit"] = None
+            self._save_paper_data()
+            self._orders_cache.clear()
+            return {"success": True, "message": f"Semua order paper untuk {sym_clean} dibersihkan."}
+
+        if not api_key or not api_secret:
+            return {"success": False, "message": "API Key dan Secret Key diperlukan."}
+
+        base_url = self._get_base_url(market_clean, mode_clean)
+        headers = {**HEADERS_BASE, "X-MBX-APIKEY": api_key}
+        timeout = httpx.Timeout(12.0, connect=5.0)
+
+        async with httpx.AsyncClient(headers=headers, timeout=timeout) as client:
+            cancelled_count = 0
+            # 1. Cancel standard open orders
+            try:
+                signed_del = self._sign_payload({"symbol": sym_clean}, api_secret)
+                path = "/fapi/v1/allOpenOrders" if market_clean == "futures" else "/api/v3/openOrders"
+                resp = await client.delete(f"{base_url}{path}?{signed_del}")
+                if resp.status_code == 200:
+                    cancelled_count += 1
+            except Exception as e:
+                logger.warning(f"Error cancelling allOpenOrders for {sym_clean}: {e}")
+
+            # 2. Cancel open algo orders on Futures (bulk endpoint)
+            if market_clean == "futures":
+                try:
+                    signed_del_algo = self._sign_payload({"symbol": sym_clean}, api_secret)
+                    resp_algo = await client.delete(f"{base_url}/fapi/v1/algoOpenOrders?{signed_del_algo}")
+                    if resp_algo.status_code == 200:
+                        cancelled_count += 1
+                except Exception as e:
+                    logger.debug(f"algoOpenOrders bulk delete note for {sym_clean}: {e}")
+
+                # 3. Individual algo order cleanup fallback
+                try:
+                    signed_ao = self._sign_payload({"symbol": sym_clean}, api_secret)
+                    resp_ao = await client.get(f"{base_url}/fapi/v1/openAlgoOrders?{signed_ao}")
+                    if resp_ao.status_code == 200:
+                        for ao in resp_ao.json():
+                            aid = ao.get("algoId")
+                            if aid:
+                                d_sign = self._sign_payload({"symbol": sym_clean, "algoId": aid}, api_secret)
+                                await client.delete(f"{base_url}/fapi/v1/algoOrder?{d_sign}")
+                                cancelled_count += 1
+                                logger.info(f"[Auto-OCO] Cleaned lingering individual algo order {aid} for {sym_clean}")
+                except Exception as e:
+                    logger.warning(f"Error cleaning individual algo orders for {sym_clean}: {e}")
+
+            self._orders_cache.clear()
+            return {"success": True, "cancelled_count": cancelled_count}
+
+    async def auto_clean_orphaned_brackets(
+        self,
+        market: str = "futures",
+        mode: str = "demo",
+        api_key: str = "",
+        api_secret: str = "",
+        symbol: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Detect and cancel any orphaned conditional/bracket orders (SL/TP)
+        on Binance where the corresponding position is already closed (positionAmt == 0).
+        """
+        mode, api_key, api_secret = self._resolve_credentials(mode, api_key, api_secret)
+        market_clean = market.lower().strip()
+        mode_clean = mode.lower().strip()
+
+        if self._is_simulated_demo(mode_clean, api_key, api_secret):
+            return {"success": True, "cancelled": 0}
+
+        if not api_key or not api_secret or market_clean != "futures":
+            return {"success": False, "message": "API credentials required for futures auto-clean."}
+
+        base_url = self._get_base_url(market_clean, mode_clean)
+        headers = {**HEADERS_BASE, "X-MBX-APIKEY": api_key}
+        timeout = httpx.Timeout(12.0, connect=5.0)
+
+        async with httpx.AsyncClient(headers=headers, timeout=timeout) as client:
+            try:
+                # 1. Fetch current positions to identify active symbols
+                q_pos = {}
+                if symbol:
+                    q_pos["symbol"] = symbol.upper().strip()
+                signed_pos = self._sign_payload(q_pos, api_secret)
+                resp_pos = await client.get(f"{base_url}/fapi/v2/positionRisk?{signed_pos}")
+                if resp_pos.status_code != 200:
+                    return {"success": False, "message": "Failed querying positions."}
+
+                raw_pos = resp_pos.json()
+                active_symbols = set()
+                active_position_sides = set()  # (symbol, positionSide)
+                for p in raw_pos:
+                    amt = float(p.get("positionAmt", 0))
+                    sym = p.get("symbol")
+                    pside = p.get("positionSide", "BOTH")
+                    if amt != 0:
+                        active_symbols.add(sym)
+                        active_position_sides.add((sym, pside))
+
+                cancelled = 0
+
+                # 2. Query open algo orders
+                q_algo = {}
+                if symbol:
+                    q_algo["symbol"] = symbol.upper().strip()
+                signed_algo = self._sign_payload(q_algo, api_secret)
+                resp_algo = await client.get(f"{base_url}/fapi/v1/openAlgoOrders?{signed_algo}")
+                if resp_algo.status_code == 200:
+                    for ao in resp_algo.json():
+                        ao_sym = ao.get("symbol")
+                        ao_id = ao.get("algoId")
+                        ao_pside = ao.get("positionSide", "BOTH")
+                        ao_type = str(ao.get("algoType") or ao.get("type") or "").upper()
+
+                        is_orphaned = False
+                        if ao_pside == "BOTH":
+                            is_orphaned = (ao_sym not in active_symbols)
+                        else:
+                            is_orphaned = ((ao_sym, ao_pside) not in active_position_sides)
+
+                        if is_orphaned and ao_id:
+                            d_sign = self._sign_payload({"symbol": ao_sym, "algoId": ao_id}, api_secret)
+                            del_resp = await client.delete(f"{base_url}/fapi/v1/algoOrder?{d_sign}")
+                            if del_resp.status_code == 200:
+                                cancelled += 1
+                                logger.info(f"[Auto-OCO] Successfully cancelled orphaned algo order #{ao_id} ({ao_type}) for {ao_sym} (position closed).")
+
+                # 3. Query standard open orders
+                signed_ord = self._sign_payload(q_algo, api_secret)
+                resp_ord = await client.get(f"{base_url}/fapi/v1/openOrders?{signed_ord}")
+                if resp_ord.status_code == 200:
+                    for o in resp_ord.json():
+                        o_sym = o.get("symbol")
+                        o_id = o.get("orderId")
+                        o_pside = o.get("positionSide", "BOTH")
+                        o_type = str(o.get("type", "")).upper()
+                        is_reduce = bool(o.get("reduceOnly", False))
+                        is_close = bool(o.get("closePosition", False))
+                        is_cond = any(t in o_type for t in ("STOP", "PROFIT", "TRAILING"))
+
+                        if is_reduce or is_close or is_cond:
+                            is_orphaned = False
+                            if o_pside == "BOTH":
+                                is_orphaned = (o_sym not in active_symbols)
+                            else:
+                                is_orphaned = ((o_sym, o_pside) not in active_position_sides)
+
+                            if is_orphaned and o_id:
+                                d_sign = self._sign_payload({"symbol": o_sym, "orderId": o_id}, api_secret)
+                                del_resp = await client.delete(f"{base_url}/fapi/v1/order?{d_sign}")
+                                if del_resp.status_code == 200:
+                                    cancelled += 1
+                                    logger.info(f"[Auto-OCO] Successfully cancelled orphaned standard order #{o_id} ({o_type}) for {o_sym} (position closed).")
+
+                if cancelled > 0:
+                    self._orders_cache.clear()
+
+                return {"success": True, "cancelled": cancelled}
+            except Exception as exc:
+                logger.warning(f"auto_clean_orphaned_brackets error: {exc}")
+                return {"success": False, "message": str(exc)}
+
+    async def start_background_monitor(self):
+        """
+        24/7 background task to monitor positions and enforce OCO bracket hygiene:
+        1. Auto-triggers TP and SL execution for simulated paper trading positions.
+        2. Auto-detects closed positions on live/testnet Binance and cancels any
+           lingering/orphaned SL or TP orders.
+        """
+        self._monitor_running = True
+        logger.info("24/7 Trade Bracket & OCO Auto-Cleanup Monitor started.")
+        while self._monitor_running:
+            try:
+                # 1. Process simulated paper positions (TP/SL hit check)
+                await self._check_paper_positions_tp_sl()
+
+                # 2. Process live / testnet orphaned bracket cleanup
+                server_mode = self._server_credentials.get("mode", "demo")
+                use_sim = self._server_credentials.get("useSimulatedDemo", True)
+                if server_mode == "live" or (server_mode == "demo" and not use_sim):
+                    api_key = self._server_credentials.get("liveApiKey" if server_mode == "live" else "demoApiKey", "")
+                    api_secret = self._server_credentials.get("liveApiSecret" if server_mode == "live" else "demoApiSecret", "")
+                    if api_key and api_secret:
+                        await self.auto_clean_orphaned_brackets(
+                            market="futures",
+                            mode=server_mode,
+                            api_key=api_key,
+                            api_secret=api_secret
+                        )
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.debug(f"Trade monitor tick error: {e}")
+
+            await asyncio.sleep(4.0)
+
+    def stop_background_monitor(self):
+        self._monitor_running = False
+        if self._monitor_task and not self._monitor_task.done():
+            self._monitor_task.cancel()
 
     async def close_position(
         self,
@@ -1390,7 +1791,6 @@ class TradeService:
             if not matched:
                 return {"success": False, "message": f"Tidak ada posisi paper aktif untuk {sym_clean}."}
 
-            # Fetch live ticker price for accurate closing mark price
             from .binance_service import BinanceService
             bs = BinanceService()
             price_map = {}
@@ -1402,44 +1802,13 @@ class TradeService:
 
             total_closed_pnl = 0.0
             for p in matched:
-                p["status"] = "CLOSED"
-                margin = float(p.get("margin", 0))
-                entry_p = float(p.get("price", 0))
-                mark_p = float(price_map.get(sym_clean, entry_p))
-                qty = float(p.get("quantity", 0))
-                is_long = p.get("side") == "BUY"
-                diff = (mark_p - entry_p) if is_long else (entry_p - mark_p)
-                gross_pnl = round(diff * qty, 2)
-                # Realistic Binance Futures taker fee (0.05% of notional)
-                fee = round(mark_p * qty * 0.0005, 4)
-                net_pnl = round(gross_pnl - fee, 2)
-                roe = round((net_pnl / margin) * 100, 2) if margin > 0 else 0.0
-                total_closed_pnl += net_pnl
-
-                history_item = {
-                    "id": p.get("id") or f"paper_{int(time.time()*1000)}",
-                    "symbol": sym_clean,
-                    "side": "LONG" if is_long else "SHORT",
-                    "entryPrice": entry_p,
-                    "closePrice": mark_p,
-                    "quantity": qty,
-                    "margin": margin,
-                    "leverage": p.get("leverage", 1),
-                    "grossPnl": gross_pnl,
-                    "fee": fee,
-                    "commission": fee,
-                    "realizedPnl": net_pnl,
-                    "netPnl": net_pnl,
-                    "roePct": roe,
-                    "time": int(time.time() * 1000),
-                    "reason": "Market Close",
-                    "is_simulated": True
-                }
-                self._paper_history.insert(0, history_item)
-                self._paper_wallet["USDT"] = round(self._paper_wallet.get("USDT", 10000.0) + margin + net_pnl, 2)
+                mark_p = float(price_map.get(sym_clean, float(p.get("price", 0))))
+                pnl = self._close_single_paper_position(p, close_price=mark_p, reason="Market Close")
+                total_closed_pnl += pnl
 
             self._save_paper_data()
             self._positions_cache.clear()
+            self._orders_cache.clear()
             self._history_cache.clear()
 
             pnl_sign = "+" if total_closed_pnl >= 0 else ""
@@ -1487,19 +1856,14 @@ class TradeService:
                     err_json = close_resp.json() if close_resp.text else {}
                     return {"success": False, "message": err_json.get("msg") or f"Gagal close: HTTP {close_resp.status_code}"}
 
-                # 3. Cancel remaining open orders (SL/TP) for this symbol
-                try:
-                    signed_del = self._sign_payload({"symbol": sym_clean}, api_secret)
-                    await client.delete(f"{base_url}/fapi/v1/allOpenOrders?{signed_del}")
-                except Exception as del_err:
-                    logger.warning(f"Failed to cancel remaining standard orders after close: {del_err}")
-
-                if market_clean == "futures":
-                    try:
-                        signed_del_algo = self._sign_payload({"symbol": sym_clean}, api_secret)
-                        await client.delete(f"{base_url}/fapi/v1/algoOpenOrders?{signed_del_algo}")
-                    except Exception as del_algo_err:
-                        logger.warning(f"Failed to cancel remaining algo orders after close: {del_algo_err}")
+                # 3. Clean all remaining open orders & algo orders (SL/TP) for this symbol
+                await self.cancel_all_symbol_open_orders(
+                    symbol=sym_clean,
+                    market=market_clean,
+                    mode=mode_clean,
+                    api_key=api_key,
+                    api_secret=api_secret
+                )
 
                 return {
                     "success": True,
@@ -1529,9 +1893,23 @@ class TradeService:
         api_secret = (api_secret or "").strip()
 
         if self._is_simulated_demo(mode_clean, api_key, api_secret):
+            oid_str = str(order_id)
+            cancelled_type = "Order"
+            for p in self._paper_positions:
+                if p.get("status") == "FILLED":
+                    if oid_str == f"{p.get('id')}1" or (sym_clean and p.get("symbol") == sym_clean and oid_str.endswith("1")):
+                        p["stop_loss"] = None
+                        cancelled_type = "Stop Loss"
+                        break
+                    elif oid_str == f"{p.get('id')}2" or (sym_clean and p.get("symbol") == sym_clean and oid_str.endswith("2")):
+                        p["take_profit"] = None
+                        cancelled_type = "Take Profit"
+                        break
+            self._save_paper_data()
+            self._orders_cache.clear()
             return {
                 "success": True,
-                "message": f"Order #{order_id} berhasil dibatalkan (Simulasi)."
+                "message": f"{cancelled_type} #{order_id} berhasil dibatalkan (Simulasi)."
             }
 
         if not api_key or not api_secret:

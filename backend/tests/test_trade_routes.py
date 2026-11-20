@@ -174,3 +174,96 @@ def test_trade_history_simulated_demo():
     clear_res = client.post("/api/trade/history/clear")
     assert clear_res.status_code == 200
     assert clear_res.json()["success"] is True
+
+def test_paper_trading_tp_execution_and_order_cleanup():
+    sym = "TEST_TP_CLEANUP"
+    # 1. Open simulated position with SL and TP
+    order_res = client.post("/api/trade/order", json={
+        "symbol": sym,
+        "market": "futures",
+        "mode": "demo",
+        "side": "BUY",
+        "order_type": "MARKET",
+        "quantity": 2.0,
+        "price": 100.0,
+        "leverage": 10,
+        "stop_loss": 95.0,
+        "take_profit": 110.0
+    })
+    assert order_res.status_code == 200
+    assert order_res.json()["success"] is True
+
+    # 2. Check open orders: both SL and TP should be present
+    ord_res1 = client.post("/api/trade/open-orders", json={"market": "futures", "mode": "demo", "symbol": sym})
+    assert ord_res1.status_code == 200
+    orders1 = ord_res1.json().get("orders", [])
+    assert len(orders1) == 2
+    order_types = {o["type"] for o in orders1}
+    assert "STOP_MARKET" in order_types
+    assert "TAKE_PROFIT_MARKET" in order_types
+
+    # 3. Simulate TP execution (Price hits 110.0)
+    matched = [p for p in trade_service._paper_positions if p.get("symbol") == sym and p.get("status") == "FILLED"]
+    assert len(matched) == 1
+    p = matched[0]
+    trade_service._close_single_paper_position(p, close_price=110.0, reason="Take Profit Hit")
+    trade_service._save_paper_data()
+    trade_service._positions_cache.clear()
+    trade_service._orders_cache.clear()
+
+    # 4. Check positions: position is now closed
+    pos_res = client.post("/api/trade/positions", json={"market": "futures", "mode": "demo", "symbol": sym})
+    assert pos_res.status_code == 200
+    assert len(pos_res.json().get("positions", [])) == 0
+
+    # 5. Check open orders: ALL bracket orders (including hanging SL) MUST BE GONE!
+    ord_res2 = client.post("/api/trade/open-orders", json={"market": "futures", "mode": "demo", "symbol": sym})
+    assert ord_res2.status_code == 200
+    orders2 = ord_res2.json().get("orders", [])
+    assert len(orders2) == 0, f"Expected 0 lingering orders, but found: {orders2}"
+
+def test_paper_trading_cancel_single_bracket_order():
+    sym = "TEST_CANCEL_BRACKET"
+    # 1. Open simulated position with SL and TP
+    order_res = client.post("/api/trade/order", json={
+        "symbol": sym,
+        "market": "futures",
+        "mode": "demo",
+        "side": "BUY",
+        "order_type": "MARKET",
+        "quantity": 1.5,
+        "price": 200.0,
+        "leverage": 5,
+        "stop_loss": 190.0,
+        "take_profit": 220.0
+    })
+    assert order_res.status_code == 200
+    assert order_res.json()["success"] is True
+
+    # 2. Get open orders
+    ord_res1 = client.post("/api/trade/open-orders", json={"market": "futures", "mode": "demo", "symbol": sym})
+    orders1 = ord_res1.json().get("orders", [])
+    assert len(orders1) == 2
+
+    # Find the STOP_MARKET order
+    sl_order = next((o for o in orders1 if o["type"] == "STOP_MARKET"), None)
+    assert sl_order is not None
+
+    # 3. Cancel the SL order
+    cancel_res = client.post("/api/trade/cancel-order", json={
+        "symbol": sym,
+        "order_id": sl_order["orderId"],
+        "market": "futures",
+        "mode": "demo"
+    })
+    assert cancel_res.status_code == 200
+    assert cancel_res.json()["success"] is True
+
+    # 4. Open orders should now only have TAKE_PROFIT_MARKET
+    ord_res2 = client.post("/api/trade/open-orders", json={"market": "futures", "mode": "demo", "symbol": sym})
+    orders2 = ord_res2.json().get("orders", [])
+    assert len(orders2) == 1
+    assert orders2[0]["type"] == "TAKE_PROFIT_MARKET"
+
+    # Clean up position
+    client.post("/api/trade/close-position", json={"symbol": sym, "market": "futures", "mode": "demo"})

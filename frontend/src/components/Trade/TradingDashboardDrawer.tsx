@@ -148,7 +148,7 @@ export const TradingDashboardDrawer: React.FC<TradingDashboardDrawerProps> = ({
     const timer = setInterval(() => {
       if (typeof document !== 'undefined' && document.hidden) return
       loadData(true)
-    }, 12000)
+    }, 5000)
 
     const handleSync = () => {
       try {

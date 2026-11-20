@@ -9,6 +9,7 @@ from .api.websocket import ws_router
 from .api.trade_routes import trade_router
 from .api.telegram_routes import telegram_router
 from .services.telegram_service import telegram_service
+from .services.trade_service import trade_service
 
 logging.basicConfig(
     level=logging.INFO,
@@ -17,14 +18,23 @@ logging.basicConfig(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Initialize background Telegram scanner
+    # Startup: Initialize background Telegram scanner & Trade Bracket / OCO Monitor
     bg_task = asyncio.create_task(telegram_service.start_background_scanner())
     telegram_service._scanner_task = bg_task
+
+    trade_task = asyncio.create_task(trade_service.start_background_monitor())
+    trade_service._monitor_task = trade_task
+
     yield
-    # Shutdown: Cleanly cancel background scanner
+    # Shutdown: Cleanly cancel background tasks
     telegram_service.stop_background_scanner()
+    trade_service.stop_background_monitor()
     try:
         await bg_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await trade_task
     except asyncio.CancelledError:
         pass
 
