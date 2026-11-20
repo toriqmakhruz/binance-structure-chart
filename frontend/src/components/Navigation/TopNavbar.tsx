@@ -191,9 +191,14 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
             </div>
           )}
 
-          {/* Active Pair Symbol & Live Price (Search box removed as requested) */}
-          <div className="flex items-center space-x-1 md:space-x-1.5 shrink-0 px-1">
-            <span className="font-bold text-xs md:text-sm text-white tracking-wider font-mono">
+          {/* Active Pair Symbol & Live Price (Clickable to switch symbol) */}
+          <button
+            type="button"
+            onClick={onSymbolClick}
+            className="flex items-center space-x-1 md:space-x-1.5 px-1.5 py-0.5 md:px-2 md:py-1 rounded-md hover:bg-[#1a2230] transition-colors cursor-pointer group shrink-0"
+            title="Klik untuk mencari / ganti koin"
+          >
+            <span className="font-bold text-xs md:text-sm text-white tracking-wider font-mono group-hover:text-[#f0b90b] transition-colors">
               {symbol}
             </span>
             {lastPrice && (
@@ -201,7 +206,8 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
                 ${formatPrice(lastPrice)}
               </span>
             )}
-          </div>
+            <Search className="w-3 h-3 text-slate-500 group-hover:text-[#f0b90b] transition-colors hidden sm:inline" />
+          </button>
 
           {/* Universal Timeframe Dropdown (Replaces 8 buttons & mobile select) */}
           <div className="flex items-center space-x-1 bg-[#0b0e14] px-1.5 py-0.5 md:px-2 md:py-1 rounded-md border border-[#21262d] text-xs shrink-0">
@@ -294,134 +300,138 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
             )}
           </div>
 
-          {/* Multi-Chart Layouts (Desktop / Tablet) */}
-          <div className="hidden sm:flex items-center bg-[#0b0e14] p-0.5 rounded-lg border border-[#21262d]">
+          {/* Multi-Chart Layouts + Sync Toggles (Unified Clean Group) */}
+          <div className="hidden sm:flex items-center bg-[#0b0e14] p-0.5 rounded-lg border border-[#21262d] space-x-0.5">
             <button
               title="Single Chart"
               onClick={() => onLayoutChange('single')}
-              className={`p-1.5 rounded ${layout === 'single' ? 'bg-[#252d3d] text-[#f0b90b]' : 'text-slate-400 hover:text-white'}`}
+              className={`p-1.5 rounded transition-colors ${layout === 'single' ? 'bg-[#252d3d] text-[#f0b90b]' : 'text-slate-400 hover:text-white'}`}
             >
               <Square className="w-3.5 h-3.5" />
             </button>
             <button
-              title="Split Vertical"
+              title="Split Vertical (2 Chart)"
               onClick={() => onLayoutChange('split-vertical')}
-              className={`p-1.5 rounded ${layout === 'split-vertical' ? 'bg-[#252d3d] text-[#f0b90b]' : 'text-slate-400 hover:text-white'}`}
+              className={`p-1.5 rounded transition-colors ${layout === 'split-vertical' ? 'bg-[#252d3d] text-[#f0b90b]' : 'text-slate-400 hover:text-white'}`}
             >
               <Columns className="w-3.5 h-3.5" />
             </button>
             <button
-              title="Split Horizontal"
+              title="Split Horizontal (2 Chart)"
               onClick={() => onLayoutChange('split-horizontal')}
-              className={`p-1.5 rounded ${layout === 'split-horizontal' ? 'bg-[#252d3d] text-[#f0b90b]' : 'text-slate-400 hover:text-white'}`}
+              className={`p-1.5 rounded transition-colors ${layout === 'split-horizontal' ? 'bg-[#252d3d] text-[#f0b90b]' : 'text-slate-400 hover:text-white'}`}
             >
               <Rows className="w-3.5 h-3.5" />
             </button>
             <button
               title="Grid 4 Charts"
               onClick={() => onLayoutChange('grid-4')}
-              className={`p-1.5 rounded ${layout === 'grid-4' ? 'bg-[#252d3d] text-[#f0b90b]' : 'text-slate-400 hover:text-white'}`}
+              className={`p-1.5 rounded transition-colors ${layout === 'grid-4' ? 'bg-[#252d3d] text-[#f0b90b]' : 'text-slate-400 hover:text-white'}`}
             >
               <LayoutGrid className="w-3.5 h-3.5" />
             </button>
+
+            {/* Sync Toggles (Sleek Icon-Only Buttons inside Multi-Chart Group) */}
+            {layout !== 'single' && (
+              <>
+                <div className="w-[1px] h-3.5 bg-[#21262d] mx-0.5" />
+                {onToggleSyncCrosshair && (
+                  <button
+                    type="button"
+                    onClick={onToggleSyncCrosshair}
+                    title={syncCrosshair ? 'Sinkronisasi Kursor: AKTIF' : 'Sinkronisasi Kursor: NONAKTIF'}
+                    className={`p-1.5 rounded transition-all ${
+                      syncCrosshair
+                        ? 'bg-cyan-500/20 text-cyan-300'
+                        : 'text-slate-500 hover:text-slate-300'
+                    }`}
+                  >
+                    <Crosshair className={`w-3.5 h-3.5 ${syncCrosshair ? 'text-cyan-400' : 'text-slate-500'}`} />
+                  </button>
+                )}
+                {onToggleSyncSetup && (
+                  <button
+                    type="button"
+                    onClick={onToggleSyncSetup}
+                    title={syncSetup ? 'Sinkronisasi Setup Box: AKTIF' : 'Sinkronisasi Setup Box: NONAKTIF'}
+                    className={`p-1.5 rounded transition-all ${
+                      syncSetup
+                        ? 'bg-amber-500/20 text-amber-300'
+                        : 'text-slate-500 hover:text-slate-300'
+                    }`}
+                  >
+                    <Layers className={`w-3.5 h-3.5 ${syncSetup ? 'text-amber-400' : 'text-slate-500'}`} />
+                  </button>
+                )}
+              </>
+            )}
           </div>
 
-          {/* Crosshair Sync Toggle (Desktop) */}
-          {layout !== 'single' && onToggleSyncCrosshair && (
-            <button
-              type="button"
-              onClick={onToggleSyncCrosshair}
-              title="Sinkronisasi Kursor"
-              className={`hidden md:flex items-center space-x-1 px-2 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
-                syncCrosshair
-                  ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/40 shadow-sm'
-                  : 'bg-[#1a202c] hover:bg-[#252d3d] text-slate-400 border-[#2d3748]'
-              }`}
-            >
-              <Crosshair className={`w-3.5 h-3.5 ${syncCrosshair ? 'text-cyan-400' : 'text-slate-400'}`} />
-              <span className="hidden md:inline text-[11px] font-medium">Sync Kursor</span>
-            </button>
-          )}
-
-          {/* Setup Box Sync Toggle (Desktop) */}
-          {layout !== 'single' && onToggleSyncSetup && (
-            <button
-              type="button"
-              onClick={onToggleSyncSetup}
-              title="Sinkronisasi Setup Box"
-              className={`hidden md:flex items-center space-x-1 px-2 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
-                syncSetup
-                  ? 'bg-amber-500/15 text-amber-300 border-amber-500/40 shadow-sm'
-                  : 'bg-[#1a202c] hover:bg-[#252d3d] text-slate-400 border-[#2d3748]'
-              }`}
-            >
-              <Layers className={`w-3.5 h-3.5 ${syncSetup ? 'text-amber-400' : 'text-slate-400'}`} />
-              <span className="hidden md:inline text-[11px] font-medium">Sync Setup</span>
-            </button>
-          )}
-
-          {/* Desktop Live WS Status Badge */}
+          {/* Desktop Live WS Status (Minimalist Pulse Dot) */}
           <div 
             title={badge.title}
-            className={`hidden md:flex items-center space-x-1 px-2.5 py-1 rounded-md text-xs font-mono font-medium ${badge.className}`}
+            className="hidden md:flex items-center space-x-1 px-1.5 py-1 text-xs font-mono font-medium text-slate-300"
           >
             <span className={`w-2 h-2 rounded-full ${badge.dot}`}></span>
-            <span className="hidden xl:inline">{badge.label}</span>
+            <span className="hidden xl:inline text-[11px] font-mono text-slate-300">{badge.label}</span>
           </div>
 
-          {/* Desktop Toggle Dashboard Monitor */}
-          {onToggleDashboard && (
+          {/* Quick Tools & Utilities (Unified Pill Toolbar) */}
+          <div className="flex items-center bg-[#0b0e14] p-0.5 rounded-lg border border-[#21262d] space-x-0.5">
+            {/* Refresh */}
             <button
-              type="button"
-              onClick={onToggleDashboard}
-              title="Buka Dashboard Posisi & Order"
-              className={`hidden md:flex p-2 rounded-lg transition-all border ${
-                isDashboardOpen
-                  ? 'bg-[#1b2230] text-[#f0b90b] border-[#f0b90b]/50 shadow-sm'
-                  : 'bg-[#1a202c] hover:bg-[#252d3d] text-slate-300 hover:text-white border-[#2d3748]'
-              }`}
+              onClick={onRefresh}
+              disabled={isLoading}
+              title="Analisa Ulang Struktur"
+              className="p-1.5 rounded text-slate-400 hover:text-[#f0b90b] hover:bg-[#1a202c] transition-all disabled:opacity-50 cursor-pointer"
             >
-              <Activity className="w-4 h-4" />
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-[#f0b90b]' : ''}`} />
             </button>
-          )}
 
-          {/* Refresh Button (Visible on Mobile & Desktop) */}
-          <button
-            onClick={onRefresh}
-            disabled={isLoading}
-            title="Analisa Ulang Struktur"
-            className="p-1.5 md:p-2 rounded-md md:rounded-lg bg-[#1a202c] hover:bg-[#252d3d] text-slate-300 hover:text-[#f0b90b] transition-all border border-[#2d3748] disabled:opacity-50 shrink-0"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isLoading ? 'animate-spin text-[#f0b90b]' : ''}`} />
-          </button>
+            {/* Dashboard Posisi */}
+            {onToggleDashboard && (
+              <button
+                type="button"
+                onClick={onToggleDashboard}
+                title="Buka Dashboard Posisi & Order"
+                className={`p-1.5 rounded transition-all cursor-pointer ${
+                  isDashboardOpen
+                    ? 'bg-[#1b2230] text-[#f0b90b]'
+                    : 'text-slate-400 hover:text-white hover:bg-[#1a202c]'
+                }`}
+              >
+                <Activity className="w-3.5 h-3.5" />
+              </button>
+            )}
 
-          {/* Desktop Telegram Button */}
-          {onOpenTelegram && (
+            {/* Telegram */}
+            {onOpenTelegram && (
+              <button
+                type="button"
+                onClick={onOpenTelegram}
+                title={isTelegramActive ? "Notifikasi Telegram Aktif" : "Atur Notifikasi Telegram"}
+                className={`p-1.5 rounded transition-all relative cursor-pointer ${
+                  isTelegramActive
+                    ? 'text-[#0088cc] bg-[#0088cc]/10'
+                    : 'text-slate-400 hover:text-[#0088cc] hover:bg-[#1a202c]'
+                }`}
+              >
+                <Send className="w-3.5 h-3.5" />
+                {isTelegramActive && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#0088cc] animate-pulse absolute top-1 right-1" />
+                )}
+              </button>
+            )}
+
+            {/* Settings */}
             <button
-              type="button"
-              onClick={onOpenTelegram}
-              title={isTelegramActive ? "Notifikasi Telegram Aktif" : "Atur Notifikasi Telegram"}
-              className={`hidden md:flex p-2 rounded-lg transition-all border items-center gap-1 ${
-                isTelegramActive
-                  ? 'bg-[#0088cc]/15 text-[#0088cc] border-[#0088cc]/50 shadow-sm'
-                  : 'bg-[#1a202c] hover:bg-[#252d3d] text-slate-300 hover:text-[#0088cc] border-[#2d3748]'
-              }`}
+              onClick={onOpenSettings}
+              title="Pengaturan"
+              className="p-1.5 rounded text-slate-400 hover:text-[#f0b90b] hover:bg-[#1a202c] transition-all cursor-pointer"
             >
-              <Send className="w-4 h-4" />
-              {isTelegramActive && (
-                <span className="w-1.5 h-1.5 rounded-full bg-[#0088cc] animate-pulse" />
-              )}
+              <SettingsIcon className="w-3.5 h-3.5" />
             </button>
-          )}
-
-          {/* Desktop Settings Button */}
-          <button
-            onClick={onOpenSettings}
-            title="Pengaturan"
-            className="hidden md:flex p-2 rounded-lg bg-[#1a202c] hover:bg-[#252d3d] text-slate-300 hover:text-[#f0b90b] transition-all border border-[#2d3748]"
-          >
-            <SettingsIcon className="w-4 h-4" />
-          </button>
+          </div>
 
           {/* ================================================================= */}
           {/* Mobile Master Menu Button (Opens Full Mobile Action Sheet) */}
