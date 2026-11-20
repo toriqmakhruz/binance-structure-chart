@@ -370,31 +370,28 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
             : 'border-[#21262d]'
         }`}
       >
-        {/* Interactive Chart Header for multi-chart view */}
+        {/* Interactive Chart Header for multi-chart view (Dibuat Ringkes, Rapi & Kompak) */}
         {layout !== 'single' && (
-          <div className="h-7 sm:h-8 bg-[#161b22] px-1.5 sm:px-2.5 flex items-center justify-between text-[10px] sm:text-[11px] font-mono border-b border-[#21262d] z-20 shrink-0 select-none whitespace-nowrap gap-1">
-            <div className="flex items-center space-x-1 sm:space-x-1.5 min-w-0 shrink">
+          <div className="h-7 sm:h-8 bg-[#161b22] px-2 flex items-center justify-between text-[10px] sm:text-[11px] font-mono border-b border-[#21262d] z-20 shrink-0 select-none whitespace-nowrap gap-1.5">
+            {/* Left: Pane Badge + Symbol + Layers Dropdown */}
+            <div className="flex items-center space-x-1.5 min-w-0 shrink">
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation()
                   onSelectPane && onSelectPane(chartId)
                 }}
-                className={`text-[9px] sm:text-[10px] font-extrabold px-1 sm:px-1.5 py-0.5 rounded border transition-colors shrink-0 ${
+                className={`text-[9.5px] font-black px-1.5 py-0.5 rounded border transition-colors shrink-0 ${
                   isActive
-                    ? 'bg-amber-500 text-black border-amber-400 font-black shadow-sm'
+                    ? 'bg-amber-500 text-black border-amber-400 shadow-sm'
                     : 'bg-[#252d3d] text-[#f0b90b] border-amber-500/30 hover:border-amber-400'
                 }`}
-                title={`Klik untuk fokus ke ${paneTitle}`}
+                title={`Fokus ke ${paneTitle}`}
               >
-                <span className="sm:hidden">P{chartId.replace(/[^0-9]/g, '') || (chartId === 'chart-main' ? '1' : '1')}</span>
-                <span className="hidden sm:inline">{paneTitle}</span>
+                P{chartId.replace(/[^0-9]/g, '') || (chartId === 'chart-main' ? '1' : '1')}
               </button>
-              <span className="font-bold text-white tracking-wider text-[10px] sm:text-[11px] truncate max-w-[55px] sm:max-w-none">
+              <span className="font-extrabold text-white tracking-wider text-[11px] shrink-0">
                 {symbol}
-              </span>
-              <span className="text-[#00c087] font-bold hidden md:inline text-[10px]">
-                [{effectiveTf.toUpperCase()}]
               </span>
 
               {/* Dedicated Per-Pane Independent Layer Toggles */}
@@ -422,7 +419,7 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
               />
             </div>
 
-            {/* Timeframe selector & Crosshair/Setup Sync toggles for THIS pane */}
+            {/* Right: Sync Toggles (Icon Only) + Timeframe Dropdown */}
             <div className="flex items-center space-x-1 sm:space-x-1.5 shrink-0">
               {onToggleSyncCrosshair && (
                 <button
@@ -430,17 +427,16 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
                   onClick={onToggleSyncCrosshair}
                   title={
                     syncCrosshair
-                      ? 'Sinkronisasi Kursor: AKTIF (Kursor bergerak serempak di semua chart. Klik untuk mematikan)'
-                      : 'Sinkronisasi Kursor: NONAKTIF (Klik untuk mengaktifkan)'
+                      ? 'Sinkronisasi Kursor: AKTIF (Kursor bergerak serempak di semua chart)'
+                      : 'Sinkronisasi Kursor: NONAKTIF (Kursor independen)'
                   }
-                  className={`hidden sm:flex items-center space-x-1 px-1 sm:px-1.5 py-0.5 rounded border text-[9.5px] sm:text-[10px] font-bold transition-all shrink-0 ${
+                  className={`p-1 rounded border transition-all shrink-0 ${
                     syncCrosshair
-                      ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/40 shadow-sm'
+                      ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 shadow-sm'
                       : 'bg-[#0b0e14] text-slate-500 hover:text-slate-300 border-[#21262d]'
                   }`}
                 >
-                  <Crosshair className={`w-3 h-3 ${syncCrosshair ? 'text-cyan-400' : 'text-slate-500'}`} />
-                  <span className="hidden xl:inline">{syncCrosshair ? 'Sync ON' : 'Sync OFF'}</span>
+                  <Crosshair className={`w-3.5 h-3.5 ${syncCrosshair ? 'text-cyan-400' : 'text-slate-500'}`} />
                 </button>
               )}
 
@@ -450,45 +446,25 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
                   onClick={onToggleSyncSetup}
                   title={
                     syncSetup
-                      ? 'Sinkronisasi Setup Box: AKTIF (Semua chart mengikuti setup yang sama dari Pane 1. Klik untuk mode independen)'
-                      : 'Sinkronisasi Setup Box: NONAKTIF (Tiap chart mencari setup sendiri. Klik untuk sinkronkan)'
+                      ? 'Sinkronisasi Setup Box: AKTIF (Semua chart mengikuti setup yang sama)'
+                      : 'Sinkronisasi Setup Box: NONAKTIF (Setup independen)'
                   }
-                  className={`hidden sm:flex items-center space-x-1 px-1 sm:px-1.5 py-0.5 rounded border text-[9.5px] sm:text-[10px] font-bold transition-all shrink-0 ${
+                  className={`p-1 rounded border transition-all shrink-0 ${
                     syncSetup
-                      ? 'bg-amber-500/15 text-amber-300 border-amber-500/40 shadow-sm'
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm'
                       : 'bg-[#0b0e14] text-slate-500 hover:text-slate-300 border-[#21262d]'
                   }`}
                 >
-                  <Layers className={`w-3 h-3 ${syncSetup ? 'text-amber-400' : 'text-slate-500'}`} />
-                  <span className="hidden xl:inline">{syncSetup ? 'Setup Sync ON' : 'Setup Sync OFF'}</span>
+                  <Layers className={`w-3.5 h-3.5 ${syncSetup ? 'text-amber-400' : 'text-slate-500'}`} />
                 </button>
               )}
 
-              {/* Quick Timeframe Buttons (Only on large displays where width allows) */}
-              <div className="hidden lg:flex items-center space-x-0.5 bg-[#0b0e14] p-0.5 rounded border border-[#21262d] shrink-0">
-                {['1m', '5m', '15m', '1h', '4h'].map((tf) => (
-                  <button
-                    key={tf}
-                    type="button"
-                    onClick={() => handlePaneTfChange(chartId, tf)}
-                    title={`Ubah ${chartId} ke timeframe ${tf.toUpperCase()}`}
-                    className={`px-1.5 py-0.5 text-[9.5px] rounded font-bold transition-all ${
-                      effectiveTf.toLowerCase() === tf.toLowerCase()
-                        ? 'bg-[#f0b90b] text-black shadow-sm font-extrabold'
-                        : 'text-slate-400 hover:text-white hover:bg-[#1f2636]'
-                    }`}
-                  >
-                    {tf.toUpperCase()}
-                  </button>
-                ))}
-              </div>
-
-              {/* Timeframe Select Dropdown (Universal & Compact) */}
+              {/* Timeframe Select Dropdown (Ringkas, Rapi & Lengkap) */}
               <select
                 value={effectiveTf.toLowerCase()}
                 onChange={(e) => handlePaneTfChange(chartId, e.target.value)}
-                className="bg-[#0b0e14] text-[#f0b90b] font-bold text-[9.5px] sm:text-[10px] px-1 sm:px-1.5 py-0.5 rounded border border-[#21262d] outline-none cursor-pointer hover:border-amber-500/50 shrink-0"
-                title={`Pilih Timeframe ${chartId}`}
+                className="bg-[#0b0e14] text-[#f0b90b] font-bold text-[10px] px-1.5 py-0.5 rounded border border-[#21262d] outline-none cursor-pointer hover:border-amber-500/50 shrink-0 font-mono"
+                title={`Pilih Timeframe ${paneTitle}`}
               >
                 {TIMEFRAMES.map((tf) => (
                   <option key={tf} value={tf} className="bg-[#161b22] text-slate-200">

@@ -231,12 +231,12 @@ export const PaneLayerDropdown: React.FC<PaneLayerDropdownProps> = ({
         title={`Atur Indikator & Lapisan khusus untuk ${paneTitle}`}
       >
         <SlidersHorizontal className="w-3 h-3 text-[#f0b90b] shrink-0" />
-        <span className="hidden md:inline">Layers</span>
+        <span className="hidden 2xl:inline">Layers</span>
         <span className="px-1 py-0.2 rounded bg-[#161b22] text-[#f0b90b] text-[8.5px] sm:text-[9px] font-mono shrink-0">
           {activeCount}
         </span>
         <ChevronDown
-          className={`w-2.5 h-2.5 text-slate-400 transition-transform duration-150 hidden sm:inline shrink-0 ${
+          className={`w-2.5 h-2.5 text-slate-400 transition-transform duration-150 shrink-0 ${
             isOpen ? 'rotate-180 text-[#f0b90b]' : ''
           }`}
         />
