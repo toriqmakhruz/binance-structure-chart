@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
-import { Crosshair, Layers } from 'lucide-react'
+import { Crosshair, Layers, Search } from 'lucide-react'
 import { LightweightChart } from './LightweightChart'
 import { PaneLayerDropdown } from './PaneLayerDropdown'
 import { fetchAnalysis, defaultAppSettings } from '../../services/api'
@@ -274,6 +274,7 @@ interface ChartContainerProps {
   fundingRate?: FundingRateData | null
   onToggleLayer?: (key: keyof LayerVisibility) => void
   onTimeframeChange?: (tf: string) => void
+  onSymbolClick?: () => void
 }
 
 const TIMEFRAMES = ['1m', '3m', '5m', '15m', '30m', '1h', '4h', '1d']
@@ -324,7 +325,8 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
   openInterest,
   fundingRate,
   onToggleLayer,
-  onTimeframeChange
+  onTimeframeChange,
+  onSymbolClick
 }) => {
   const [paneTfs, setPaneTfs] = useState<Record<string, string>>(() => {
     try {
@@ -402,9 +404,21 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
                 P{chartId.replace(/[^0-9]/g, '') || (chartId === 'chart-main' ? '1' : '1')}
               </button>
             )}
-            <span className="font-extrabold text-white tracking-wider text-[11px] shrink-0">
-              {symbol}
-            </span>
+            {onSymbolClick ? (
+              <button
+                type="button"
+                onClick={onSymbolClick}
+                className="font-extrabold text-white hover:text-[#f0b90b] tracking-wider text-[11px] shrink-0 cursor-pointer flex items-center space-x-1 transition-colors"
+                title={`Koin aktif: ${symbol}. Klik untuk mencari / ganti koin`}
+              >
+                <span>{symbol}</span>
+                <Search className="w-2.5 h-2.5 text-slate-500 hover:text-[#f0b90b]" />
+              </button>
+            ) : (
+              <span className="font-extrabold text-white tracking-wider text-[11px] shrink-0">
+                {symbol}
+              </span>
+            )}
 
             {/* Dedicated Per-Pane Independent Layer Toggles */}
             <PaneLayerDropdown

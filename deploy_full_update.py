@@ -62,6 +62,15 @@ def deploy():
 
     print(f"\n[4/4] Ekstrak & rebuild kontainer Docker...")
     exec_cmd(f"mkdir -p {REMOTE_DIR} && tar -xzf {remote_archive} -C {REMOTE_DIR}")
+
+    # Synchronize sanitized user_preferences.json
+    if os.path.exists("backend/data/user_preferences.json"):
+        exec_cmd(f"mkdir -p {REMOTE_DIR}/data")
+        sftp2 = client.open_sftp()
+        sftp2.put("backend/data/user_preferences.json", f"{REMOTE_DIR}/data/user_preferences.json")
+        sftp2.close()
+        print("user_preferences.json valid disinkronkan ke VPS.")
+
     exit_code = exec_cmd("docker compose up -d --build", cwd=REMOTE_DIR)
 
     print("\n--- Status Kontainer ---")

@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { TopNavbar, StreamStatusType } from './components/Navigation/TopNavbar'
+import { LeftSidebar, StreamStatusType } from './components/Navigation/LeftSidebar'
 import { SymbolSelector } from './components/Navigation/SymbolSelector'
-import { DrawingToolbar } from './components/Chart/DrawingToolbar'
 import { ChartContainer } from './components/Chart/ChartContainer'
 import { RightSidebar } from './components/HUD/RightSidebar'
 import { SettingsDrawer } from './components/Settings/SettingsDrawer'
@@ -1173,55 +1172,50 @@ export function App() {
 
   return (
     <div className="flex flex-col h-full h-[100dvh] max-h-[100dvh] w-full overflow-hidden bg-[#0b0e14] text-slate-100 select-none">
-      {/* 1. Top Navbar */}
-      <TopNavbar
-        symbol={symbol}
-        timeframe={timeframe}
-        market={market}
-        layout={layout}
-        isConnected={isConnected}
-        streamStatus={streamStatus}
-        isLoading={isLoading}
+      {/* Main Workspace (Full-height chart with Left Sidebar) */}
+      <div className="flex flex-1 w-full min-h-0 overflow-hidden relative">
+        <LeftSidebar
+          symbol={symbol}
         lastPrice={lastCandle?.close}
-        activeSetup={activeSetupTarget}
-        isDashboardOpen={isDashboardDrawerOpen}
-        onToggleDashboard={() => setIsDashboardDrawerOpen((prev) => !prev)}
         onSymbolClick={() => setIsSymbolModalOpen(true)}
+        timeframe={timeframe}
         onTimeframeChange={handleTimeframeChange}
+        market={market}
         onMarketChange={handleMarketChange}
-        onLayoutChange={(l) => setLayout(l)}
-        onRefresh={() => loadAnalysis(symbol, timeframe, market, settings)}
-        onOpenSettings={() => setIsSettingsOpen(true)}
-        onOpenTelegram={() => setIsTelegramModalOpen(true)}
-        isTelegramActive={isTelegramActive}
-        onOpenTrade={handleOpenTrade}
-        isSetupLocked={Boolean(currentLockedSetup)}
-        onUnlockSetup={() => unlockSetup(symbol, 'Kunci box setup chart dilepas manual.')}
         setupMode={setupMode}
         onModeChange={handleSetupModeChange}
+        layout={layout}
+        onLayoutChange={(l) => setLayout(l)}
         syncCrosshair={syncCrosshair}
         onToggleSyncCrosshair={() => setSyncCrosshair((prev) => !prev)}
         syncSetup={syncSetup}
         onToggleSyncSetup={() => setSyncSetup((prev) => !prev)}
-        onCloudSync={handleManualCloudSync}
+        isSetupLocked={Boolean(currentLockedSetup)}
+        onUnlockSetup={() => unlockSetup(symbol, 'Kunci box setup chart dilepas manual.')}
+        activeSetup={activeSetupTarget}
+        onOpenTrade={handleOpenTrade}
+        activeTool={activeTool}
+        onSelectTool={(tool) => setActiveTool(tool)}
+        onClearAll={handleClearDrawings}
+        drawingCount={currentDrawings.length}
+        isLoading={isLoading}
+        onRefresh={() => loadAnalysis(symbol, timeframe, market, settings)}
+        isDashboardOpen={isDashboardDrawerOpen}
+        onToggleDashboard={() => setIsDashboardDrawerOpen((prev) => !prev)}
+        isTelegramActive={isTelegramActive}
+        onOpenTelegram={() => setIsTelegramModalOpen(true)}
         isCloudSyncing={isCloudSyncing}
+        onCloudSync={handleManualCloudSync}
+        onOpenSettings={() => setIsSettingsOpen(true)}
+        streamStatus={streamStatus}
       />
 
-      {/* 2. Main Workspace */}
-      <div className="flex flex-1 w-full min-h-0 overflow-hidden relative">
-        {/* Left: Drawing Toolbar */}
-        <DrawingToolbar
-          activeTool={activeTool}
-          onSelectTool={(tool) => setActiveTool(tool)}
-          onClearAll={handleClearDrawings}
-          drawingCount={currentDrawings.length}
-        />
-
-        {/* Center: Interactive Chart Workspace with Bottom Trading Dashboard */}
-        <main className="flex-1 h-full min-h-0 relative overflow-hidden bg-[#0b0e14] flex flex-col">
-          <div className="flex-1 w-full h-full min-h-0 relative overflow-hidden">
-            <ChartContainer
-              symbol={symbol}
+      {/* 2. Interactive Chart Workspace with Bottom Trading Dashboard */}
+      <main className="flex-1 h-full min-h-0 relative overflow-hidden bg-[#0b0e14] flex flex-col">
+        <div className="flex-1 w-full h-full min-h-0 relative overflow-hidden">
+          <ChartContainer
+            symbol={symbol}
+            onSymbolClick={() => setIsSymbolModalOpen(true)}
               timeframe={timeframe}
               market={market}
               settings={settings}
