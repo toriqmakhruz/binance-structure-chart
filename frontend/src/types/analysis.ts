@@ -474,7 +474,7 @@ export interface LockedTradeSetup {
   order_id?: number | string
   leverage?: number
   entry_time: number
-  status: 'ACTIVE'
+  status: 'ACTIVE' | 'PENDING_LIMIT'
   created_at: number
 }
 

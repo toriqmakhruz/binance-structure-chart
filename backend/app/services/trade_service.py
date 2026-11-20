@@ -1497,36 +1497,8 @@ class TradeService:
                     except Exception as a_err:
                         logger.warning(f"Error fetching openAlgoOrders in get_open_orders: {a_err}")
 
-                # Auto-OCO check: filter out and cancel orphaned exit brackets if position is 0
-                if market_clean == "futures" and formatted_orders:
-                    try:
-                        pos_signed = self._sign_payload({"symbol": sym_clean} if sym_clean else {}, api_secret)
-                        p_resp = await client.get(f"{base_url}/fapi/v2/positionRisk?{pos_signed}")
-                        if p_resp.status_code == 200:
-                            p_data = p_resp.json()
-                            active_syms = {p.get("symbol") for p in p_data if float(p.get("positionAmt", 0)) != 0}
-                            cleaned_orders = []
-                            for ord_item in formatted_orders:
-                                o_type_str = str(ord_item.get("type", "")).upper()
-                                is_exit_bracket = ord_item.get("is_algo") or any(t in o_type_str for t in ("STOP", "PROFIT", "TRAILING"))
-                                ord_sym = ord_item.get("symbol")
-                                if is_exit_bracket and ord_sym not in active_syms:
-                                    logger.info(f"[Auto-OCO] Filtered hanging bracket order #{ord_item.get('orderId')} for {ord_sym} (position is closed). Auto-cancelling on exchange...")
-                                    asyncio.create_task(
-                                        self.cancel_order(
-                                            symbol=ord_sym,
-                                            order_id=ord_item.get("orderId"),
-                                            market="futures",
-                                            mode=mode_clean,
-                                            api_key=api_key,
-                                            api_secret=api_secret
-                                        )
-                                    )
-                                else:
-                                    cleaned_orders.append(ord_item)
-                            formatted_orders = cleaned_orders
-                    except Exception as clean_err:
-                        logger.warning(f"Error checking active positions in get_open_orders: {clean_err}")
+                # In get_open_orders: simply return all open orders cleanly without side-effect deletions.
+                # True orphan order cleanup is safely handled by auto_clean_orphaned_brackets.
 
                 if resp.status_code == 200 or formatted_orders:
                     return {
@@ -1664,9 +1636,35 @@ class TradeService:
                         active_symbols.add(sym)
                         active_position_sides.add((sym, pside))
 
+                # 2. Query open standard orders to identify pending entry orders (e.g. LIMIT orders)
+                # CRITICAL: Pending LIMIT entry orders with pre-attached SL/TP brackets must NOT have
+                # their brackets deleted while waiting to be filled!
+                q_ord = {}
+                if symbol:
+                    q_ord["symbol"] = symbol.upper().strip()
+                signed_ord = self._sign_payload(q_ord, api_secret)
+                resp_ord = await client.get(f"{base_url}/fapi/v1/openOrders?{signed_ord}")
+                pending_entry_symbols = set()
+                pending_entry_sides = set()
+                raw_standard_orders = resp_ord.json() if resp_ord.status_code == 200 else []
+
+                for o in raw_standard_orders:
+                    is_reduce = bool(o.get("reduceOnly", False))
+                    is_close = bool(o.get("closePosition", False))
+                    # Any order that is NOT reduceOnly and NOT closePosition is an entry order!
+                    if not is_reduce and not is_close:
+                        osym = o.get("symbol")
+                        opside = o.get("positionSide", "BOTH")
+                        pending_entry_symbols.add(osym)
+                        pending_entry_sides.add((osym, opside))
+
+                # Combined protected set: symbols with active open positions OR pending entry orders
+                protected_symbols = active_symbols | pending_entry_symbols
+                protected_sides = active_position_sides | pending_entry_sides
+
                 cancelled = 0
 
-                # 2. Query open algo orders
+                # 3. Query open algo orders
                 q_algo = {}
                 if symbol:
                     q_algo["symbol"] = symbol.upper().strip()
@@ -1681,43 +1679,40 @@ class TradeService:
 
                         is_orphaned = False
                         if ao_pside == "BOTH":
-                            is_orphaned = (ao_sym not in active_symbols)
+                            is_orphaned = (ao_sym not in protected_symbols)
                         else:
-                            is_orphaned = ((ao_sym, ao_pside) not in active_position_sides)
+                            is_orphaned = ((ao_sym, ao_pside) not in protected_sides)
 
                         if is_orphaned and ao_id:
                             d_sign = self._sign_payload({"symbol": ao_sym, "algoId": ao_id}, api_secret)
                             del_resp = await client.delete(f"{base_url}/fapi/v1/algoOrder?{d_sign}")
                             if del_resp.status_code == 200:
                                 cancelled += 1
-                                logger.info(f"[Auto-OCO] Successfully cancelled orphaned algo order #{ao_id} ({ao_type}) for {ao_sym} (position closed).")
+                                logger.info(f"[Auto-OCO] Successfully cancelled orphaned algo order #{ao_id} ({ao_type}) for {ao_sym} (position & pending entry both closed).")
 
-                # 3. Query standard open orders
-                signed_ord = self._sign_payload(q_algo, api_secret)
-                resp_ord = await client.get(f"{base_url}/fapi/v1/openOrders?{signed_ord}")
-                if resp_ord.status_code == 200:
-                    for o in resp_ord.json():
-                        o_sym = o.get("symbol")
-                        o_id = o.get("orderId")
-                        o_pside = o.get("positionSide", "BOTH")
-                        o_type = str(o.get("type", "")).upper()
-                        is_reduce = bool(o.get("reduceOnly", False))
-                        is_close = bool(o.get("closePosition", False))
-                        is_cond = any(t in o_type for t in ("STOP", "PROFIT", "TRAILING"))
+                # 4. Clean orphaned standard orders
+                for o in raw_standard_orders:
+                    o_sym = o.get("symbol")
+                    o_id = o.get("orderId")
+                    o_pside = o.get("positionSide", "BOTH")
+                    o_type = str(o.get("type", "")).upper()
+                    is_reduce = bool(o.get("reduceOnly", False))
+                    is_close = bool(o.get("closePosition", False))
+                    is_cond = any(t in o_type for t in ("STOP", "PROFIT", "TRAILING"))
 
-                        if is_reduce or is_close or is_cond:
-                            is_orphaned = False
-                            if o_pside == "BOTH":
-                                is_orphaned = (o_sym not in active_symbols)
-                            else:
-                                is_orphaned = ((o_sym, o_pside) not in active_position_sides)
+                    if is_reduce or is_close or is_cond:
+                        is_orphaned = False
+                        if o_pside == "BOTH":
+                            is_orphaned = (o_sym not in protected_symbols)
+                        else:
+                            is_orphaned = ((o_sym, o_pside) not in protected_sides)
 
-                            if is_orphaned and o_id:
-                                d_sign = self._sign_payload({"symbol": o_sym, "orderId": o_id}, api_secret)
-                                del_resp = await client.delete(f"{base_url}/fapi/v1/order?{d_sign}")
-                                if del_resp.status_code == 200:
-                                    cancelled += 1
-                                    logger.info(f"[Auto-OCO] Successfully cancelled orphaned standard order #{o_id} ({o_type}) for {o_sym} (position closed).")
+                        if is_orphaned and o_id:
+                            d_sign = self._sign_payload({"symbol": o_sym, "orderId": o_id}, api_secret)
+                            del_resp = await client.delete(f"{base_url}/fapi/v1/order?{d_sign}")
+                            if del_resp.status_code == 200:
+                                cancelled += 1
+                                logger.info(f"[Auto-OCO] Successfully cancelled orphaned standard order #{o_id} ({o_type}) for {o_sym} (position & pending entry both closed).")
 
                 if cancelled > 0:
                     self._orders_cache.clear()
@@ -2008,12 +2003,26 @@ class TradeService:
 
                 raw_positions = pos_resp.json()
                 active_p = next((p for p in raw_positions if p.get("symbol") == sym_clean and float(p.get("positionAmt", 0)) != 0), None)
+                is_filled_pos = True
                 if not active_p:
-                    return {"success": False, "message": f"Tidak ditemukan posisi terbuka untuk {sym_clean} di Binance."}
+                    # Check if there is an active pending entry order (e.g. LIMIT order waiting to be filled)
+                    signed_ord_q = self._sign_payload({"symbol": sym_clean}, api_secret)
+                    ord_resp = await client.get(f"{base_url}/fapi/v1/openOrders?{signed_ord_q}")
+                    pending_entry = None
+                    if ord_resp.status_code == 200:
+                        raw_ords = ord_resp.json()
+                        pending_entry = next((o for o in raw_ords if not o.get("reduceOnly") and not o.get("closePosition")), None)
 
-                pos_amt = float(active_p.get("positionAmt", 0))
-                entry_side = "BUY" if pos_amt > 0 else "SELL"
-                final_qty = abs(pos_amt)
+                    if not pending_entry:
+                        return {"success": False, "message": f"Tidak ditemukan posisi terbuka atau order pending untuk {sym_clean} di Binance."}
+
+                    entry_side = pending_entry.get("side", "BUY")
+                    final_qty = float(pending_entry.get("origQty", 0))
+                    is_filled_pos = False
+                else:
+                    pos_amt = float(active_p.get("positionAmt", 0))
+                    entry_side = "BUY" if pos_amt > 0 else "SELL"
+                    final_qty = abs(pos_amt)
 
                 # 2. Get symbol rules for precision
                 rules = await self.get_symbol_rules(symbol=sym_clean, market="futures", mode=mode_clean)
@@ -2036,7 +2045,8 @@ class TradeService:
                     price_prec=price_prec,
                     qty_prec=qty_prec,
                     step_size=step_size,
-                    is_market_order=False
+                    is_market_order=False,
+                    is_filled=is_filled_pos
                 )
 
                 has_sl = "stop_loss" in bracket_results

@@ -2939,8 +2939,11 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
           ? `SL: $${formatPrice(invalidationPrice)} (-${lossPct.toFixed(1)}%)`
           : `SL: $${formatPrice(invalidationPrice)} (-${lossPct.toFixed(2)}%)`
 
+        const isPending = sc.name?.includes('Pending') || sc.name?.includes('PENDING') || sc.status === 'PENDING_LIMIT'
         const entryText = isLocked
-          ? `🔒 ${isLong ? 'BUY' : 'SELL'}: $${formatPrice(entryPrice)}`
+          ? (isPending
+              ? `⏳ LIMIT ${isLong ? 'BUY' : 'SELL'}: $${formatPrice(entryPrice)} (PENDING)`
+              : `🔒 ${isLong ? 'BUY' : 'SELL'}: $${formatPrice(entryPrice)}`)
           : `ENTRY: $${formatPrice(entryPrice)}${isCompact ? '' : ` (1:${sc.risk_reward_ratio})`}`
 
         // Hitung Y posisi vertikal masing-masing badge di kanan luar kotak

@@ -17,6 +17,7 @@ import { ErrorBoundary } from './components/UI/ErrorBoundary'
 import {
   fetchAnalysis,
   fetchOpenPositions,
+  fetchOpenOrders,
   fetchServerCredentials,
   saveServerCredentials,
   fetchUserPreferences,
@@ -870,7 +871,7 @@ export function App() {
     if (currentLockedSetup) {
       const lockedScenario: ForecastScenario = {
         id: `locked_${currentLockedSetup.symbol}`,
-        name: `${currentLockedSetup.name || 'Setup Posisi Terkunci'} [TERKUNCI]`,
+        name: `${currentLockedSetup.name || 'Setup Posisi'} [${currentLockedSetup.status === 'PENDING_LIMIT' ? 'PENDING LIMIT' : 'TERKUNCI'}]`,
         direction: currentLockedSetup.direction,
         status: 'VALID_ENTRY',
         is_valid: true,
@@ -957,7 +958,7 @@ export function App() {
     }
     window.addEventListener('cp_locked_setups_reconciled', handleReconcile)
 
-    // Periodic check: Auto-sync active positions onto chart AND cleanly release closed setups
+    // Periodic check: Auto-sync active positions & pending limit orders onto chart
     const syncPositionsWithChart = async () => {
       try {
         const credsRaw = localStorage.getItem('cp_trade_credentials')
@@ -966,34 +967,54 @@ export function App() {
         const key = mode === 'live' ? creds.liveApiKey : creds.demoApiKey
         const secret = mode === 'live' ? creds.liveApiSecret : creds.demoApiSecret
 
-        const res = await fetchOpenPositions(market, mode, key, secret)
-        if (res && res.success && Array.isArray(res.positions)) {
-          const activeSyms = new Set(
-            res.positions
-              .filter((p: any) => Number(p.positionAmt || 0) !== 0)
-              .map((p: any) => (p.symbol || '').toUpperCase())
-          )
+        const [res, ordRes] = await Promise.all([
+          fetchOpenPositions(market, mode, key, secret),
+          fetchOpenOrders(market, mode, key, secret)
+        ])
 
-          // Clean up manually unlocked set for symbols that no longer have positions
-          for (const s of manuallyUnlockedRef.current) {
-            if (!activeSyms.has(s)) {
-              manuallyUnlockedRef.current.delete(s)
-            }
+        const activePositions = (res && res.success && Array.isArray(res.positions)) ? res.positions : []
+        const openOrders = (ordRes && ordRes.success && Array.isArray(ordRes.orders)) ? ordRes.orders : []
+
+        const activeFilledSyms = new Set(
+          activePositions
+            .filter((p: any) => Number(p.positionAmt || 0) !== 0)
+            .map((p: any) => (p.symbol || '').toUpperCase())
+        )
+
+        // Identify pending entry orders (orders that are NOT reduceOnly / closePosition)
+        const pendingEntryOrders = openOrders.filter((o: any) => {
+          const isExit = Boolean(o.reduceOnly || o.closePosition || o.is_algo || String(o.type || '').includes('STOP') || String(o.type || '').includes('PROFIT'))
+          return !isExit && o.status === 'NEW'
+        })
+
+        const activeOrderSyms = new Set(
+          pendingEntryOrders.map((o: any) => (o.symbol || '').toUpperCase())
+        )
+
+        const allActiveSyms = new Set([...activeFilledSyms, ...activeOrderSyms])
+
+        // Clean up manually unlocked set for symbols that no longer have positions or orders
+        for (const s of manuallyUnlockedRef.current) {
+          if (!allActiveSyms.has(s)) {
+            manuallyUnlockedRef.current.delete(s)
           }
+        }
 
-          setLockedSetups((prev) => {
-            let changed = false
-            const next = { ...prev }
+        setLockedSetups((prev) => {
+          let changed = false
+          const next = { ...prev }
 
-            // A. Auto-sync active position into locked setup if not yet present and not manually unlocked
-            for (const pos of res.positions) {
-              const symUpper = (pos.symbol || '').toUpperCase()
-              const amt = Number(pos.positionAmt || 0)
-              if (symUpper && amt !== 0 && !next[symUpper] && !manuallyUnlockedRef.current.has(symUpper)) {
-                const isLong = amt > 0 || pos.side === 'LONG'
-                const entryP = Number(pos.entryPrice || 0)
-                const rawSl = Number(pos.stopLoss || 0)
-                const rawTp = Number(pos.takeProfit || 0)
+          // 1. Auto-sync active filled positions into locked setup
+          for (const pos of activePositions) {
+            const symUpper = (pos.symbol || '').toUpperCase()
+            const amt = Number(pos.positionAmt || 0)
+            if (symUpper && amt !== 0 && !manuallyUnlockedRef.current.has(symUpper)) {
+              const isLong = amt > 0 || pos.side === 'LONG'
+              const entryP = Number(pos.entryPrice || 0)
+              const rawSl = Number(pos.stopLoss || 0)
+              const rawTp = Number(pos.takeProfit || 0)
+
+              if (!next[symUpper]) {
                 const slP = rawSl > 0 ? rawSl : (isLong ? entryP * 0.985 : entryP * 1.015)
                 const tpP = rawTp > 0 ? rawTp : (isLong ? entryP * 1.03 : entryP * 0.97)
 
@@ -1014,20 +1035,64 @@ export function App() {
                   created_at: Date.now()
                 }
                 changed = true
+              } else if (next[symUpper].status === 'PENDING_LIMIT') {
+                // Transition from PENDING_LIMIT to ACTIVE once position filled on Binance!
+                next[symUpper] = {
+                  ...next[symUpper],
+                  status: 'ACTIVE',
+                  name: 'Setup Posisi Aktif',
+                  entry_price: entryP > 0 ? entryP : next[symUpper].entry_price,
+                  invalidation_price: rawSl > 0 ? rawSl : next[symUpper].invalidation_price,
+                  target_price: rawTp > 0 ? rawTp : next[symUpper].target_price
+                }
+                changed = true
               }
             }
+          }
 
-            // B. Box tetap terkunci aman dan tidak dihapus sembarangan oleh timer 10 detik.
-            // Pelepasan kunci (unlock) hanya dilakukan ketika posisi ditutup di dashboard,
-            // menyentuh target TP/SL, atau dilepas manual oleh user via tombol buka kunci di TopNavbar.
+          // 2. Auto-sync pending entry orders (e.g. LIMIT orders) if not already tracked
+          for (const ord of pendingEntryOrders) {
+            const symUpper = (ord.symbol || '').toUpperCase()
+            if (symUpper && !activeFilledSyms.has(symUpper) && !manuallyUnlockedRef.current.has(symUpper)) {
+              if (!next[symUpper]) {
+                const isLong = ord.side === 'BUY'
+                const entryP = Number(ord.price || 0)
+                if (entryP > 0) {
+                  // Search for associated trigger bracket orders in openOrders
+                  const slOrd = openOrders.find((o: any) => (o.symbol || '').toUpperCase() === symUpper && String(o.type || '').includes('STOP'))
+                  const tpOrd = openOrders.find((o: any) => (o.symbol || '').toUpperCase() === symUpper && String(o.type || '').includes('PROFIT'))
+                  const rawSl = Number(slOrd?.stopPrice || 0)
+                  const rawTp = Number(tpOrd?.stopPrice || 0)
+                  const slP = rawSl > 0 ? rawSl : (isLong ? entryP * 0.985 : entryP * 1.015)
+                  const tpP = rawTp > 0 ? rawTp : (isLong ? entryP * 1.03 : entryP * 0.97)
 
-            if (changed) {
-              writeStorage('cp_locked_trade_setups', next)
-              return next
+                  next[symUpper] = {
+                    symbol: symUpper,
+                    market: market,
+                    mode: mode,
+                    direction: isLong ? 'LONG' : 'SHORT',
+                    name: `Setup Limit Pending [${ord.side}]`,
+                    entry_price: entryP,
+                    invalidation_price: slP,
+                    target_price: tpP,
+                    risk_reward_ratio: 2.0,
+                    order_id: ord.orderId,
+                    entry_time: ord.time || Math.floor(Date.now() / 1000),
+                    status: 'PENDING_LIMIT',
+                    created_at: Date.now()
+                  }
+                  changed = true
+                }
+              }
             }
-            return prev
-          })
-        }
+          }
+
+          if (changed) {
+            writeStorage('cp_locked_trade_setups', next)
+            return next
+          }
+          return prev
+        })
       } catch {}
     }
 
@@ -1078,6 +1143,9 @@ export function App() {
 
     // Grace period 10 detik: cegah auto-unlock instan saat baru klik Open Posisi
     if (Date.now() - (currentLockedSetup.created_at || 0) < 10000) return
+
+    // Jangan auto-unlock TP/SL jika order masih berupa pending LIMIT yang belum terisi (FILLED)!
+    if (currentLockedSetup.status === 'PENDING_LIMIT') return
 
     const isLong = currentLockedSetup.direction === 'LONG'
 
@@ -1391,7 +1459,9 @@ export function App() {
             market: (orderRes.market as any) || selectedTradeTarget?.market || market,
             mode: (orderRes.mode as any) || 'demo',
             direction: dir,
-            name: selectedTradeTarget?.name || 'Setup Posisi Aktif',
+            name: (orderRes.type === 'LIMIT' && orderRes.status === 'NEW')
+              ? `Setup Limit Pending [${dir}]`
+              : (selectedTradeTarget?.name || 'Setup Posisi Aktif'),
             entry_price: entryP,
             invalidation_price: slP,
             target_price: tpP,
@@ -1400,7 +1470,7 @@ export function App() {
             order_id: orderRes.order_id,
             leverage: orderRes.leverage || 10,
             entry_time: lastCandle?.time || Math.floor(Date.now() / 1000),
-            status: 'ACTIVE',
+            status: (orderRes.type === 'LIMIT' && orderRes.status === 'NEW') ? 'PENDING_LIMIT' : 'ACTIVE',
             created_at: Date.now()
           })
 
