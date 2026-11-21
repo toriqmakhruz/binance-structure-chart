@@ -538,3 +538,30 @@ async def get_market_liquidity_matrix(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Gagal mengambil data buku order riil Binance: {str(e)}"
         )
+
+
+@router.get("/market/xray")
+async def get_market_xray(
+    symbol: str = Query("BTCUSDT", description="Trading pair symbol"),
+    market: str = Query("futures", description="Market type ('futures' or 'spot')")
+):
+    """
+    Market X-Ray Engine (Big Data Stop Loss & Liquidity Radar):
+    - Dissects order book L2 into Whale vs Retail ticket clusters
+    - Computes real mathematical forced stop loss / liquidation pools
+    - Analyzes Top Trader LS ratio, Global LS ratio, Open Interest & Taker aggression
+    - Returns real-time Squeeze Hunting intent, confidence %, and Whale Fortress walls
+    """
+    from ..services.market_xray_service import market_xray_service
+    try:
+        return await market_xray_service.get_market_xray(
+            symbol=symbol,
+            market=market
+        )
+    except Exception as e:
+        logger.error(f"Error generating market xray: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Gagal mengambil telemetry Market X-Ray: {str(e)}"
+        )
+

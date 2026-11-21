@@ -50,6 +50,7 @@ interface SubChartProps {
   openInterest?: OpenInterestData | null
   fundingRate?: FundingRateData | null
   onToggleLayer?: (key: keyof LayerVisibility) => void
+  onOpenLiquidityMatrix?: () => void
 }
 
 const SubTimeframeChart: React.FC<SubChartProps> = ({
@@ -68,6 +69,7 @@ const SubTimeframeChart: React.FC<SubChartProps> = ({
   orderflowSettings,
   marketSessionSettings,
   onOpenMarketSessionSettings,
+  onOpenLiquidityMatrix,
   trendStrength,
   activeTool,
   onSelectTool,
@@ -234,6 +236,7 @@ const SubTimeframeChart: React.FC<SubChartProps> = ({
       fundingRate={data?.funding_rate || fundingRate}
       market={market}
       onToggleLayer={onToggleLayer}
+      onOpenLiquidityMatrix={onOpenLiquidityMatrix}
     />
   )
 }
@@ -554,6 +557,7 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
               openInterest={openInterest}
               fundingRate={fundingRate}
               market={market}
+              onOpenLiquidityMatrix={onOpenLiquidityMatrix}
               onToggleLayer={(key) => {
                 if (onTogglePaneLayer) {
                   onTogglePaneLayer(chartId === 'chart-main' ? 'chart-1' : chartId, key)
@@ -580,6 +584,7 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
               orderflowSettings={orderflowSettings}
               marketSessionSettings={marketSessionSettings}
               onOpenMarketSessionSettings={onOpenMarketSessionSettings}
+              onOpenLiquidityMatrix={onOpenLiquidityMatrix}
               trendStrength={trendStrength}
               activeTool={activeTool}
               onSelectTool={onSelectTool}

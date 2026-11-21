@@ -22,7 +22,8 @@ import {
   ShieldCheck,
   Zap,
   TrendingUp,
-  Database
+  Database,
+  Radar
 } from 'lucide-react'
 
 interface PaneLayerDropdownProps {
@@ -89,6 +90,14 @@ export const PaneLayerDropdown: React.FC<PaneLayerDropdownProps> = ({
 
   const layerOptions: LayerOption[] = [
     // 1. KATEGORI 1: INDIKATOR INSTITUSIONAL (Smart Money, Order Flow & Market Structure)
+    {
+      key: 'marketXray' as keyof LayerVisibility,
+      category: 'institusional',
+      label: 'Market X-Ray (Stop Loss & Whale Radar)',
+      desc: 'Radar jeroan orderbook: Squeeze Magnet, SL Cascade & Whale Walls',
+      icon: <Radar className="w-3.5 h-3.5" />,
+      color: 'text-rose-400'
+    },
     {
       key: 'anchoredVwap' as keyof LayerVisibility,
       category: 'institusional',

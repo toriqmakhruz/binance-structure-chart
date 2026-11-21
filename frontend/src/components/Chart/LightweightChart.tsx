@@ -25,7 +25,9 @@ import { AutoFibSettings, DEFAULT_AUTO_FIB_SETTINGS } from '../../types/fibonacc
 import { VolumeProfileSettings, DEFAULT_VOLUME_PROFILE_SETTINGS } from '../../types/volumeProfile'
 import { OrderflowSettings, DEFAULT_ORDERFLOW_SETTINGS } from '../../types/orderflow'
 import { formatPrice, getPricePrecision, formatOpenInterestValue, formatOpenInterest } from '../../utils/formatters'
-import { Crosshair, Clock, Trash2, Move, Palette, Check, X, Sliders, Gauge, ChevronDown } from 'lucide-react'
+import { Crosshair, Clock, Trash2, Move, Palette, Check, X, Sliders, Gauge, ChevronDown, Radar, Activity } from 'lucide-react'
+import { fetchMarketXray } from '../../services/api'
+import { MarketXrayData } from '../../types/marketXray'
 import { OpenInterestPane } from './OpenInterestPane'
 import { FundingRatePane } from './FundingRatePane'
 import {
@@ -72,6 +74,7 @@ interface LightweightChartProps {
   fundingRate?: FundingRateData | null
   market?: 'spot' | 'futures'
   onToggleLayer?: (key: keyof LayerVisibility) => void
+  onOpenLiquidityMatrix?: () => void
 }
 
 export const LightweightChart: React.FC<LightweightChartProps> = ({
@@ -90,6 +93,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
   orderflowSettings,
   marketSessionSettings,
   onOpenMarketSessionSettings,
+  onOpenLiquidityMatrix,
   trendStrength,
   activeTool,
   onSelectTool,
@@ -239,6 +243,53 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
       return next
     })
   }, [])
+
+  // Market X-Ray Big Data State & Auto-Poll
+  const [xrayData, setXrayData] = useState<MarketXrayData | null>(null)
+  const [isXrayCardCollapsed, setIsXrayCardCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('cp_xray_collapsed') === 'true'
+    } catch {
+      return false
+    }
+  })
+
+  const toggleXrayCard = useCallback(() => {
+    setIsXrayCardCollapsed((prev) => {
+      const next = !prev
+      try {
+        localStorage.setItem('cp_xray_collapsed', String(next))
+      } catch {}
+      return next
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!visibility.marketXray) {
+      setXrayData(null)
+      return
+    }
+    let isMounted = true
+
+    const loadXray = async () => {
+      try {
+        const data = await fetchMarketXray(symbol, market || 'futures')
+        if (isMounted) {
+          setXrayData(data)
+        }
+      } catch (err) {
+        console.warn('Market X-Ray fetch failed:', err)
+      }
+    }
+
+    loadXray()
+    const timer = setInterval(loadXray, 6000)
+    return () => {
+      isMounted = false
+      clearInterval(timer)
+    }
+  }, [visibility.marketXray, symbol, market])
+
 
   // 1. Initialize Chart
   useEffect(() => {
@@ -2100,6 +2151,163 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         ctx.fillStyle = isBearTrap ? '#a7f3d0' : '#fecdd3'
         ctx.fillText(badgeTxt, badgeX + 6, badgeY + 11.5)
       })
+      ctx.restore()
+    }
+
+    // 0.11. Market X-Ray: Big Data Stop Loss Pools & Whale Fortress Walls
+    if (visibility.marketXray && xrayData) {
+      ctx.save()
+      const maxChartX = Math.max(40, width - 68)
+
+      // 1. Short Stop Loss Squeeze Corridor (Magnet di Atas Harga Saat Ini)
+      const shortSl = xrayData.stop_loss_pools?.short_sl_magnet
+      if (shortSl && shortSl.price > 0) {
+        const yShort = series.priceToCoordinate(shortSl.price)
+        if (yShort !== null && yShort >= -10 && yShort <= height + 10) {
+          // Corridor glowing background
+          ctx.fillStyle = 'rgba(244, 63, 94, 0.08)'
+          ctx.fillRect(0, yShort - 8, maxChartX, 16)
+
+          // Magnetic dashed line
+          ctx.beginPath()
+          ctx.setLineDash([6, 3])
+          ctx.strokeStyle = '#f43f5e'
+          ctx.lineWidth = 1.4
+          ctx.globalAlpha = 0.85
+          ctx.moveTo(0, yShort)
+          ctx.lineTo(maxChartX, yShort)
+          ctx.stroke()
+          ctx.setLineDash([])
+
+          // Floating Squeeze Target Badge
+          ctx.globalAlpha = 1.0
+          ctx.font = 'bold 9.5px monospace'
+          const isHunting = xrayData.telemetry?.intent === 'HUNTING_SHORT_SL'
+          const tagTxt = `🧲 SHORT SL MAGNET: $${shortSl.price.toLocaleString()} | ~$${(shortSl.est_usd / 1e6).toFixed(1)}M (${shortSl.distance_pct > 0 ? '+' : ''}${shortSl.distance_pct}%)${isHunting ? ' 🔥 [SQUEEZE TARGET]' : ''}`
+          const tagW = ctx.measureText(tagTxt).width + 14
+          const tagH = 17
+          const tagX = Math.max(10, maxChartX - tagW - 8)
+          const tagY = Math.max(6, Math.min(height - 24, yShort - 8.5))
+
+          ctx.fillStyle = isHunting ? 'rgba(159, 18, 57, 0.95)' : 'rgba(30, 9, 15, 0.92)'
+          ctx.fillRect(tagX, tagY, tagW, tagH)
+          ctx.strokeStyle = isHunting ? '#fb7185' : '#f43f5e'
+          ctx.lineWidth = 1.2
+          ctx.strokeRect(tagX, tagY, tagW, tagH)
+
+          ctx.fillStyle = '#ffe4e6'
+          ctx.fillText(tagTxt, tagX + 7, tagY + 12)
+        }
+      }
+
+      // 2. Long Stop Loss Cascade Corridor (Magnet di Bawah Harga Saat Ini)
+      const longSl = xrayData.stop_loss_pools?.long_sl_cascade
+      if (longSl && longSl.price > 0) {
+        const yLong = series.priceToCoordinate(longSl.price)
+        if (yLong !== null && yLong >= -10 && yLong <= height + 10) {
+          // Corridor glowing background
+          ctx.fillStyle = 'rgba(16, 185, 129, 0.08)'
+          ctx.fillRect(0, yLong - 8, maxChartX, 16)
+
+          // Magnetic dashed line
+          ctx.beginPath()
+          ctx.setLineDash([6, 3])
+          ctx.strokeStyle = '#10b981'
+          ctx.lineWidth = 1.4
+          ctx.globalAlpha = 0.85
+          ctx.moveTo(0, yLong)
+          ctx.lineTo(maxChartX, yLong)
+          ctx.stroke()
+          ctx.setLineDash([])
+
+          // Floating Cascade Target Badge
+          ctx.globalAlpha = 1.0
+          ctx.font = 'bold 9.5px monospace'
+          const isHunting = xrayData.telemetry?.intent === 'HUNTING_LONG_SL'
+          const tagTxt = `🧲 LONG SL CASCADE: $${longSl.price.toLocaleString()} | ~$${(longSl.est_usd / 1e6).toFixed(1)}M (${longSl.distance_pct > 0 ? '+' : ''}${longSl.distance_pct}%)${isHunting ? ' 🩸 [FLUSH TARGET]' : ''}`
+          const tagW = ctx.measureText(tagTxt).width + 14
+          const tagH = 17
+          const tagX = Math.max(10, maxChartX - tagW - 8)
+          const tagY = Math.max(6, Math.min(height - 24, yLong - 8.5))
+
+          ctx.fillStyle = isHunting ? 'rgba(6, 78, 59, 0.95)' : 'rgba(6, 44, 30, 0.92)'
+          ctx.fillRect(tagX, tagY, tagW, tagH)
+          ctx.strokeStyle = isHunting ? '#34d399' : '#10b981'
+          ctx.lineWidth = 1.2
+          ctx.strokeRect(tagX, tagY, tagW, tagH)
+
+          ctx.fillStyle = '#d1fae5'
+          ctx.fillText(tagTxt, tagX + 7, tagY + 12)
+        }
+      }
+
+      // 3. Whale Fortress Walls (Dinding Beli & Jual Paus Terbesar >= $50k)
+      const bidWall = xrayData.whale_fortress?.top_bid_wall
+      if (bidWall && bidWall.price > 0 && bidWall.usd_value > 0) {
+        const yBid = series.priceToCoordinate(bidWall.price)
+        if (yBid !== null && yBid >= -10 && yBid <= height + 10) {
+          ctx.beginPath()
+          ctx.setLineDash([2, 4])
+          ctx.strokeStyle = '#06b6d4'
+          ctx.lineWidth = 1.2
+          ctx.globalAlpha = 0.8
+          ctx.moveTo(0, yBid)
+          ctx.lineTo(maxChartX, yBid)
+          ctx.stroke()
+          ctx.setLineDash([])
+
+          ctx.globalAlpha = 1.0
+          ctx.font = 'bold 9px monospace'
+          const wallTxt = `🐋 WHALE BID WALL: $${bidWall.price.toLocaleString()} ($${(bidWall.usd_value / 1e6).toFixed(1)}M limit)`
+          const wallW = ctx.measureText(wallTxt).width + 10
+          const wallH = 15
+          const wallX = Math.max(10, maxChartX - wallW - 8)
+          const wallY = Math.max(6, Math.min(height - 20, yBid - 7.5))
+
+          ctx.fillStyle = 'rgba(8, 47, 73, 0.90)'
+          ctx.fillRect(wallX, wallY, wallW, wallH)
+          ctx.strokeStyle = '#06b6d4'
+          ctx.lineWidth = 1.0
+          ctx.strokeRect(wallX, wallY, wallW, wallH)
+
+          ctx.fillStyle = '#bae6fd'
+          ctx.fillText(wallTxt, wallX + 5, wallY + 11)
+        }
+      }
+
+      const askWall = xrayData.whale_fortress?.top_ask_wall
+      if (askWall && askWall.price > 0 && askWall.usd_value > 0) {
+        const yAsk = series.priceToCoordinate(askWall.price)
+        if (yAsk !== null && yAsk >= -10 && yAsk <= height + 10) {
+          ctx.beginPath()
+          ctx.setLineDash([2, 4])
+          ctx.strokeStyle = '#f59e0b'
+          ctx.lineWidth = 1.2
+          ctx.globalAlpha = 0.8
+          ctx.moveTo(0, yAsk)
+          ctx.lineTo(maxChartX, yAsk)
+          ctx.stroke()
+          ctx.setLineDash([])
+
+          ctx.globalAlpha = 1.0
+          ctx.font = 'bold 9px monospace'
+          const wallTxt = `🐋 WHALE ASK WALL: $${askWall.price.toLocaleString()} ($${(askWall.usd_value / 1e6).toFixed(1)}M limit)`
+          const wallW = ctx.measureText(wallTxt).width + 10
+          const wallH = 15
+          const wallX = Math.max(10, maxChartX - wallW - 8)
+          const wallY = Math.max(6, Math.min(height - 20, yAsk - 7.5))
+
+          ctx.fillStyle = 'rgba(69, 26, 3, 0.90)'
+          ctx.fillRect(wallX, wallY, wallW, wallH)
+          ctx.strokeStyle = '#f59e0b'
+          ctx.lineWidth = 1.0
+          ctx.strokeRect(wallX, wallY, wallW, wallH)
+
+          ctx.fillStyle = '#fde68a'
+          ctx.fillText(wallTxt, wallX + 5, wallY + 11)
+        }
+      }
+
       ctx.restore()
     }
 
@@ -4156,7 +4364,9 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     candles,
     autoFibSettings,
     vpvrSettings,
-    orderflowSettings
+    orderflowSettings,
+    visibility.marketXray,
+    xrayData
   ])
 
   // Always update the ref with the latest redraw function
@@ -4758,6 +4968,111 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
             )}
           </div>
         )}
+
+        {/* Floating Market X-Ray: Big Data Stop Loss Radar (Pojok Kiri Bawah Sesi Pasar) */}
+        {visibility.marketXray && xrayData && (
+          <div
+            className={`absolute ${
+              visibility.marketSessions && (sessionSettings.showHudBar ?? true)
+                ? 'top-10 sm:top-11'
+                : 'top-2'
+            } left-2 sm:left-4 z-20 bg-[#0d1117]/94 border border-rose-900/50 backdrop-blur-md rounded-lg shadow-2xl p-2 select-none font-mono text-[10px] w-64 sm:w-72 pointer-events-auto transition-all`}
+          >
+            {/* Header Row */}
+            <div
+              className="flex items-center justify-between pb-1.5 border-b border-[#21262d] cursor-pointer group/hdr"
+              onClick={toggleXrayCard}
+              title={isXrayCardCollapsed ? 'Klik untuk membuka rincian Market X-Ray' : 'Klik untuk meminimalkan'}
+            >
+              <div className="flex items-center space-x-1.5">
+                <Radar className="w-3.5 h-3.5 text-rose-400 animate-pulse" />
+                <span className="font-bold text-white text-[10.5px]">Market X-Ray Radar</span>
+              </div>
+              <div className="flex items-center space-x-1.5">
+                <span
+                  className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                    xrayData.telemetry.intent === 'HUNTING_SHORT_SL'
+                      ? 'bg-rose-950/80 text-rose-300 border border-rose-800/60'
+                      : xrayData.telemetry.intent === 'HUNTING_LONG_SL'
+                      ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-800/60'
+                      : 'bg-slate-800 text-slate-300 border border-slate-700'
+                  }`}
+                >
+                  {xrayData.telemetry.confidence}% Conf
+                </span>
+                <ChevronDown
+                  className={`w-3 h-3 text-slate-400 group-hover/hdr:text-white transition-transform ${
+                    isXrayCardCollapsed ? '-rotate-90' : ''
+                  }`}
+                />
+              </div>
+            </div>
+
+            {!isXrayCardCollapsed ? (
+              <div className="space-y-1.5 mt-1.5">
+                {/* Intent Description Banner */}
+                <div className="bg-[#161b22] p-1.5 rounded border border-[#21262d] text-slate-300 leading-snug">
+                  <div className="text-[9px] font-bold text-rose-400 mb-0.5 flex items-center justify-between">
+                    <span>
+                      {xrayData.telemetry.intent === 'HUNTING_SHORT_SL' && '🔥 BERBURU SHORT STOP LOSS'}
+                      {xrayData.telemetry.intent === 'HUNTING_LONG_SL' && '🩸 PEMBANTAIAN LONG STOP LOSS'}
+                      {xrayData.telemetry.intent === 'WHALE_BUY_WALL_DEFENSE' && '🛡️ PERTAHANAN TEMBOK PAUS'}
+                      {xrayData.telemetry.intent === 'WHALE_SELL_WALL_PRESSURE' && '🧱 TEKANAN TEMBOK JUAL'}
+                      {xrayData.telemetry.intent === 'NEUTRAL_ACCUMULATION' && '⚖️ KONSOLIDASI NETRAL'}
+                    </span>
+                  </div>
+                  <p className="text-[9.5px] text-slate-300">{xrayData.telemetry.intent_description}</p>
+                </div>
+
+                {/* Whale vs Retail Comparison Bar */}
+                <div className="space-y-0.5">
+                  <div className="flex justify-between text-[9px] text-slate-400">
+                    <span>Paus: <strong className="text-emerald-400">{xrayData.telemetry.whale_bias_pct}% Beli</strong></span>
+                    <span>Ritel: <strong className="text-amber-400">{xrayData.telemetry.retail_long_pct}% Long</strong></span>
+                  </div>
+                  <div className="w-full h-1.5 bg-[#21262d] rounded-full overflow-hidden flex">
+                    <div className="bg-emerald-500 h-full" style={{ width: `${xrayData.telemetry.whale_bias_pct}%` }} />
+                    <div className="bg-rose-500 h-full flex-1" />
+                  </div>
+                </div>
+
+                {/* Key SL Liquidity Targets */}
+                <div className="grid grid-cols-2 gap-1 text-[9px] pt-0.5 border-t border-[#21262d]">
+                  <div className="bg-rose-950/20 p-1 rounded border border-rose-900/40">
+                    <div className="text-rose-400 font-bold truncate">Short SL Magnet</div>
+                    <div className="text-white font-mono font-bold">${xrayData.stop_loss_pools.short_sl_magnet.price.toLocaleString()}</div>
+                    <div className="text-slate-400 text-[8.5px]">~${(xrayData.stop_loss_pools.short_sl_magnet.est_usd / 1e6).toFixed(1)}M pool</div>
+                  </div>
+                  <div className="bg-emerald-950/20 p-1 rounded border border-emerald-900/40">
+                    <div className="text-emerald-400 font-bold truncate">Long SL Cascade</div>
+                    <div className="text-white font-mono font-bold">${xrayData.stop_loss_pools.long_sl_cascade.price.toLocaleString()}</div>
+                    <div className="text-slate-400 text-[8.5px]">~${(xrayData.stop_loss_pools.long_sl_cascade.est_usd / 1e6).toFixed(1)}M pool</div>
+                  </div>
+                </div>
+
+                {/* Action Button: Buka DOM Matrix L2 */}
+                {onOpenLiquidityMatrix && (
+                  <button
+                    type="button"
+                    onClick={onOpenLiquidityMatrix}
+                    className="w-full mt-1 py-1 px-2 rounded bg-rose-900/40 hover:bg-rose-800/60 text-rose-200 border border-rose-700/50 flex items-center justify-center space-x-1.5 transition-colors text-[9.5px] font-semibold"
+                  >
+                    <Activity className="w-3 h-3 text-rose-400" />
+                    <span>Buka Orderbook DOM Matriks</span>
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center justify-between mt-1 text-[9px] text-slate-400">
+                <span className="truncate">
+                  {xrayData.telemetry.intent === 'HUNTING_SHORT_SL' ? '🔥 Berburu Short SL' : xrayData.telemetry.intent === 'HUNTING_LONG_SL' ? '🩸 Target Long SL' : '⚖️ Orderbook Stabil'}
+                </span>
+                <span className="font-bold text-white ml-2">${xrayData.stop_loss_pools.short_sl_magnet.price.toLocaleString()}</span>
+              </div>
+            )}
+          </div>
+        )}
+
 
         {/* Floating Mini Table: Trend Strength Index (TSI) - Pojok Sebelah Kanan */}
         {visibility.trendStrengthMeter && trendStrength && (

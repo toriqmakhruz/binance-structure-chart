@@ -287,6 +287,7 @@ export interface LayerVisibility {
   anchoredVwap?: boolean
   deltaAbsorption?: boolean
   judasSwing?: boolean
+  marketXray?: boolean
 }
 
 export * from './fibonacci'
@@ -294,6 +295,8 @@ export * from './volumeProfile'
 export * from './orderflow'
 export * from './marketSessions'
 export * from './institutional'
+export * from './marketXray'
+
 
 export type DrawingToolType = 
   | 'cursor' 

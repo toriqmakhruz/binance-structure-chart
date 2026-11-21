@@ -510,6 +510,7 @@ export async function testTelegramNotification(params: { bot_token?: string; cha
 }
 
 import { LiquidityMatrixResponse } from '../types/liquidityMatrix'
+import { MarketXrayData } from '../types/marketXray'
 
 export async function fetchLiquidityMatrix(
   symbol: string,
@@ -522,3 +523,15 @@ export async function fetchLiquidityMatrix(
   }
   return resp.json()
 }
+
+export async function fetchMarketXray(
+  symbol: string,
+  market: 'spot' | 'futures' = 'futures'
+): Promise<MarketXrayData> {
+  const resp = await fetch(`${API_BASE}/market/xray?symbol=${encodeURIComponent(symbol)}&market=${market}`)
+  if (!resp.ok) {
+    throw new Error(`Failed to fetch market xray: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
