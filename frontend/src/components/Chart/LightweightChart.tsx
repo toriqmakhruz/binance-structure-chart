@@ -808,8 +808,8 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
 
     // 0. Market Sessions - Box/Gradient Zones & Thin Vertical Dashed Lines with Minimalist Top Badges
     if (visibility.marketSessions && (sessionSettings.enabled ?? true)) {
-      const isIntraday = !['4h', '1d', '3d', '1w'].includes(timeframe.toLowerCase())
-      if (isIntraday) {
+      const isSessionSupported = !['1d', '3d', '1w', '1M'].includes(timeframe.toLowerCase())
+      if (isSessionSupported) {
         // 0A. Subtle Session Zone Background (Box or Linear Gradient)
         if ((sessionSettings.showZoneBackground ?? true) && sessionZones.length > 0) {
           const zoneStyle = sessionSettings.zoneStyle || 'gradient'
@@ -858,8 +858,12 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
           const lineOpacity = sessionSettings.opacity ?? 0.75
           const showBadges = sessionSettings.showSessionBadges ?? true
 
+          // Track badge locations for collision avoidance when sessions are dense (e.g. 4h, 1h)
+          const placedBadges: { x1: number; x2: number; y: number }[] = []
+
           sessionLines.forEach((sl) => {
-            const p = resolveCoord(sl.candleTime, candles[0]?.close || 1)
+            const lineTime = sl.startTime || sl.candleTime
+            const p = resolveCoord(lineTime, candles[0]?.close || 1)
             if (!p) return
             const x = p.x
             if (x < -60 || x > width + 60) return
@@ -884,7 +888,17 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
               const badgeW = textWidth + 14
               const badgeH = 15
               const badgeX = Math.max(4, Math.min(width - badgeW - 4, x - badgeW / 2))
-              const badgeY = 6
+
+              // Find first non-colliding row Y (starts at 6, steps down by 18px)
+              let badgeY = 6
+              while (
+                placedBadges.some(
+                  (b) => b.y === badgeY && Math.max(b.x1, badgeX) < Math.min(b.x2, badgeX + badgeW + 4)
+                ) && badgeY < 75
+              ) {
+                badgeY += 18
+              }
+              placedBadges.push({ x1: badgeX, x2: badgeX + badgeW, y: badgeY })
 
               // Badge Background
               ctx.fillStyle = 'rgba(13, 17, 23, 0.90)'
@@ -932,7 +946,15 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
               const bW = textW + 10
               const bH = 15
               const bX = Math.max(4, Math.min(width - bW - 4, x - bW / 2))
-              const bY = 6
+
+              let bY = 6
+              while (
+                placedBadges.some(
+                  (b) => b.y === bY && Math.max(b.x1, bX) < Math.min(b.x2, bX + bW + 4)
+                ) && bY < 75
+              ) {
+                bY += 18
+              }
 
               ctx.fillStyle = 'rgba(13, 17, 23, 0.92)'
               ctx.fillRect(bX, bY, bW, bH)

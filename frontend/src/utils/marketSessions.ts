@@ -151,7 +151,7 @@ export function extractSessionLines(
     }
   })
 
-  lines.sort((a, b) => a.candleTime - b.candleTime)
+  lines.sort((a, b) => (a.startTime || a.candleTime) - (b.startTime || b.candleTime))
   return lines
 }
 
@@ -173,6 +173,7 @@ export function extractSessionZones(
   const enabledSessions = sessionsList.filter((s) => s && s.enabled)
   if (enabledSessions.length === 0) return []
 
+  const timeStep = candles.length > 1 ? (candles[1].time - candles[0].time) : 900
   const dayBuckets: Map<string, Candle[]> = new Map()
 
   for (const c of candles) {
@@ -200,9 +201,9 @@ export function extractSessionZones(
         sessEndSec = Date.UTC(y, m - 1, d + 1, sess.endHourUtc, 0, 0) / 1000
       }
 
-      // Check if any candle falls within this session window
+      // Check if any candle interval intersects with this session window
       const hasCandles = dayCandles.some(
-        (c) => c.time >= sessStartSec && c.time < sessEndSec
+        (c) => c.time < sessEndSec && (c.time + timeStep) > sessStartSec
       )
 
       if (hasCandles) {
@@ -233,6 +234,7 @@ export function extractSessionBlocks(
     : DEFAULT_MARKET_SESSION_SETTINGS.sessions
 
   const enabledSessions = sessionsList.filter((s) => s && s.enabled)
+  const timeStep = candles.length > 1 ? (candles[1].time - candles[0].time) : 900
   const dayBuckets: Map<string, Candle[]> = new Map()
 
   for (const c of candles) {
@@ -260,7 +262,7 @@ export function extractSessionBlocks(
       }
 
       const inSess = dayCandles.filter(
-        (c) => c.time >= sessStartSec && c.time < sessEndSec
+        (c) => c.time < sessEndSec && (c.time + timeStep) > sessStartSec
       )
 
       if (inSess.length > 0) {
