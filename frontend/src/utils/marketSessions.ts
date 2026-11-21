@@ -90,7 +90,8 @@ export function isSessionActiveAt(decHour: number, startHour: number, endHour: n
  */
 export function extractSessionLines(
   candles: Candle[],
-  settings: MarketSessionSettings = DEFAULT_MARKET_SESSION_SETTINGS
+  settings: MarketSessionSettings = DEFAULT_MARKET_SESSION_SETTINGS,
+  timeframe?: string
 ): SessionLinePoint[] {
   if (!candles || candles.length === 0 || !settings || !settings.enabled || !settings.showVerticalLines) {
     return []
@@ -103,7 +104,7 @@ export function extractSessionLines(
   const enabledSessions = sessionsList.filter((s) => s && s.enabled)
   if (enabledSessions.length === 0) return []
 
-  const lines: SessionLinePoint[] = []
+  const tf = (timeframe || '').toLowerCase()
   const timeStep = candles.length > 1 ? (candles[1].time - candles[0].time) : 900
 
   // Group candles by calendar UTC date
@@ -118,10 +119,24 @@ export function extractSessionLines(
     dayBuckets.get(dayKey)!.push(c)
   }
 
-  const tz = settings.timezone || 'WIB'
+  const allDayKeys = Array.from(dayBuckets.keys())
+  if (allDayKeys.length === 0) return []
 
-  dayBuckets.forEach((dayCandles, dayKey) => {
+  // Lookback filter: prevent cluttering higher timeframes with dozens of historical lines
+  // 4h: only last 2 days (today + yesterday, max 6 lines total)
+  // 1h: last 4 days
+  // lower timeframes: last 7 days
+  const maxDays = tf === '4h' ? 2 : tf === '1h' ? 4 : 7
+  const targetDayKeys = allDayKeys.slice(-maxDays)
+  const latestDayKey = allDayKeys[allDayKeys.length - 1]
+
+  const tz = settings.timezone || 'WIB'
+  const lines: SessionLinePoint[] = []
+
+  targetDayKeys.forEach((dayKey) => {
+    const dayCandles = dayBuckets.get(dayKey) || []
     const [y, m, d] = dayKey.split('-').map(Number)
+    const isLatestDay = dayKey === latestDayKey
 
     for (const sess of enabledSessions) {
       const sessStartSec = Date.UTC(y, m - 1, d, sess.startHourUtc, 0, 0) / 1000
@@ -141,17 +156,22 @@ export function extractSessionLines(
       if (closestCandle) {
         const localHour = utcHourToLocalHour(sess.startHourUtc, tz)
         const pad = (n: number) => String(n).padStart(2, '0')
+        // On 4h, snap line timestamp to the candle boundary so lines never slice through candle bodies
+        const effectiveLineTime = tf === '4h' ? closestCandle.time : sessStartSec
+
         lines.push({
           session: sess,
-          startTime: sessStartSec,
+          startTime: effectiveLineTime,
           candleTime: closestCandle.time,
-          label: `${sess.label} ${pad(localHour)}:00 ${tz}`
+          label: `${sess.label} ${pad(localHour)}:00 ${tz}`,
+          dayKey,
+          isLatestDay
         })
       }
     }
   })
 
-  lines.sort((a, b) => (a.startTime || a.candleTime) - (b.startTime || b.candleTime))
+  lines.sort((a, b) => a.startTime - b.startTime)
   return lines
 }
 
@@ -160,7 +180,8 @@ export function extractSessionLines(
  */
 export function extractSessionZones(
   candles: Candle[],
-  settings: MarketSessionSettings = DEFAULT_MARKET_SESSION_SETTINGS
+  settings: MarketSessionSettings = DEFAULT_MARKET_SESSION_SETTINGS,
+  timeframe?: string
 ): SessionZoneBlock[] {
   if (!candles || candles.length === 0 || !settings || !settings.enabled || !settings.showZoneBackground) {
     return []
@@ -173,6 +194,7 @@ export function extractSessionZones(
   const enabledSessions = sessionsList.filter((s) => s && s.enabled)
   if (enabledSessions.length === 0) return []
 
+  const tf = (timeframe || '').toLowerCase()
   const timeStep = candles.length > 1 ? (candles[1].time - candles[0].time) : 900
   const dayBuckets: Map<string, Candle[]> = new Map()
 
@@ -185,10 +207,20 @@ export function extractSessionZones(
     dayBuckets.get(dayKey)!.push(c)
   }
 
+  const allDayKeys = Array.from(dayBuckets.keys())
+  if (allDayKeys.length === 0) return []
+
+  // Lookback filter: prevent drawing dozens of overlapping gradient slabs across the whole chart
+  const maxDays = tf === '4h' ? 2 : tf === '1h' ? 4 : 7
+  const targetDayKeys = allDayKeys.slice(-maxDays)
+  const latestDayKey = allDayKeys[allDayKeys.length - 1]
+
   const zones: SessionZoneBlock[] = []
 
-  dayBuckets.forEach((dayCandles, dayKey) => {
+  targetDayKeys.forEach((dayKey) => {
+    const dayCandles = dayBuckets.get(dayKey) || []
     const [y, m, d] = dayKey.split('-').map(Number)
+    const isLatestDay = dayKey === latestDayKey
 
     for (const sess of enabledSessions) {
       const sessStartSec = Date.UTC(y, m - 1, d, sess.startHourUtc, 0, 0) / 1000
@@ -201,17 +233,24 @@ export function extractSessionZones(
         sessEndSec = Date.UTC(y, m - 1, d + 1, sess.endHourUtc, 0, 0) / 1000
       }
 
-      // Check if any candle interval intersects with this session window
-      const hasCandles = dayCandles.some(
+      // Check candles that fall within or intersect this session
+      const inSessCandles = dayCandles.filter(
         (c) => c.time < sessEndSec && (c.time + timeStep) > sessStartSec
       )
 
-      if (hasCandles) {
+      if (inSessCandles.length > 0) {
+        // On 4h, snap the zone start and end to candle boundaries so no candle is sliced in half
+        const zoneStart = tf === '4h' ? inSessCandles[0].time : sessStartSec
+        const zoneEnd = tf === '4h'
+          ? (inSessCandles[inSessCandles.length - 1].time + timeStep)
+          : sessEndSec
+
         zones.push({
           session: sess,
           dayKey,
-          startTime: sessStartSec,
-          endTime: sessEndSec
+          startTime: zoneStart,
+          endTime: zoneEnd,
+          isLatestDay
         })
       }
     }

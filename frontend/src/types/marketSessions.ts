@@ -98,6 +98,8 @@ export interface SessionLinePoint {
   startTime: number
   candleTime: number
   label: string
+  dayKey?: string
+  isLatestDay?: boolean
 }
 
 export interface SessionZoneBlock {
@@ -105,6 +107,7 @@ export interface SessionZoneBlock {
   dayKey: string
   startTime: number
   endTime: number
+  isLatestDay?: boolean
 }
 
 export interface NextSessionInfo {

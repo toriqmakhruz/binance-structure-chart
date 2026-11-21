@@ -187,8 +187,8 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         : DEFAULT_MARKET_SESSION_SETTINGS.sessions
     }
   }, [marketSessionSettings])
-  const sessionLines = useMemo(() => extractSessionLines(candles, sessionSettings), [candles, sessionSettings])
-  const sessionZones = useMemo(() => extractSessionZones(candles, sessionSettings), [candles, sessionSettings])
+  const sessionLines = useMemo(() => extractSessionLines(candles, sessionSettings, timeframe), [candles, sessionSettings, timeframe])
+  const sessionZones = useMemo(() => extractSessionZones(candles, sessionSettings, timeframe), [candles, sessionSettings, timeframe])
   const [activeSessionInfo, setActiveSessionInfo] = useState<ActiveSessionResult>(() => getCurrentActiveSessions(sessionSettings))
 
   useEffect(() => {
@@ -810,10 +810,14 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     if (visibility.marketSessions && (sessionSettings.enabled ?? true)) {
       const isSessionSupported = !['1d', '3d', '1w', '1M'].includes(timeframe.toLowerCase())
       if (isSessionSupported) {
+        const is4h = timeframe.toLowerCase() === '4h'
+
         // 0A. Subtle Session Zone Background (Box or Linear Gradient)
         if ((sessionSettings.showZoneBackground ?? true) && sessionZones.length > 0) {
           const zoneStyle = sessionSettings.zoneStyle || 'gradient'
-          const zoneOpacity = sessionSettings.zoneOpacity || 0.08
+          const zoneOpacity = is4h
+            ? Math.min(sessionSettings.zoneOpacity || 0.08, 0.05)
+            : (sessionSettings.zoneOpacity || 0.08)
 
           sessionZones.forEach((zb) => {
             const pStart = resolveCoord(zb.startTime, candles[0]?.close || 1)
@@ -855,10 +859,12 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         if ((sessionSettings.showVerticalLines ?? true) && sessionLines.length > 0) {
           const lineStyle = sessionSettings.lineStyle || 'dashed'
           const lineDash = lineStyle === 'dashed' ? [4, 4] : lineStyle === 'dotted' ? [2, 2] : []
-          const lineOpacity = sessionSettings.opacity ?? 0.75
+          const lineOpacity = is4h
+            ? Math.min(sessionSettings.opacity ?? 0.75, 0.40)
+            : (sessionSettings.opacity ?? 0.75)
           const showBadges = sessionSettings.showSessionBadges ?? true
 
-          // Track badge locations for collision avoidance when sessions are dense (e.g. 4h, 1h)
+          // Track badge locations for collision avoidance when sessions are dense
           const placedBadges: { x1: number; x2: number; y: number }[] = []
 
           sessionLines.forEach((sl) => {
@@ -879,8 +885,9 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
             ctx.stroke()
             ctx.setLineDash([])
 
-            // Minimalist TradingView-Style Badge at top of vertical line
-            if (showBadges) {
+            // Badges: On 4h chart, only show badge for the latest day's sessions to prevent messy visual clutter
+            const shouldShowBadge = showBadges && (!is4h || sl.isLatestDay)
+            if (shouldShowBadge) {
               ctx.globalAlpha = 1.0
               ctx.font = 'bold 9px monospace'
               const text = sl.label
