@@ -63,7 +63,10 @@ const DEFAULT_VISIBILITY: LayerVisibility = {
   liquidationHeatmap: true,
   cvdOrderflow: true,
   trendRibbon: true,
-  trendStrengthMeter: true
+  trendStrengthMeter: true,
+  anchoredVwap: true,
+  deltaAbsorption: true,
+  judasSwing: true
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -750,7 +753,8 @@ export function App() {
         'smcSwings', 'smcEvents', 'orderBlocks', 'fvgs', 'patterns',
         'srLevels', 'marketSessions', 'forecastCone', 'forecastScenarios',
         'entryBoxes', 'htfOverlay', 'volume', 'openInterest', 'fundingRate',
-        'fibonacci', 'volumeProfile', 'liquidationHeatmap', 'cvdOrderflow'
+        'fibonacci', 'volumeProfile', 'liquidationHeatmap', 'cvdOrderflow',
+        'trendRibbon', 'trendStrengthMeter', 'anchoredVwap', 'deltaAbsorption', 'judasSwing'
       ]
       const updatedVis = { ...currentPaneVis }
       allKeys.forEach((k) => {
@@ -780,7 +784,12 @@ export function App() {
         fibonacci: enabled,
         volumeProfile: enabled,
         liquidationHeatmap: enabled,
-        cvdOrderflow: enabled
+        cvdOrderflow: enabled,
+        trendRibbon: enabled,
+        trendStrengthMeter: enabled,
+        anchoredVwap: enabled,
+        deltaAbsorption: enabled,
+        judasSwing: enabled
       })
     }
   }, [visibility])
@@ -813,7 +822,12 @@ export function App() {
       fibonacci: enabled,
       volumeProfile: enabled,
       liquidationHeatmap: enabled,
-      cvdOrderflow: enabled
+      cvdOrderflow: enabled,
+      trendRibbon: enabled,
+      trendStrengthMeter: enabled,
+      anchoredVwap: enabled,
+      deltaAbsorption: enabled,
+      judasSwing: enabled
     })
     if (layout !== 'single') {
       handleSetAllPaneLayers(activePaneId, enabled)

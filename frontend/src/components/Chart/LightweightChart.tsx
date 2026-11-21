@@ -38,6 +38,11 @@ import {
   ActiveSessionResult,
   SessionZoneBlock
 } from '../../utils/marketSessions'
+import {
+  calculateAnchoredVwap,
+  calculateDeltaAbsorption,
+  calculateJudasSwing
+} from '../../utils/institutionalIndicators'
 
 interface LightweightChartProps {
   symbol: string
@@ -189,6 +194,23 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
   }, [marketSessionSettings])
   const sessionLines = useMemo(() => extractSessionLines(candles, sessionSettings), [candles, sessionSettings])
   const sessionZones = useMemo(() => extractSessionZones(candles, sessionSettings), [candles, sessionSettings])
+
+  // Institutional Indicators: Anchored VWAP, Delta Absorption, ICT Judas Swing
+  const avwapResult = useMemo(() => {
+    if (!visibility.anchoredVwap || !candles || candles.length < 10) return null
+    return calculateAnchoredVwap(candles)
+  }, [visibility.anchoredVwap, candles])
+
+  const deltaAbsorptionMarkers = useMemo(() => {
+    if (!visibility.deltaAbsorption || !candles || candles.length < 15) return []
+    return calculateDeltaAbsorption(candles)
+  }, [visibility.deltaAbsorption, candles])
+
+  const judasSwingEvents = useMemo(() => {
+    if (!visibility.judasSwing || !candles || candles.length < 24) return []
+    return calculateJudasSwing(candles, timeframe)
+  }, [visibility.judasSwing, candles, timeframe])
+
   const [activeSessionInfo, setActiveSessionInfo] = useState<ActiveSessionResult>(() => getCurrentActiveSessions(sessionSettings))
 
   useEffect(() => {
@@ -1831,6 +1853,254 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
           ctx.restore()
         }
       }
+    }
+
+    // 0.8. Anchored VWAP (AVWAP) with Institutional Standard Deviation Bands (±1σ, ±2σ)
+    if (visibility.anchoredVwap && avwapResult && avwapResult.points.length > 1) {
+      const pts = avwapResult.points
+      const coordsAvwap: { x: number; y: number }[] = []
+      const coordsU1: { x: number; y: number }[] = []
+      const coordsU2: { x: number; y: number }[] = []
+      const coordsL1: { x: number; y: number }[] = []
+      const coordsL2: { x: number; y: number }[] = []
+
+      for (let i = 0; i < pts.length; i++) {
+        const pt = pts[i]
+        const pM = resolveCoord(pt.time, pt.avwap)
+        const pU1 = resolveCoord(pt.time, pt.upper1)
+        const pU2 = resolveCoord(pt.time, pt.upper2)
+        const pL1 = resolveCoord(pt.time, pt.lower1)
+        const pL2 = resolveCoord(pt.time, pt.lower2)
+
+        if (pM) coordsAvwap.push(pM)
+        if (pU1) coordsU1.push(pU1)
+        if (pU2) coordsU2.push(pU2)
+        if (pL1) coordsL1.push(pL1)
+        if (pL2) coordsL2.push(pL2)
+      }
+
+      if (coordsAvwap.length > 1) {
+        ctx.save()
+
+        // 1. Shaded Institutional Value Area Corridor (between +1σ and -1σ)
+        if (coordsU1.length > 1 && coordsL1.length > 1) {
+          ctx.beginPath()
+          ctx.moveTo(coordsU1[0].x, coordsU1[0].y)
+          for (let i = 1; i < coordsU1.length; i++) ctx.lineTo(coordsU1[i].x, coordsU1[i].y)
+          for (let i = coordsL1.length - 1; i >= 0; i--) ctx.lineTo(coordsL1[i].x, coordsL1[i].y)
+          ctx.closePath()
+          ctx.fillStyle = 'rgba(56, 189, 248, 0.045)'
+          ctx.fill()
+        }
+
+        // Helper to draw band lines
+        const drawBandLine = (coords: { x: number; y: number }[], strokeColor: string, lineDash: number[], lineW: number, alpha: number) => {
+          if (coords.length < 2) return
+          ctx.beginPath()
+          ctx.setLineDash(lineDash)
+          ctx.lineWidth = lineW
+          ctx.strokeStyle = strokeColor
+          ctx.globalAlpha = alpha
+          ctx.moveTo(coords[0].x, coords[0].y)
+          for (let i = 1; i < coords.length; i++) ctx.lineTo(coords[i].x, coords[i].y)
+          ctx.stroke()
+        }
+
+        // 2. Draw +2σ and -2σ Bands (Institutional Extreme / Reversal Targets)
+        drawBandLine(coordsU2, '#f43f5e', [2, 2], 1.1, 0.65) // Upper Extreme (+2σ)
+        drawBandLine(coordsL2, '#10b981', [2, 2], 1.1, 0.65) // Lower Extreme (-2σ)
+
+        // 3. Draw +1σ and -1σ Bands (Value Area Boundaries)
+        drawBandLine(coordsU1, '#38bdf8', [4, 4], 1.0, 0.55) // Upper 1σ
+        drawBandLine(coordsL1, '#38bdf8', [4, 4], 1.0, 0.55) // Lower 1σ
+
+        // 4. Main AVWAP Line (Thick Institutional Gold Line)
+        drawBandLine(coordsAvwap, '#f59e0b', [], 2.0, 0.95)
+
+        ctx.setLineDash([])
+
+        // 5. Anchor Origin Badge at First Point
+        const firstPt = coordsAvwap[0]
+        if (firstPt.x >= 0 && firstPt.x <= width) {
+          ctx.globalAlpha = 1.0
+          ctx.fillStyle = '#f59e0b'
+          ctx.beginPath()
+          ctx.arc(firstPt.x, firstPt.y, 3.5, 0, Math.PI * 2)
+          ctx.fill()
+
+          ctx.font = 'bold 9px monospace'
+          const anchorTxt = `⚓ ${avwapResult.anchorLabel}`
+          const tW = ctx.measureText(anchorTxt).width
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.88)'
+          ctx.fillRect(firstPt.x + 6, firstPt.y - 12, tW + 8, 15)
+          ctx.strokeStyle = '#f59e0b'
+          ctx.lineWidth = 1
+          ctx.strokeRect(firstPt.x + 6, firstPt.y - 12, tW + 8, 15)
+          ctx.fillStyle = '#fef08a'
+          ctx.fillText(anchorTxt, firstPt.x + 10, firstPt.y - 1)
+        }
+
+        // 6. Rightmost AVWAP Level Badge on Price Scale Margin
+        const lastPt = coordsAvwap[coordsAvwap.length - 1]
+        if (lastPt && avwapResult.latestAvwap) {
+          ctx.globalAlpha = 1.0
+          const badgeX = Math.min(width - 80, Math.max(10, lastPt.x - 30))
+          const badgeY = Math.max(16, Math.min(height - 16, lastPt.y))
+          const txt = `AVWAP $${formatPrice(avwapResult.latestAvwap)}`
+          ctx.font = 'bold 9px monospace'
+          const txtW = ctx.measureText(txt).width
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.92)'
+          ctx.fillRect(badgeX, badgeY - 8, txtW + 10, 16)
+          ctx.strokeStyle = '#f59e0b'
+          ctx.lineWidth = 1
+          ctx.strokeRect(badgeX, badgeY - 8, txtW + 10, 16)
+          ctx.fillStyle = '#f59e0b'
+          ctx.fillText(txt, badgeX + 5, badgeY + 4)
+        }
+
+        ctx.restore()
+      }
+    }
+
+    // 0.9. Institutional Delta Absorption & Exhaustion Markers
+    if (visibility.deltaAbsorption && deltaAbsorptionMarkers.length > 0) {
+      ctx.save()
+      deltaAbsorptionMarkers.forEach((m) => {
+        const pt = resolveCoord(m.time, m.price)
+        if (!pt || pt.x < -30 || pt.x > width + 30) return
+
+        ctx.globalAlpha = 0.95
+        ctx.font = 'bold 8.5px monospace'
+
+        if (m.type === 'ABSORB_BUY') {
+          // Bullish Absorption (Placed just below low wick)
+          const y = Math.min(height - 14, pt.y + 12)
+          const badgeW = 78
+          const badgeH = 14
+          const badgeX = pt.x - badgeW / 2
+
+          // Glowing diamond at candle tip
+          ctx.fillStyle = '#10b981'
+          ctx.beginPath()
+          ctx.moveTo(pt.x, pt.y + 2)
+          ctx.lineTo(pt.x + 4, pt.y + 6)
+          ctx.lineTo(pt.x, pt.y + 10)
+          ctx.lineTo(pt.x - 4, pt.y + 6)
+          ctx.closePath()
+          ctx.fill()
+
+          // Pill Badge
+          ctx.fillStyle = 'rgba(6, 78, 59, 0.92)'
+          ctx.fillRect(badgeX, y, badgeW, badgeH)
+          ctx.strokeStyle = '#10b981'
+          ctx.lineWidth = 1
+          ctx.strokeRect(badgeX, y, badgeW, badgeH)
+          ctx.fillStyle = '#6ee7b7'
+          ctx.fillText(`🛡️ ABSORB BUY`, badgeX + 4, y + 10)
+        } else if (m.type === 'ABSORB_SELL') {
+          // Bearish Absorption (Placed just above high wick)
+          const y = Math.max(12, pt.y - 24)
+          const badgeW = 82
+          const badgeH = 14
+          const badgeX = pt.x - badgeW / 2
+
+          // Glowing diamond at candle tip
+          ctx.fillStyle = '#f43f5e'
+          ctx.beginPath()
+          ctx.moveTo(pt.x, pt.y - 2)
+          ctx.lineTo(pt.x + 4, pt.y - 6)
+          ctx.lineTo(pt.x, pt.y - 10)
+          ctx.lineTo(pt.x - 4, pt.y - 6)
+          ctx.closePath()
+          ctx.fill()
+
+          // Pill Badge
+          ctx.fillStyle = 'rgba(136, 19, 55, 0.92)'
+          ctx.fillRect(badgeX, y, badgeW, badgeH)
+          ctx.strokeStyle = '#f43f5e'
+          ctx.lineWidth = 1
+          ctx.strokeRect(badgeX, y, badgeW, badgeH)
+          ctx.fillStyle = '#fda4af'
+          ctx.fillText(`🛡️ ABSORB SELL`, badgeX + 4, y + 10)
+        } else if (m.type === 'EXHAUSTION_HIGH') {
+          const y = Math.max(12, pt.y - 18)
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.88)'
+          ctx.fillRect(pt.x - 38, y, 76, 13)
+          ctx.strokeStyle = '#f59e0b'
+          ctx.lineWidth = 1
+          ctx.strokeRect(pt.x - 38, y, 76, 13)
+          ctx.fillStyle = '#fcd34d'
+          ctx.fillText(`⚠️ EXHAUSTION`, pt.x - 34, y + 9.5)
+        } else if (m.type === 'EXHAUSTION_LOW') {
+          const y = Math.min(height - 12, pt.y + 10)
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.88)'
+          ctx.fillRect(pt.x - 38, y, 76, 13)
+          ctx.strokeStyle = '#f59e0b'
+          ctx.lineWidth = 1
+          ctx.strokeRect(pt.x - 38, y, 76, 13)
+          ctx.fillStyle = '#fcd34d'
+          ctx.fillText(`⚠️ EXHAUSTION`, pt.x - 34, y + 9.5)
+        }
+      })
+      ctx.restore()
+    }
+
+    // 0.10. ICT Judas Swing / Institutional Fakeout Detector
+    if (visibility.judasSwing && judasSwingEvents.length > 0) {
+      ctx.save()
+      judasSwingEvents.forEach((ev) => {
+        const pTrap = resolveCoord(ev.trapTime, ev.sweepPrice)
+        const pConfirm = resolveCoord(ev.confirmTime, ev.reclaimPrice)
+        if (!pTrap || pTrap.x < -40 || pTrap.x > width + 40) return
+
+        const isBearTrap = ev.trapType === 'BEAR_TRAP'
+        const color = isBearTrap ? '#10b981' : '#f43f5e'
+        const bgColor = isBearTrap ? 'rgba(6, 78, 59, 0.94)' : 'rgba(136, 19, 55, 0.94)'
+
+        // 1. Draw dashed horizontal sweep marker
+        ctx.beginPath()
+        ctx.setLineDash([3, 3])
+        ctx.strokeStyle = color
+        ctx.lineWidth = 1.2
+        ctx.globalAlpha = 0.8
+        const lineX2 = pConfirm ? Math.max(pConfirm.x + 20, pTrap.x + 50) : pTrap.x + 50
+        ctx.moveTo(pTrap.x - 20, pTrap.y)
+        ctx.lineTo(lineX2, pTrap.y)
+        ctx.stroke()
+        ctx.setLineDash([])
+
+        // 2. Draw connector from sweep to reclaim
+        if (pConfirm) {
+          ctx.beginPath()
+          ctx.strokeStyle = color
+          ctx.lineWidth = 1.5
+          ctx.globalAlpha = 0.9
+          ctx.moveTo(pTrap.x, pTrap.y)
+          ctx.lineTo(pConfirm.x, pConfirm.y)
+          ctx.stroke()
+        }
+
+        // 3. Floating Institutional Trap Badge
+        ctx.globalAlpha = 1.0
+        ctx.font = 'bold 9px monospace'
+        const badgeTxt = isBearTrap
+          ? `⚡ JUDAS SWING (BEAR TRAP) ➔ TARGET: EXPANSION UP`
+          : `⚡ JUDAS SWING (BULL TRAP) ➔ TARGET: EXPANSION DOWN`
+        const badgeW = ctx.measureText(badgeTxt).width + 12
+        const badgeH = 16
+        const badgeX = Math.max(6, Math.min(width - badgeW - 6, pTrap.x - 20))
+        const badgeY = isBearTrap ? Math.min(height - 20, pTrap.y + 16) : Math.max(14, pTrap.y - 24)
+
+        ctx.fillStyle = bgColor
+        ctx.fillRect(badgeX, badgeY, badgeW, badgeH)
+        ctx.strokeStyle = color
+        ctx.lineWidth = 1.2
+        ctx.strokeRect(badgeX, badgeY, badgeW, badgeH)
+
+        ctx.fillStyle = isBearTrap ? '#a7f3d0' : '#fecdd3'
+        ctx.fillText(badgeTxt, badgeX + 6, badgeY + 11.5)
+      })
+      ctx.restore()
     }
 
     // A0. Trend Strength EMA Ribbon (EMA 8, 21, 55, 200) - Ribbon Stack & Trend Corridor

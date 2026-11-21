@@ -284,12 +284,16 @@ export interface LayerVisibility {
   cvdOrderflow?: boolean
   trendRibbon?: boolean
   trendStrengthMeter?: boolean
+  anchoredVwap?: boolean
+  deltaAbsorption?: boolean
+  judasSwing?: boolean
 }
 
 export * from './fibonacci'
 export * from './volumeProfile'
 export * from './orderflow'
 export * from './marketSessions'
+export * from './institutional'
 
 export type DrawingToolType = 
   | 'cursor' 
