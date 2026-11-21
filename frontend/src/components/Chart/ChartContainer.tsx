@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
-import { Crosshair, Layers, Search } from 'lucide-react'
+import { Crosshair, Layers, Search, Database } from 'lucide-react'
 import { LightweightChart } from './LightweightChart'
 import { PaneLayerDropdown } from './PaneLayerDropdown'
 import { fetchAnalysis, defaultAppSettings } from '../../services/api'
@@ -280,6 +280,7 @@ interface ChartContainerProps {
   onToggleLayer?: (key: keyof LayerVisibility) => void
   onTimeframeChange?: (tf: string) => void
   onSymbolClick?: () => void
+  onOpenLiquidityMatrix?: () => void
 }
 
 const TIMEFRAMES = ['1m', '3m', '5m', '15m', '30m', '1h', '4h', '1d']
@@ -332,7 +333,8 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
   fundingRate,
   onToggleLayer,
   onTimeframeChange,
-  onSymbolClick
+  onSymbolClick,
+  onOpenLiquidityMatrix
 }) => {
   const [paneTfs, setPaneTfs] = useState<Record<string, string>>(() => {
     try {
@@ -450,6 +452,20 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
               onOpenOrderflowSettings={onOpenOrderflowSettings}
               onOpenMarketSessionSettings={onOpenMarketSessionSettings}
             />
+
+            {/* Real-time Order & Stop Loss Matrix Modal (Non-Chart DOM) */}
+            {onOpenLiquidityMatrix && (
+              <button
+                type="button"
+                onClick={onOpenLiquidityMatrix}
+                className="flex items-center space-x-1 px-1.5 py-0.5 rounded border bg-cyan-950/40 hover:bg-cyan-900/50 text-cyan-300 border-cyan-700/50 text-[9.5px] sm:text-[10px] font-bold transition-all cursor-pointer shrink-0 shadow-sm"
+                title="Buka Matriks Buku Order Riil: Order Institusi (Whales) vs Ritel & Titik Stop Loss"
+              >
+                <Database className="w-3 h-3 text-cyan-400 shrink-0" />
+                <span className="hidden lg:inline">Order Matrix (DOM)</span>
+                <span className="lg:hidden">DOM</span>
+              </button>
+            )}
           </div>
 
           {/* Right: Sync Toggles (Hanya jika multi-chart) + Timeframe Dropdown */}

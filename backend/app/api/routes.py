@@ -511,3 +511,30 @@ async def save_user_preferences(payload: Dict[str, Any] = Body(...)):
             detail=res.get("message", "Gagal menyimpan konfigurasi ke server.")
         )
     return res
+
+
+@router.get("/market/liquidity-matrix")
+async def get_market_liquidity_matrix(
+    symbol: str = Query("BTCUSDT", description="Trading pair symbol"),
+    market: str = Query("futures", description="Market type ('futures' or 'spot')"),
+    bins: int = Query(24, ge=10, le=40, description="Number of price brackets to return")
+):
+    """
+    100% Real-time Order Book & Liquidity Matrix directly from Binance:
+    - Segregates Institutional/Whale Orders (>= $50k ticket) vs Retail Orders (< $10k ticket)
+    - Computes real margin liquidation / forced stop loss risk clusters
+    - Non-chart Depth of Market profiling
+    """
+    from ..services.liquidity_matrix_service import liquidity_matrix_service
+    try:
+        return await liquidity_matrix_service.get_liquidity_matrix(
+            symbol=symbol,
+            market=market,
+            num_bins=bins
+        )
+    except Exception as e:
+        logger.error(f"Error generating liquidity matrix: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Gagal mengambil data buku order riil Binance: {str(e)}"
+        )

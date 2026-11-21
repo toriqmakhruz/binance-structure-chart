@@ -9,6 +9,7 @@ import { AutoFibModal } from './components/Settings/AutoFibModal'
 import { VpvrModal } from './components/Settings/VpvrModal'
 import { OrderflowModal } from './components/Settings/OrderflowModal'
 import { MarketSessionsModal } from './components/Settings/MarketSessionsModal'
+import { LiquidityMatrixModal } from './components/HUD/LiquidityMatrixModal'
 import { fetchTelegramSettings } from './services/api'
 import { OpenPositionModal, SetupTradeTarget } from './components/Trade/OpenPositionModal'
 import { TradingDashboardDrawer } from './components/Trade/TradingDashboardDrawer'
@@ -241,6 +242,7 @@ export function App() {
   )
   const [isOrderflowModalOpen, setIsOrderflowModalOpen] = useState(false)
   const [orderflowModalTab, setOrderflowModalTab] = useState<'liquidation' | 'cvd'>('liquidation')
+  const [isLiquidityMatrixOpen, setIsLiquidityMatrixOpen] = useState(false)
 
   // Market Sessions Configuration (Thin Vertical Lines & Active/Upcoming Sessions)
   const [marketSessionSettings, setMarketSessionSettings] = useState<MarketSessionSettings>(() => {
@@ -1303,6 +1305,7 @@ export function App() {
         onCloudSync={handleManualCloudSync}
         onOpenSettings={() => setIsSettingsOpen(true)}
         streamStatus={streamStatus}
+        onOpenLiquidityMatrix={() => setIsLiquidityMatrixOpen(true)}
       />
 
       {/* 2. Interactive Chart Workspace with Bottom Trading Dashboard */}
@@ -1358,6 +1361,7 @@ export function App() {
               fundingRate={analysis?.funding_rate}
               onToggleLayer={handleToggleLayer}
               onTimeframeChange={handleTimeframeChange}
+              onOpenLiquidityMatrix={() => setIsLiquidityMatrixOpen(true)}
             />
           </ErrorBoundary>
         </div>
@@ -1591,6 +1595,14 @@ export function App() {
             duration: 4000
           })
         }}
+      />
+
+      {/* Real-time Order & Stop Loss Matrix Modal (Non-Chart DOM) */}
+      <LiquidityMatrixModal
+        isOpen={isLiquidityMatrixOpen}
+        onClose={() => setIsLiquidityMatrixOpen(false)}
+        symbol={symbol}
+        market={market}
       />
 
       {/* Floating System Toasts */}

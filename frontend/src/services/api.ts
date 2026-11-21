@@ -508,3 +508,17 @@ export async function testTelegramNotification(params: { bot_token?: string; cha
   }
   return data
 }
+
+import { LiquidityMatrixResponse } from '../types/liquidityMatrix'
+
+export async function fetchLiquidityMatrix(
+  symbol: string,
+  market: 'spot' | 'futures' = 'futures',
+  bins: number = 24
+): Promise<LiquidityMatrixResponse> {
+  const resp = await fetch(`${API_BASE}/market/liquidity-matrix?symbol=${encodeURIComponent(symbol)}&market=${market}&bins=${bins}`)
+  if (!resp.ok) {
+    throw new Error(`Failed to fetch liquidity matrix: ${resp.statusText}`)
+  }
+  return resp.json()
+}

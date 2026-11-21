@@ -24,7 +24,8 @@ import {
   Cloud,
   Settings as SettingsIcon,
   Star,
-  BookOpen
+  BookOpen,
+  Database
 } from 'lucide-react'
 import { DrawingToolType, SetupMode } from '../../types/analysis'
 import {
@@ -93,6 +94,7 @@ export interface LeftSidebarProps {
   onCloudSync?: () => void
   onOpenSettings: () => void
   streamStatus?: StreamStatusType
+  onOpenLiquidityMatrix?: () => void
 }
 
 interface LineToolItem {
@@ -179,7 +181,8 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
   isCloudSyncing = false,
   onCloudSync,
   onOpenSettings,
-  streamStatus = 'OFFLINE'
+  streamStatus = 'OFFLINE',
+  onOpenLiquidityMatrix
 }) => {
   const [activeFlyout, setActiveFlyout] = useState<ActiveFlyout>('none')
   const [selectedLineTool, setSelectedLineTool] = useState<DrawingToolType>('trendline')
@@ -938,6 +941,21 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
             Jurnal Trading & Analisa Performa
           </div>
         </button>
+
+        {/* Real-time Order & Stop Loss Matrix (DOM) */}
+        {onOpenLiquidityMatrix && (
+          <button
+            type="button"
+            title="Order Matrix (DOM) - Whale vs Ritel & Stop Loss Riil"
+            onClick={onOpenLiquidityMatrix}
+            className="p-2 rounded-lg text-slate-400 hover:text-cyan-400 hover:bg-[#1a202c] transition-all relative group cursor-pointer"
+          >
+            <Database className="w-4 h-4 text-cyan-400" />
+            <div className="absolute left-14 top-1/2 -translate-y-1/2 bg-[#1f242c] text-white text-xs px-2.5 py-1 rounded shadow-lg border border-[#30363d] whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
+              Order Matrix (DOM) • Whales vs Ritel & Titik SL Riil
+            </div>
+          </button>
+        )}
 
         {/* Telegram Alerts */}
         {onOpenTelegram && (
