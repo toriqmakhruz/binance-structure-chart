@@ -4969,14 +4969,10 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
           </div>
         )}
 
-        {/* Floating Market X-Ray: Big Data Stop Loss Radar (Pojok Kiri Bawah Sesi Pasar) */}
+        {/* Floating Market X-Ray: Big Data Stop Loss Radar (Pojok Bawah Kiri) */}
         {visibility.marketXray && xrayData && (
           <div
-            className={`absolute ${
-              visibility.marketSessions && (sessionSettings.showHudBar ?? true)
-                ? 'top-10 sm:top-11'
-                : 'top-2'
-            } left-2 sm:left-4 z-20 bg-[#0d1117]/94 border border-rose-900/50 backdrop-blur-md rounded-lg shadow-2xl p-2 select-none font-mono text-[10px] w-64 sm:w-72 pointer-events-auto transition-all`}
+            className="absolute bottom-8 left-2 sm:left-4 z-20 bg-[#0d1117]/94 border border-rose-900/50 backdrop-blur-md rounded-lg shadow-2xl p-2 select-none font-mono text-[10px] w-64 sm:w-72 pointer-events-auto transition-all"
           >
             {/* Header Row */}
             <div
