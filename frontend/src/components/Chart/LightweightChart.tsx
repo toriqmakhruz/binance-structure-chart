@@ -2308,6 +2308,146 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         }
       }
 
+      // 4. Rata-Rata Limit Order Paus & Ritel (Whale & Retail Average Limit Orders)
+      const avgLimits = xrayData.average_limit_orders
+      if (avgLimits) {
+        // 4a. Whale Avg Long (Bid) Line
+        const wLong = avgLimits.whale_avg_long
+        if (wLong && wLong.price > 0) {
+          const yWLong = series.priceToCoordinate(wLong.price)
+          if (yWLong !== null && yWLong >= -10 && yWLong <= height + 10) {
+            ctx.beginPath()
+            ctx.setLineDash([8, 4])
+            ctx.strokeStyle = '#06b6d4'
+            ctx.lineWidth = 1.4
+            ctx.globalAlpha = 0.85
+            ctx.moveTo(0, yWLong)
+            ctx.lineTo(maxChartX, yWLong)
+            ctx.stroke()
+            ctx.setLineDash([])
+
+            ctx.globalAlpha = 1.0
+            ctx.font = 'bold 9px monospace'
+            const tagTxt = `🐋 WHALE AVG LONG: $${wLong.price.toLocaleString()} | ~$${(wLong.usd_value / 1e6).toFixed(1)}M (${wLong.distance_pct}%)`
+            const tagW = ctx.measureText(tagTxt).width + 10
+            const tagH = 15
+            const tagX = Math.max(10, maxChartX - tagW - 8)
+            const tagY = Math.max(6, Math.min(height - 20, yWLong - 7.5))
+
+            ctx.fillStyle = 'rgba(8, 47, 73, 0.92)'
+            ctx.fillRect(tagX, tagY, tagW, tagH)
+            ctx.strokeStyle = '#06b6d4'
+            ctx.lineWidth = 1.0
+            ctx.strokeRect(tagX, tagY, tagW, tagH)
+
+            ctx.fillStyle = '#bae6fd'
+            ctx.fillText(tagTxt, tagX + 5, tagY + 11)
+          }
+        }
+
+        // 4b. Whale Avg Short (Ask) Line
+        const wShort = avgLimits.whale_avg_short
+        if (wShort && wShort.price > 0) {
+          const yWShort = series.priceToCoordinate(wShort.price)
+          if (yWShort !== null && yWShort >= -10 && yWShort <= height + 10) {
+            ctx.beginPath()
+            ctx.setLineDash([8, 4])
+            ctx.strokeStyle = '#f59e0b'
+            ctx.lineWidth = 1.4
+            ctx.globalAlpha = 0.85
+            ctx.moveTo(0, yWShort)
+            ctx.lineTo(maxChartX, yWShort)
+            ctx.stroke()
+            ctx.setLineDash([])
+
+            ctx.globalAlpha = 1.0
+            ctx.font = 'bold 9px monospace'
+            const tagTxt = `🐋 WHALE AVG SHORT: $${wShort.price.toLocaleString()} | ~$${(wShort.usd_value / 1e6).toFixed(1)}M (+${wShort.distance_pct}%)`
+            const tagW = ctx.measureText(tagTxt).width + 10
+            const tagH = 15
+            const tagX = Math.max(10, maxChartX - tagW - 8)
+            const tagY = Math.max(6, Math.min(height - 20, yWShort - 7.5))
+
+            ctx.fillStyle = 'rgba(69, 26, 3, 0.92)'
+            ctx.fillRect(tagX, tagY, tagW, tagH)
+            ctx.strokeStyle = '#f59e0b'
+            ctx.lineWidth = 1.0
+            ctx.strokeRect(tagX, tagY, tagW, tagH)
+
+            ctx.fillStyle = '#fde68a'
+            ctx.fillText(tagTxt, tagX + 5, tagY + 11)
+          }
+        }
+
+        // 4c. Retail Avg Long (Bid) Line
+        const rLong = avgLimits.retail_avg_long
+        if (rLong && rLong.price > 0) {
+          const yRLong = series.priceToCoordinate(rLong.price)
+          if (yRLong !== null && yRLong >= -10 && yRLong <= height + 10) {
+            ctx.beginPath()
+            ctx.setLineDash([3, 3])
+            ctx.strokeStyle = '#34d399'
+            ctx.lineWidth = 1.2
+            ctx.globalAlpha = 0.8
+            ctx.moveTo(0, yRLong)
+            ctx.lineTo(maxChartX, yRLong)
+            ctx.stroke()
+            ctx.setLineDash([])
+
+            ctx.globalAlpha = 1.0
+            ctx.font = 'bold 8.5px monospace'
+            const tagTxt = `🦐 RETAIL AVG LONG: $${rLong.price.toLocaleString()} | ~$${(rLong.usd_value / 1e6).toFixed(1)}M (${rLong.distance_pct}%)`
+            const tagW = ctx.measureText(tagTxt).width + 8
+            const tagH = 14
+            const tagX = Math.max(10, maxChartX - tagW - 8)
+            const tagY = Math.max(6, Math.min(height - 20, yRLong - 7))
+
+            ctx.fillStyle = 'rgba(6, 44, 30, 0.90)'
+            ctx.fillRect(tagX, tagY, tagW, tagH)
+            ctx.strokeStyle = '#34d399'
+            ctx.lineWidth = 0.9
+            ctx.strokeRect(tagX, tagY, tagW, tagH)
+
+            ctx.fillStyle = '#a7f3d0'
+            ctx.fillText(tagTxt, tagX + 4, tagY + 10)
+          }
+        }
+
+        // 4d. Retail Avg Short (Ask) Line
+        const rShort = avgLimits.retail_avg_short
+        if (rShort && rShort.price > 0) {
+          const yRShort = series.priceToCoordinate(rShort.price)
+          if (yRShort !== null && yRShort >= -10 && yRShort <= height + 10) {
+            ctx.beginPath()
+            ctx.setLineDash([3, 3])
+            ctx.strokeStyle = '#fb7185'
+            ctx.lineWidth = 1.2
+            ctx.globalAlpha = 0.8
+            ctx.moveTo(0, yRShort)
+            ctx.lineTo(maxChartX, yRShort)
+            ctx.stroke()
+            ctx.setLineDash([])
+
+            ctx.globalAlpha = 1.0
+            ctx.font = 'bold 8.5px monospace'
+            const tagTxt = `🦐 RETAIL AVG SHORT: $${rShort.price.toLocaleString()} | ~$${(rShort.usd_value / 1e6).toFixed(1)}M (+${rShort.distance_pct}%)`
+            const tagW = ctx.measureText(tagTxt).width + 8
+            const tagH = 14
+            const tagX = Math.max(10, maxChartX - tagW - 8)
+            const tagY = Math.max(6, Math.min(height - 20, yRShort - 7))
+
+            ctx.fillStyle = 'rgba(67, 10, 20, 0.90)'
+            ctx.fillRect(tagX, tagY, tagW, tagH)
+            ctx.strokeStyle = '#fb7185'
+            ctx.lineWidth = 0.9
+            ctx.strokeRect(tagX, tagY, tagW, tagH)
+
+            ctx.fillStyle = '#fecdd3'
+            ctx.fillText(tagTxt, tagX + 4, tagY + 10)
+          }
+        }
+      }
+
       ctx.restore()
     }
 
@@ -5045,6 +5185,47 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
                     <div className="text-slate-400 text-[8.5px]">~${(xrayData.stop_loss_pools.long_sl_cascade.est_usd / 1e6).toFixed(1)}M pool</div>
                   </div>
                 </div>
+
+                {/* Average Limit Orders (Whale & Retail Cohorts) */}
+                {xrayData.average_limit_orders && (
+                  <div className="pt-1 border-t border-[#21262d] space-y-1">
+                    <div className="text-[9px] font-bold text-slate-400 flex items-center justify-between">
+                      <span>Rata-Rata Limit Order (DOM L2)</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1 text-[8.5px]">
+                      {/* Whale Avg Long & Short */}
+                      <div className="bg-[#121b28] p-1 rounded border border-cyan-900/40">
+                        <div className="text-cyan-400 font-bold flex items-center justify-between">
+                          <span>🐋 Paus Long</span>
+                          <span className="text-[7.5px] text-slate-400">{xrayData.average_limit_orders.whale_avg_long.distance_pct}%</span>
+                        </div>
+                        <div className="text-white font-mono font-bold">${xrayData.average_limit_orders.whale_avg_long.price.toLocaleString()}</div>
+                      </div>
+                      <div className="bg-[#241a0e] p-1 rounded border border-amber-900/40">
+                        <div className="text-amber-400 font-bold flex items-center justify-between">
+                          <span>🐋 Paus Short</span>
+                          <span className="text-[7.5px] text-slate-400">+{xrayData.average_limit_orders.whale_avg_short.distance_pct}%</span>
+                        </div>
+                        <div className="text-white font-mono font-bold">${xrayData.average_limit_orders.whale_avg_short.price.toLocaleString()}</div>
+                      </div>
+                      {/* Retail Avg Long & Short */}
+                      <div className="bg-[#0f1f18] p-1 rounded border border-emerald-900/40">
+                        <div className="text-emerald-400 font-bold flex items-center justify-between">
+                          <span>🦐 Ritel Long</span>
+                          <span className="text-[7.5px] text-slate-400">{xrayData.average_limit_orders.retail_avg_long.distance_pct}%</span>
+                        </div>
+                        <div className="text-white font-mono font-bold">${xrayData.average_limit_orders.retail_avg_long.price.toLocaleString()}</div>
+                      </div>
+                      <div className="bg-[#261118] p-1 rounded border border-rose-900/40">
+                        <div className="text-rose-400 font-bold flex items-center justify-between">
+                          <span>🦐 Ritel Short</span>
+                          <span className="text-[7.5px] text-slate-400">+{xrayData.average_limit_orders.retail_avg_short.distance_pct}%</span>
+                        </div>
+                        <div className="text-white font-mono font-bold">${xrayData.average_limit_orders.retail_avg_short.price.toLocaleString()}</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Action Buttons: Buka DOM Matrix L2 & ITI Workspace */}
                 <div className="flex items-center space-x-1.5 mt-1.5 pt-1 border-t border-[#21262d]">

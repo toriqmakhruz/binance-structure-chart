@@ -63,6 +63,12 @@ export interface ITIDomFeatures {
   whale_ask_wall: { price: number; usd_value: number; distance_pct: number; label: string }
   wall_pulling_detected: boolean
   iceberg_warning: boolean
+  average_limit_orders?: {
+    whale_avg_long: { price: number; usd_value: number; distance_pct: number; label: string }
+    whale_avg_short: { price: number; usd_value: number; distance_pct: number; label: string }
+    retail_avg_long: { price: number; usd_value: number; distance_pct: number; label: string }
+    retail_avg_short: { price: number; usd_value: number; distance_pct: number; label: string }
+  }
 }
 
 export interface ITIFootprintFeatures {

@@ -157,6 +157,8 @@ class MarketXrayService:
 
         whale_bids: List[Dict[str, float]] = []
         whale_asks: List[Dict[str, float]] = []
+        retail_bids: List[Dict[str, float]] = []
+        retail_asks: List[Dict[str, float]] = []
 
         WHALE_THRESHOLD_USD = 50000.0
         RETAIL_THRESHOLD_USD = 10000.0
@@ -171,6 +173,7 @@ class MarketXrayService:
                     whale_bids.append({"price": p, "usd": usd})
                 elif usd <= RETAIL_THRESHOLD_USD:
                     total_retail_bids += usd
+                    retail_bids.append({"price": p, "usd": usd})
             except Exception:
                 continue
 
@@ -184,8 +187,20 @@ class MarketXrayService:
                     whale_asks.append({"price": p, "usd": usd})
                 elif usd <= RETAIL_THRESHOLD_USD:
                     total_retail_asks += usd
+                    retail_asks.append({"price": p, "usd": usd})
             except Exception:
                 continue
+
+        # Volume-Weighted Average Prices (VWAP of Limit Orders)
+        weighted_whale_bid = sum(x["price"] * x["usd"] for x in whale_bids)
+        weighted_whale_ask = sum(x["price"] * x["usd"] for x in whale_asks)
+        weighted_retail_bid = sum(x["price"] * x["usd"] for x in retail_bids)
+        weighted_retail_ask = sum(x["price"] * x["usd"] for x in retail_asks)
+
+        avg_whale_long = round(weighted_whale_bid / total_inst_bids, 2) if total_inst_bids > 0 else (top_whale_bid["price"] if top_whale_bid["price"] > 0 else round(current_price * 0.985, 2))
+        avg_whale_short = round(weighted_whale_ask / total_inst_asks, 2) if total_inst_asks > 0 else (top_whale_ask["price"] if top_whale_ask["price"] > 0 else round(current_price * 1.015, 2))
+        avg_retail_long = round(weighted_retail_bid / total_retail_bids, 2) if total_retail_bids > 0 else round(current_price * 0.995, 2)
+        avg_retail_short = round(weighted_retail_ask / total_retail_asks, 2) if total_retail_asks > 0 else round(current_price * 1.005, 2)
 
         # Top Whale Fortress Walls
         whale_bids.sort(key=lambda x: x["usd"], reverse=True)
@@ -310,6 +325,36 @@ class MarketXrayService:
                 },
                 "total_inst_bids_usd": round(total_inst_bids, 2),
                 "total_inst_asks_usd": round(total_inst_asks, 2)
+            },
+            "average_limit_orders": {
+                "whale_avg_long": {
+                    "price": round(avg_whale_long, 2),
+                    "usd_value": round(total_inst_bids, 2),
+                    "distance_pct": round(((avg_whale_long - current_price) / current_price) * 100.0, 2),
+                    "order_count": len(whale_bids),
+                    "label": f"Whale Avg Long (${round(total_inst_bids / 1e6, 2)}M)"
+                },
+                "whale_avg_short": {
+                    "price": round(avg_whale_short, 2),
+                    "usd_value": round(total_inst_asks, 2),
+                    "distance_pct": round(((avg_whale_short - current_price) / current_price) * 100.0, 2),
+                    "order_count": len(whale_asks),
+                    "label": f"Whale Avg Short (${round(total_inst_asks / 1e6, 2)}M)"
+                },
+                "retail_avg_long": {
+                    "price": round(avg_retail_long, 2),
+                    "usd_value": round(total_retail_bids, 2),
+                    "distance_pct": round(((avg_retail_long - current_price) / current_price) * 100.0, 2),
+                    "order_count": len(retail_bids),
+                    "label": f"Retail Avg Long (${round(total_retail_bids / 1e6, 2)}M)"
+                },
+                "retail_avg_short": {
+                    "price": round(avg_retail_short, 2),
+                    "usd_value": round(total_retail_asks, 2),
+                    "distance_pct": round(((avg_retail_short - current_price) / current_price) * 100.0, 2),
+                    "order_count": len(retail_asks),
+                    "label": f"Retail Avg Short (${round(total_retail_asks / 1e6, 2)}M)"
+                }
             }
         }
 

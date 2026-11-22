@@ -54,10 +54,25 @@ class ITIDomEngine:
         w_tot = w_bids + w_asks
         weighted_obi = (w_bids - w_asks) / max(1e-6, w_tot) if w_tot > 0 else 0.0
 
-        # 4. Whale Fortress Walls (>= $50,000 USD limit ticket)
+        # 4. Whale Fortress Walls & Average Limit Orders (Whale >= $50k, Retail <= $10k)
         WHALE_THRESHOLD_USD = 50000.0
+        RETAIL_THRESHOLD_USD = 10000.0
+
         whale_bids = [{"price": p, "usd": p * q} for p, q in bids if p * q >= WHALE_THRESHOLD_USD]
         whale_asks = [{"price": p, "usd": p * q} for p, q in asks if p * q >= WHALE_THRESHOLD_USD]
+        retail_bids = [{"price": p, "usd": p * q} for p, q in bids if p * q <= RETAIL_THRESHOLD_USD]
+        retail_asks = [{"price": p, "usd": p * q} for p, q in asks if p * q <= RETAIL_THRESHOLD_USD]
+
+        tot_whale_bid_usd = sum(x["usd"] for x in whale_bids)
+        tot_whale_ask_usd = sum(x["usd"] for x in whale_asks)
+        tot_retail_bid_usd = sum(x["usd"] for x in retail_bids)
+        tot_retail_ask_usd = sum(x["usd"] for x in retail_asks)
+
+        avg_whale_long = round(sum(x["price"] * x["usd"] for x in whale_bids) / tot_whale_bid_usd, 2) if tot_whale_bid_usd > 0 else round(mid_p * 0.985, 2)
+        avg_whale_short = round(sum(x["price"] * x["usd"] for x in whale_asks) / tot_whale_ask_usd, 2) if tot_whale_ask_usd > 0 else round(mid_p * 1.015, 2)
+
+        avg_retail_long = round(sum(x["price"] * x["usd"] for x in retail_bids) / tot_retail_bid_usd, 2) if tot_retail_bid_usd > 0 else round(mid_p * 0.995, 2)
+        avg_retail_short = round(sum(x["price"] * x["usd"] for x in retail_asks) / tot_retail_ask_usd, 2) if tot_retail_ask_usd > 0 else round(mid_p * 1.005, 2)
 
         whale_bids.sort(key=lambda x: x["usd"], reverse=True)
         whale_asks.sort(key=lambda x: x["usd"], reverse=True)
@@ -88,7 +103,33 @@ class ITIDomEngine:
                 "label": f"Whale Ask Wall (${round(top_whale_ask['usd'] / 1e6, 2)}M)"
             },
             wall_pulling_detected=False,
-            iceberg_warning=spread_pct > 0.03 and abs(obi) > 0.6
+            iceberg_warning=spread_pct > 0.03 and abs(obi) > 0.6,
+            average_limit_orders={
+                "whale_avg_long": {
+                    "price": round(avg_whale_long, 2),
+                    "usd_value": round(tot_whale_bid_usd, 2),
+                    "distance_pct": round(((avg_whale_long - mid_p) / mid_p) * 100.0, 2),
+                    "label": f"Whale Avg Long (${round(tot_whale_bid_usd / 1e6, 2)}M)"
+                },
+                "whale_avg_short": {
+                    "price": round(avg_whale_short, 2),
+                    "usd_value": round(tot_whale_ask_usd, 2),
+                    "distance_pct": round(((avg_whale_short - mid_p) / mid_p) * 100.0, 2),
+                    "label": f"Whale Avg Short (${round(tot_whale_ask_usd / 1e6, 2)}M)"
+                },
+                "retail_avg_long": {
+                    "price": round(avg_retail_long, 2),
+                    "usd_value": round(tot_retail_bid_usd, 2),
+                    "distance_pct": round(((avg_retail_long - mid_p) / mid_p) * 100.0, 2),
+                    "label": f"Retail Avg Long (${round(tot_retail_bid_usd / 1e6, 2)}M)"
+                },
+                "retail_avg_short": {
+                    "price": round(avg_retail_short, 2),
+                    "usd_value": round(tot_retail_ask_usd, 2),
+                    "distance_pct": round(((avg_retail_short - mid_p) / mid_p) * 100.0, 2),
+                    "label": f"Retail Avg Short (${round(tot_retail_ask_usd / 1e6, 2)}M)"
+                }
+            }
         )
 
 dom_engine = ITIDomEngine()

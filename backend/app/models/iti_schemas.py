@@ -57,6 +57,7 @@ class ITIDomFeatures(BaseModel):
     whale_ask_wall: Dict[str, Any] = Field(default_factory=dict)
     wall_pulling_detected: bool = False
     iceberg_warning: bool = False
+    average_limit_orders: Dict[str, Any] = Field(default_factory=dict)
 
 class ITIFootprintFeatures(BaseModel):
     current_bar_delta: float = 0.0

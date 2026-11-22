@@ -451,6 +451,29 @@ export const ITIWorkspacePanel: React.FC<ITIWorkspacePanelProps> = ({
                 <span>Whale Ask Wall (Resist):</span>
                 <span className="text-amber-400 font-bold">${data.dom.whale_ask_wall?.price}</span>
               </div>
+              {data.dom.average_limit_orders && (
+                <div className="pt-1.5 mt-1 border-t border-[#1f2636] space-y-1">
+                  <div className="text-[8.5px] font-bold text-slate-300">Rata-Rata Limit Order (DOM):</div>
+                  <div className="grid grid-cols-2 gap-1 text-[8px]">
+                    <div className="bg-[#0f1724] p-1 rounded border border-cyan-950">
+                      <span className="text-cyan-400 font-bold">🐋 Paus Long:</span>
+                      <div className="text-white font-mono font-bold">${data.dom.average_limit_orders.whale_avg_long?.price?.toLocaleString()}</div>
+                    </div>
+                    <div className="bg-[#21160d] p-1 rounded border border-amber-950">
+                      <span className="text-amber-400 font-bold">🐋 Paus Short:</span>
+                      <div className="text-white font-mono font-bold">${data.dom.average_limit_orders.whale_avg_short?.price?.toLocaleString()}</div>
+                    </div>
+                    <div className="bg-[#0b1c15] p-1 rounded border border-emerald-950">
+                      <span className="text-emerald-400 font-bold">🦐 Ritel Long:</span>
+                      <div className="text-white font-mono font-bold">${data.dom.average_limit_orders.retail_avg_long?.price?.toLocaleString()}</div>
+                    </div>
+                    <div className="bg-[#240d14] p-1 rounded border border-rose-950">
+                      <span className="text-rose-400 font-bold">🦐 Ritel Short:</span>
+                      <div className="text-white font-mono font-bold">${data.dom.average_limit_orders.retail_avg_short?.price?.toLocaleString()}</div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Footprint & CVD */}

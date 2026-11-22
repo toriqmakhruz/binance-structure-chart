@@ -25,6 +25,14 @@ export interface MarketXrayTelemetry {
   open_interest_usd: number;
 }
 
+export interface LimitOrderAverage {
+  price: number;
+  usd_value: number;
+  distance_pct: number;
+  order_count?: number;
+  label: string;
+}
+
 export interface MarketXrayData {
   symbol: string;
   market: string;
@@ -40,5 +48,11 @@ export interface MarketXrayData {
     top_ask_wall: WhaleWall;
     total_inst_bids_usd: number;
     total_inst_asks_usd: number;
+  };
+  average_limit_orders?: {
+    whale_avg_long: LimitOrderAverage;
+    whale_avg_short: LimitOrderAverage;
+    retail_avg_long: LimitOrderAverage;
+    retail_avg_short: LimitOrderAverage;
   };
 }
