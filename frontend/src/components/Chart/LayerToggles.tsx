@@ -25,7 +25,8 @@ import {
   Zap,
   TrendingUp,
   Database,
-  Radar
+  Radar,
+  Crosshair
 } from 'lucide-react'
 
 interface LayerTogglesProps {
@@ -107,6 +108,7 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
       badgeText: 'INSTITUSI',
       badgeClass: 'bg-amber-950/60 text-amber-300 border-amber-800/50',
       items: [
+        { key: 'sniperEntry', label: 'Sniper Entry Crosshair (3-in-1)', desc: 'Bidik entry SL tipis: Whale Wall + SL Pool + Spot CVD + OI Flush', icon: <Crosshair className="w-3.5 h-3.5" />, color: 'text-amber-300', bgHover: 'hover:bg-amber-950/30' },
         { key: 'marketXray', label: 'Market X-Ray (Stop Loss & Whale Radar)', desc: 'Radar jeroan orderbook: Squeeze Magnet, SL Cascade & Whale Walls', icon: <Radar className="w-3.5 h-3.5" />, color: 'text-rose-400', bgHover: 'hover:bg-rose-950/30' },
         { key: 'smartDivergence', label: 'Smart Divergence (RSI+MACD+CVD)', desc: 'Bull/Bear Divergence tervalidasi Sweep, Pinbar & OB/FVG', icon: <Target className="w-3.5 h-3.5" />, color: 'text-emerald-400', bgHover: 'hover:bg-emerald-950/30' },
         { key: 'anchoredVwap', label: 'Anchored VWAP (AVWAP)', desc: 'Patokan harga wajar institusi ±1σ & ±2σ bands', icon: <Anchor className="w-3.5 h-3.5" />, color: 'text-amber-400', bgHover: 'hover:bg-amber-950/30' },
@@ -154,7 +156,7 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
 
   // Count active layers
   const allKeys: (keyof LayerVisibility)[] = [
-    'marketXray', 'smartDivergence', 'anchoredVwap', 'deltaAbsorption', 'judasSwing', 'smcEvents', 'orderBlocks', 'fvgs', 'smcSwings',
+    'sniperEntry', 'marketXray', 'smartDivergence', 'anchoredVwap', 'deltaAbsorption', 'judasSwing', 'smcEvents', 'orderBlocks', 'fvgs', 'smcSwings',
     'liquidationHeatmap', 'cvdOrderflow', 'marketSessions',
     'trendRibbon', 'trendStrengthMeter', 'fibonacci', 'patterns', 'srLevels', 'volumeProfile',
     'entryBoxes', 'forecastCone', 'forecastScenarios', 'volume', 'openInterest', 'fundingRate',
@@ -174,6 +176,7 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
 
   // Quick chips for top core indicators
   const quickChips: { key: keyof LayerVisibility; label: string }[] = [
+    { key: 'sniperEntry', label: 'Sniper' },
     { key: 'marketXray', label: 'X-Ray' },
     { key: 'smartDivergence', label: 'SmartDiv' },
     { key: 'anchoredVwap', label: 'AVWAP' },

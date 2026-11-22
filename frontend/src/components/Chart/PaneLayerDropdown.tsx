@@ -23,7 +23,8 @@ import {
   Zap,
   TrendingUp,
   Database,
-  Radar
+  Radar,
+  Crosshair
 } from 'lucide-react'
 
 interface PaneLayerDropdownProps {
@@ -90,6 +91,14 @@ export const PaneLayerDropdown: React.FC<PaneLayerDropdownProps> = ({
 
   const layerOptions: LayerOption[] = [
     // 1. KATEGORI 1: INDIKATOR INSTITUSIONAL (Smart Money, Order Flow & Market Structure)
+    {
+      key: 'sniperEntry' as keyof LayerVisibility,
+      category: 'institusional',
+      label: 'Sniper Entry Crosshair (3-in-1)',
+      desc: 'Bidik entry SL tipis: Whale Wall + SL Pool + Spot CVD + OI Flush',
+      icon: <Crosshair className="w-3.5 h-3.5" />,
+      color: 'text-amber-300'
+    },
     {
       key: 'marketXray' as keyof LayerVisibility,
       category: 'institusional',

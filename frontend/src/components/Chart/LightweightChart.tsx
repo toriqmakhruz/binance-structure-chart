@@ -46,6 +46,7 @@ import {
   calculateJudasSwing
 } from '../../utils/institutionalIndicators'
 import { detectSmartDivergences } from '../../utils/divergenceEngine'
+import { calculateSniperEntryTargets } from '../../utils/sniperEngine'
 
 interface LightweightChartProps {
   symbol: string
@@ -339,7 +340,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
   }, [])
 
   useEffect(() => {
-    if (!visibility.marketXray) {
+    if (!visibility.marketXray && !visibility.sniperEntry) {
       setXrayData(null)
       return
     }
@@ -362,7 +363,13 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
       isMounted = false
       clearInterval(timer)
     }
-  }, [visibility.marketXray, symbol, market])
+  }, [visibility.marketXray, visibility.sniperEntry, symbol, market])
+
+  // Sniper Entry Crosshair Targets (3-in-1 Confluence + Spot/Futures CVD + OI Flush)
+  const sniperTargets = useMemo(() => {
+    if (!visibility.sniperEntry || !candles || candles.length < 20) return []
+    return calculateSniperEntryTargets(candles, smc, xrayData)
+  }, [visibility.sniperEntry, candles, smc, xrayData])
 
 
   // 1. Initialize Chart
@@ -2375,7 +2382,8 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
       ctx.restore()
     }
 
-    // 0.11. Market X-Ray: Big Data Stop Loss Pools & Whale Fortress Walls
+    const occupiedRightBadges: { x: number; y: number; w: number; h: number }[] = []
+
     // 0.11. Market X-Ray: Big Data Stop Loss Pools & Whale Fortress Walls (With Collision Resolver)
     if (visibility.marketXray && xrayData) {
       ctx.save()
@@ -2797,8 +2805,199 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
           const textOffsetY = item.height >= 16 ? 12 : (item.height >= 15 ? 11 : 10)
           const textOffsetX = item.height >= 16 ? 7 : (item.height >= 15 ? 5 : 4)
           ctx.fillText(item.text, item.tagX + textOffsetX, item.placedY + textOffsetY)
+
+          occupiedRightBadges.push({ x: item.tagX, y: item.placedY, w: item.width, h: item.height })
         }
       }
+
+      ctx.restore()
+    }
+
+    // 0.12. Apex Sniper Entry Crosshair (3-in-1 Confluence + Spot/Futures CVD + OI Flush Trigger)
+    if (visibility.sniperEntry && sniperTargets.length > 0 && candles.length > 0) {
+      ctx.save()
+      const maxChartX = Math.max(40, width - 68)
+      const lastC = candles[candles.length - 1]
+      const lastPt = resolveCoord(lastC.time, lastC.close)
+      const liveX = lastPt ? lastPt.x : maxChartX - 180
+      const sightX = Math.max(55, Math.min(maxChartX - 24, liveX + 22))
+      const lineStartX = Math.max(12, Math.min(sightX - 45, liveX - 30))
+
+      sniperTargets.forEach((target) => {
+        const yEntry = series.priceToCoordinate(target.entryPrice)
+        if (yEntry === null || yEntry < -20 || yEntry > height + 20) return
+
+        const isLong = target.side === 'LONG'
+        const isTriggered = target.triggerStatus === 'TRIGGERED'
+        const isDanger = target.triggerStatus === 'DANGER_BREAK'
+
+        const mainColor = isTriggered
+          ? '#facc15'
+          : isDanger
+          ? '#f97316'
+          : isLong
+          ? '#38bdf8'
+          : '#fb7185'
+
+        const glowColor = isTriggered
+          ? 'rgba(250, 204, 21, 0.35)'
+          : isDanger
+          ? 'rgba(249, 115, 22, 0.25)'
+          : isLong
+          ? 'rgba(56, 189, 248, 0.25)'
+          : 'rgba(251, 113, 133, 0.25)'
+
+        const pillBg = isTriggered
+          ? 'rgba(66, 32, 6, 0.96)'
+          : isDanger
+          ? 'rgba(67, 20, 7, 0.94)'
+          : isLong
+          ? 'rgba(8, 47, 73, 0.94)'
+          : 'rgba(76, 10, 26, 0.94)'
+
+        // 1. Subtle Sniper Projection Line (only near current candle to keep history ultra clean)
+        ctx.globalAlpha = target.isPrimary || isTriggered ? 0.95 : 0.72
+        ctx.beginPath()
+        ctx.strokeStyle = glowColor
+        ctx.lineWidth = target.isPrimary ? 4.5 : 3
+        ctx.moveTo(lineStartX, yEntry)
+        ctx.lineTo(maxChartX, yEntry)
+        ctx.stroke()
+
+        ctx.beginPath()
+        ctx.setLineDash(isTriggered || target.isPrimary ? [] : [5, 4])
+        ctx.strokeStyle = mainColor
+        ctx.lineWidth = target.isPrimary ? 1.8 : 1.3
+        ctx.moveTo(lineStartX, yEntry)
+        ctx.lineTo(maxChartX, yEntry)
+        ctx.stroke()
+        ctx.setLineDash([])
+
+        // 2. Sniper Scope Crosshair Reticle (⊕) at sightX
+        ctx.globalAlpha = 1.0
+        ctx.strokeStyle = mainColor
+        ctx.lineWidth = 1.4
+        ctx.beginPath()
+        ctx.arc(sightX, yEntry, 7, 0, Math.PI * 2)
+        ctx.stroke()
+
+        ctx.beginPath()
+        ctx.arc(sightX, yEntry, 2.5, 0, Math.PI * 2)
+        ctx.fillStyle = mainColor
+        ctx.fill()
+
+        ctx.beginPath()
+        ctx.moveTo(sightX - 11, yEntry)
+        ctx.lineTo(sightX - 4, yEntry)
+        ctx.moveTo(sightX + 4, yEntry)
+        ctx.lineTo(sightX + 11, yEntry)
+        ctx.moveTo(sightX, yEntry - 11)
+        ctx.lineTo(sightX, yEntry - 4)
+        ctx.moveTo(sightX, yEntry + 4)
+        ctx.lineTo(sightX, yEntry + 11)
+        ctx.stroke()
+
+        // 3. Thin Sniper SL Risk Bracket Tick
+        const ySl = series.priceToCoordinate(target.stopLossPrice)
+        if (ySl !== null && ySl >= 0 && ySl <= height) {
+          ctx.beginPath()
+          ctx.setLineDash([2, 2])
+          ctx.strokeStyle = '#ef4444'
+          ctx.lineWidth = 1.1
+          ctx.globalAlpha = 0.8
+          // Vertical risk bar connecting Entry -> SL
+          ctx.moveTo(sightX - 14, yEntry)
+          ctx.lineTo(sightX - 14, ySl)
+          // Short horizontal SL tick
+          ctx.lineTo(Math.min(maxChartX, sightX + 30), ySl)
+          ctx.stroke()
+          ctx.setLineDash([])
+
+          ctx.font = 'bold 8px monospace'
+          ctx.fillStyle = '#fca5a5'
+          ctx.fillText(`SL -${target.riskPct}%`, sightX + 34, isLong ? ySl + 3 : ySl - 2)
+        }
+
+        // 4. Compact Anti-Overlap Sniper Target Badge
+        const statusIcon = isTriggered ? '🔥' : isDanger ? '⚠️' : '🎯'
+        const statusWord = isTriggered ? 'SNIPER TRIGGERED' : isDanger ? 'BAHAYA JEBOL' : `SNIPER ${target.side}`
+        const line1 = `${statusIcon} ${statusWord}: $${formatPrice(target.entryPrice)} (${target.distancePct > 0 ? '+' : ''}${target.distancePct}%) • ${target.confluenceCount}x Conf`
+        const layersShort = target.confluenceLayers.slice(0, 2).join(' + ')
+        const line2 = `${target.triggerReason} | ${layersShort} | R:R 1:${target.rrRatio}`
+
+        ctx.font = 'bold 9.5px monospace'
+        const w1 = ctx.measureText(line1).width
+        ctx.font = '8.5px monospace'
+        const w2 = ctx.measureText(line2).width
+
+        const pillW = Math.max(w1, w2) + 14
+        const pillH = 29
+        // Place pill slightly left of far-right X-Ray tags if room allows, else right-aligned with full anti-overlap
+        const preferredX = Math.max(10, Math.min(maxChartX - pillW - 10, sightX - pillW / 2))
+        let pillY = isLong
+          ? Math.min(height - pillH - 22, yEntry + 12)
+          : Math.max(8, yEntry - pillH - 12)
+
+        // Resolve collision against all existing right-side Market X-Ray & Sniper badges
+        for (let pass = 0; pass < 8; pass++) {
+          let collided = false
+          for (const occ of occupiedRightBadges) {
+            const xOverlap = preferredX < occ.x + occ.w + 6 && preferredX + pillW + 6 > occ.x
+            const yOverlap = pillY < occ.y + occ.h + 4 && pillY + pillH + 4 > occ.y
+            if (xOverlap && yOverlap) {
+              collided = true
+              if (isLong) {
+                const candidateDown = occ.y + occ.h + 5
+                pillY = candidateDown + pillH <= height - 12 ? candidateDown : occ.y - pillH - 5
+              } else {
+                const candidateUp = occ.y - pillH - 5
+                pillY = candidateUp >= 6 ? candidateUp : occ.y + occ.h + 5
+              }
+              break
+            }
+          }
+          if (!collided) break
+        }
+        pillY = Math.max(6, Math.min(height - pillH - 10, pillY))
+        occupiedRightBadges.push({ x: preferredX, y: pillY, w: pillW, h: pillH })
+
+        // Connector dot + dashed guide if shifted vertically
+        const badgeCenterY = pillY + pillH / 2
+        if (Math.abs(badgeCenterY - yEntry) >= 16) {
+          ctx.beginPath()
+          ctx.setLineDash([2, 2])
+          ctx.strokeStyle = mainColor
+          ctx.lineWidth = 0.9
+          ctx.globalAlpha = 0.7
+          ctx.moveTo(sightX, yEntry)
+          ctx.lineTo(Math.max(preferredX + 6, Math.min(preferredX + pillW - 6, sightX)), isLong ? pillY : pillY + pillH)
+          ctx.stroke()
+          ctx.setLineDash([])
+        }
+
+        // Draw Pill Box
+        ctx.globalAlpha = 1.0
+        ctx.fillStyle = pillBg
+        ctx.strokeStyle = mainColor
+        ctx.lineWidth = isTriggered ? 1.6 : 1.2
+        ctx.beginPath()
+        if (typeof (ctx as any).roundRect === 'function') {
+          ;(ctx as any).roundRect(preferredX, pillY, pillW, pillH, 4)
+        } else {
+          ctx.rect(preferredX, pillY, pillW, pillH)
+        }
+        ctx.fill()
+        ctx.stroke()
+
+        // Line 1 & Line 2 Text
+        ctx.font = 'bold 9.5px monospace'
+        ctx.fillStyle = mainColor
+        ctx.fillText(line1, preferredX + 7, pillY + 12)
+
+        ctx.font = '8.5px monospace'
+        ctx.fillStyle = '#e2e8f0'
+        ctx.fillText(line2, preferredX + 7, pillY + 23.5)
+      })
 
       ctx.restore()
     }
@@ -4860,7 +5059,9 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     visibility.marketXray,
     xrayData,
     visibility.smartDivergence,
-    smartDivergenceSignals
+    smartDivergenceSignals,
+    visibility.sniperEntry,
+    sniperTargets
   ])
 
   // Always update the ref with the latest redraw function
@@ -5599,6 +5800,54 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
                         <div className="text-white font-mono font-bold">${xrayData.average_limit_orders.retail_avg_short.price.toLocaleString()}</div>
                       </div>
                     </div>
+                  </div>
+                )}
+
+                {/* Spot vs Futures CVD & 4-Quadrant OI Flush Telemetry */}
+                {(xrayData.spot_vs_futures || xrayData.oi_regime) && (
+                  <div className="pt-1 border-t border-[#21262d] grid grid-cols-2 gap-1 text-[8.5px]">
+                    {xrayData.spot_vs_futures && (
+                      <div className="bg-[#111822] p-1 rounded border border-slate-800">
+                        <div className="text-slate-400 font-bold">Spot vs Fut CVD</div>
+                        <div
+                          className={`font-bold truncate ${
+                            xrayData.spot_vs_futures.regime === 'SPOT_ABSORPTION_BULLISH' || xrayData.spot_vs_futures.regime === 'ALIGNED_BULLISH'
+                              ? 'text-emerald-400'
+                              : xrayData.spot_vs_futures.regime === 'SPOT_DISTRIBUTION_BEARISH' || xrayData.spot_vs_futures.regime === 'ALIGNED_BEARISH'
+                              ? 'text-rose-400'
+                              : 'text-slate-300'
+                          }`}
+                        >
+                          {xrayData.spot_vs_futures.regime === 'SPOT_ABSORPTION_BULLISH' && '🛡️ Spot Serap'}
+                          {xrayData.spot_vs_futures.regime === 'SPOT_DISTRIBUTION_BEARISH' && '⚠️ Spot Buang'}
+                          {xrayData.spot_vs_futures.regime === 'ALIGNED_BULLISH' && '🟢 Searah Beli'}
+                          {xrayData.spot_vs_futures.regime === 'ALIGNED_BEARISH' && '🔴 Searah Jual'}
+                          {xrayData.spot_vs_futures.regime === 'NEUTRAL' && '⚖️ Netral'}
+                        </div>
+                      </div>
+                    )}
+                    {xrayData.oi_regime && (
+                      <div className="bg-[#111822] p-1 rounded border border-slate-800">
+                        <div className="text-slate-400 font-bold">Rezim OI ({xrayData.oi_regime.oi_change_pct > 0 ? '+' : ''}{xrayData.oi_regime.oi_change_pct}%)</div>
+                        <div
+                          className={`font-bold truncate ${
+                            xrayData.oi_regime.regime === 'LONG_LIQUIDATION_FLUSH' || xrayData.oi_regime.regime === 'LONG_BUILD_UP'
+                              ? 'text-amber-400'
+                              : xrayData.oi_regime.regime === 'SHORT_COVERING_SQUEEZE'
+                              ? 'text-cyan-400'
+                              : xrayData.oi_regime.regime === 'SHORT_BUILD_UP'
+                              ? 'text-rose-400'
+                              : 'text-slate-300'
+                          }`}
+                        >
+                          {xrayData.oi_regime.regime === 'LONG_LIQUIDATION_FLUSH' && '🩸 Long Flush'}
+                          {xrayData.oi_regime.regime === 'SHORT_COVERING_SQUEEZE' && '🔥 Short Squeeze'}
+                          {xrayData.oi_regime.regime === 'LONG_BUILD_UP' && '🟢 Long Build'}
+                          {xrayData.oi_regime.regime === 'SHORT_BUILD_UP' && '🔴 Short Build'}
+                          {xrayData.oi_regime.regime === 'NEUTRAL' && '⚖️ OI Stabil'}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 

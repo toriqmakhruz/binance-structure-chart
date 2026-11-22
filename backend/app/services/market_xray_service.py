@@ -53,6 +53,9 @@ class MarketXrayService:
         top_ls_url = f"https://fapi.binance.com/futures/data/topLongShortPositionRatio?symbol={sym}&period=15m&limit=1" if market_clean == "futures" else None
         global_ls_url = f"https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol={sym}&period=15m&limit=1" if market_clean == "futures" else None
         taker_ls_url = f"https://fapi.binance.com/futures/data/takerlongshortRatio?symbol={sym}&period=15m&limit=1" if market_clean == "futures" else None
+        spot_klines_url = f"https://api.binance.com/api/v3/klines?symbol={sym}&interval=5m&limit=12"
+        fut_klines_url = f"https://fapi.binance.com/fapi/v1/klines?symbol={sym}&interval=5m&limit=12" if market_clean == "futures" else None
+        oi_hist_url = f"https://fapi.binance.com/futures/data/openInterestHist?symbol={sym}&period=5m&limit=6" if market_clean == "futures" else None
 
         depth_data = None
         trades_data = None
@@ -61,81 +64,121 @@ class MarketXrayService:
         top_trader_long_pct = 50.0
         retail_long_pct = 50.0
         taker_buy_pct = 50.0
+        spot_klines: List[Any] = []
+        fut_klines: List[Any] = []
+        oi_hist: List[Any] = []
 
         async with httpx.AsyncClient(headers=HEADERS, timeout=timeout, verify=settings.TLS_VERIFY) as client:
-            tasks = [
-                client.get(depth_url),
-                client.get(trades_url),
-                client.get(ticker_url)
-            ]
+            task_map: Dict[str, Any] = {
+                "depth": client.get(depth_url),
+                "trades": client.get(trades_url),
+                "ticker": client.get(ticker_url),
+                "spot_klines": client.get(spot_klines_url)
+            }
             if oi_url:
-                tasks.append(client.get(oi_url))
+                task_map["oi"] = client.get(oi_url)
             if top_ls_url:
-                tasks.append(client.get(top_ls_url))
+                task_map["top_ls"] = client.get(top_ls_url)
             if global_ls_url:
-                tasks.append(client.get(global_ls_url))
+                task_map["global_ls"] = client.get(global_ls_url)
             if taker_ls_url:
-                tasks.append(client.get(taker_ls_url))
+                task_map["taker_ls"] = client.get(taker_ls_url)
+            if fut_klines_url:
+                task_map["fut_klines"] = client.get(fut_klines_url)
+            if oi_hist_url:
+                task_map["oi_hist"] = client.get(oi_hist_url)
 
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+            keys = list(task_map.keys())
+            raw_results = await asyncio.gather(*[task_map[k] for k in keys], return_exceptions=True)
+            res_by_key = dict(zip(keys, raw_results))
 
             # Depth
-            if not isinstance(results[0], Exception) and results[0].status_code == 200:
-                depth_data = results[0].json()
+            r_depth = res_by_key.get("depth")
+            if r_depth and not isinstance(r_depth, Exception) and r_depth.status_code == 200:
+                depth_data = r_depth.json()
             # Trades
-            if not isinstance(results[1], Exception) and results[1].status_code == 200:
-                trades_data = results[1].json()
+            r_trades = res_by_key.get("trades")
+            if r_trades and not isinstance(r_trades, Exception) and r_trades.status_code == 200:
+                trades_data = r_trades.json()
             # Ticker
-            if not isinstance(results[2], Exception) and results[2].status_code == 200:
-                current_price = float(results[2].json().get("price", 0.0))
-
+            r_ticker = res_by_key.get("ticker")
+            if r_ticker and not isinstance(r_ticker, Exception) and r_ticker.status_code == 200:
+                current_price = float(r_ticker.json().get("price", 0.0))
+            # Spot Klines
+            r_spot_k = res_by_key.get("spot_klines")
+            if r_spot_k and not isinstance(r_spot_k, Exception) and r_spot_k.status_code == 200:
+                data_k = r_spot_k.json()
+                if isinstance(data_k, list):
+                    spot_klines = data_k
             # Derivatives
-            if len(results) > 3 and not isinstance(results[3], Exception) and results[3].status_code == 200:
+            r_oi = res_by_key.get("oi")
+            if r_oi and not isinstance(r_oi, Exception) and r_oi.status_code == 200:
                 try:
-                    oi_val = float(results[3].json().get("openInterest", 0.0))
+                    oi_val = float(r_oi.json().get("openInterest", 0.0))
                 except Exception:
                     pass
-
-            if len(results) > 4 and not isinstance(results[4], Exception) and results[4].status_code == 200:
+            r_top_ls = res_by_key.get("top_ls")
+            if r_top_ls and not isinstance(r_top_ls, Exception) and r_top_ls.status_code == 200:
                 try:
-                    ls_arr = results[4].json()
+                    ls_arr = r_top_ls.json()
                     if isinstance(ls_arr, list) and len(ls_arr) > 0:
                         top_trader_long_pct = float(ls_arr[0].get("longAccount", 0.5)) * 100.0
                 except Exception:
                     pass
-
-            if len(results) > 5 and not isinstance(results[5], Exception) and results[5].status_code == 200:
+            r_gl_ls = res_by_key.get("global_ls")
+            if r_gl_ls and not isinstance(r_gl_ls, Exception) and r_gl_ls.status_code == 200:
                 try:
-                    gl_arr = results[5].json()
+                    gl_arr = r_gl_ls.json()
                     if isinstance(gl_arr, list) and len(gl_arr) > 0:
                         retail_long_pct = float(gl_arr[0].get("longAccount", 0.5)) * 100.0
                 except Exception:
                     pass
-
-            if len(results) > 6 and not isinstance(results[6], Exception) and results[6].status_code == 200:
+            r_tk_ls = res_by_key.get("taker_ls")
+            if r_tk_ls and not isinstance(r_tk_ls, Exception) and r_tk_ls.status_code == 200:
                 try:
-                    tk_arr = results[6].json()
+                    tk_arr = r_tk_ls.json()
                     if isinstance(tk_arr, list) and len(tk_arr) > 0:
                         taker_buy_pct = float(tk_arr[0].get("buyVol", 0.5)) / max(1e-6, (float(tk_arr[0].get("buyVol", 0.5)) + float(tk_arr[0].get("sellVol", 0.5)))) * 100.0
                 except Exception:
                     pass
+            r_fut_k = res_by_key.get("fut_klines")
+            if r_fut_k and not isinstance(r_fut_k, Exception) and r_fut_k.status_code == 200:
+                data_fk = r_fut_k.json()
+                if isinstance(data_fk, list):
+                    fut_klines = data_fk
+            r_oi_h = res_by_key.get("oi_hist")
+            if r_oi_h and not isinstance(r_oi_h, Exception) and r_oi_h.status_code == 200:
+                data_oh = r_oi_h.json()
+                if isinstance(data_oh, list):
+                    oi_hist = data_oh
 
-        # Fallback to Binance Vision Spot depth/trades if upstream futures was blocked or empty
-        if not depth_data or not depth_data.get("bids"):
+        # Fallback to Binance Vision Spot depth/trades/klines if upstream was blocked or empty
+        if not depth_data or not depth_data.get("bids") or not spot_klines:
             try:
                 async with httpx.AsyncClient(headers=HEADERS, timeout=timeout, verify=settings.TLS_VERIFY) as fallback_client:
-                    fb_tasks = [
-                        fallback_client.get(f"https://data-api.binance.vision/api/v3/depth?symbol={sym}&limit=500"),
-                        fallback_client.get(f"https://data-api.binance.vision/api/v3/aggTrades?symbol={sym}&limit=500"),
-                        fallback_client.get(f"https://data-api.binance.vision/api/v3/ticker/price?symbol={sym}")
-                    ]
-                    fb_res = await asyncio.gather(*fb_tasks, return_exceptions=True)
-                    if not isinstance(fb_res[0], Exception) and fb_res[0].status_code == 200:
-                        depth_data = fb_res[0].json()
-                    if not isinstance(fb_res[1], Exception) and fb_res[1].status_code == 200:
-                        trades_data = fb_res[1].json()
-                    if not current_price and not isinstance(fb_res[2], Exception) and fb_res[2].status_code == 200:
-                        current_price = float(fb_res[2].json().get("price", 0.0))
+                    fb_tasks = []
+                    need_depth = not depth_data or not depth_data.get("bids")
+                    if need_depth:
+                        fb_tasks.append(("depth", fallback_client.get(f"https://data-api.binance.vision/api/v3/depth?symbol={sym}&limit=500")))
+                        fb_tasks.append(("trades", fallback_client.get(f"https://data-api.binance.vision/api/v3/aggTrades?symbol={sym}&limit=500")))
+                        fb_tasks.append(("ticker", fallback_client.get(f"https://data-api.binance.vision/api/v3/ticker/price?symbol={sym}")))
+                    if not spot_klines:
+                        fb_tasks.append(("spot_klines", fallback_client.get(f"https://data-api.binance.vision/api/v3/klines?symbol={sym}&interval=5m&limit=12")))
+                    if fb_tasks:
+                        fb_res = await asyncio.gather(*[t[1] for t in fb_tasks], return_exceptions=True)
+                        for (k, _), resp in zip(fb_tasks, fb_res):
+                            if isinstance(resp, Exception) or resp.status_code != 200:
+                                continue
+                            if k == "depth":
+                                depth_data = resp.json()
+                            elif k == "trades":
+                                trades_data = resp.json()
+                            elif k == "ticker" and not current_price:
+                                current_price = float(resp.json().get("price", 0.0))
+                            elif k == "spot_klines":
+                                data_k = resp.json()
+                                if isinstance(data_k, list):
+                                    spot_klines = data_k
             except Exception as e:
                 logger.warning(f"Fallback to binance vision failed: {e}")
 
@@ -191,6 +234,13 @@ class MarketXrayService:
             except Exception:
                 continue
 
+        # Top Whale Fortress Walls (Sort first before fallback usage)
+        whale_bids.sort(key=lambda x: x["usd"], reverse=True)
+        whale_asks.sort(key=lambda x: x["usd"], reverse=True)
+
+        top_whale_bid = whale_bids[0] if whale_bids else {"price": current_price * 0.985, "usd": 0.0}
+        top_whale_ask = whale_asks[0] if whale_asks else {"price": current_price * 1.015, "usd": 0.0}
+
         # Volume-Weighted Average Prices (VWAP of Limit Orders)
         weighted_whale_bid = sum(x["price"] * x["usd"] for x in whale_bids)
         weighted_whale_ask = sum(x["price"] * x["usd"] for x in whale_asks)
@@ -201,13 +251,6 @@ class MarketXrayService:
         avg_whale_short = round(weighted_whale_ask / total_inst_asks, 2) if total_inst_asks > 0 else (top_whale_ask["price"] if top_whale_ask["price"] > 0 else round(current_price * 1.015, 2))
         avg_retail_long = round(weighted_retail_bid / total_retail_bids, 2) if total_retail_bids > 0 else round(current_price * 0.995, 2)
         avg_retail_short = round(weighted_retail_ask / total_retail_asks, 2) if total_retail_asks > 0 else round(current_price * 1.005, 2)
-
-        # Top Whale Fortress Walls
-        whale_bids.sort(key=lambda x: x["usd"], reverse=True)
-        whale_asks.sort(key=lambda x: x["usd"], reverse=True)
-
-        top_whale_bid = whale_bids[0] if whale_bids else {"price": current_price * 0.985, "usd": 0.0}
-        top_whale_ask = whale_asks[0] if whale_asks else {"price": current_price * 1.015, "usd": 0.0}
 
         # 2. Extract Big Trade Anchors for Real Forced Stop-Loss Liquidation Models
         recent_large_buys = []
@@ -232,18 +275,14 @@ class MarketXrayService:
         avg_sell_entry = sum(x["price"] * x["usd"] for x in recent_large_sells) / max(1e-6, sum(x["usd"] for x in recent_large_sells)) if recent_large_sells else current_price
 
         # Standard Binance MMR Liquidation Calculation
-        # Long Stop-Loss Liquidation level (Below current price)
-        # Using 50x (2% dist) and 25x (4% dist) as the primary clusters
         long_sl_50x = round(avg_buy_entry * 0.9805, 2)
         long_sl_25x = round(avg_buy_entry * 0.9610, 2)
         est_long_sl_usd = sum(x["usd"] for x in recent_large_buys) * 1.6 or 15000000.0
 
-        # Short Stop-Loss Liquidation level (Above current price)
         short_sl_50x = round(avg_sell_entry * 1.0195, 2)
         short_sl_25x = round(avg_sell_entry * 1.0390, 2)
         est_short_sl_usd = sum(x["usd"] for x in recent_large_sells) * 1.6 or 18000000.0
 
-        # Primary Squeeze Targets
         primary_short_sl = {
             "price": short_sl_50x if short_sl_50x > current_price else round(current_price * 1.018, 2),
             "side": "SHORT_LIQ",
@@ -262,15 +301,68 @@ class MarketXrayService:
             "label": f"Long SL Cascade (${round(est_long_sl_usd / 1e6, 1)}M)"
         }
 
-        # 3. Compute Whale vs Retail Intent & Squeeze Direction
-        # Whale Pressure = Top Trader Long % + (Whale Bids / Total Whale Orders)
+        # 3. Compute Spot vs Futures CVD Divergence (30-min rolling institutional absorption detector)
+        def _calc_klines_cvd_and_chg(klines_arr: List[Any], bars: int = 6) -> Tuple[float, float]:
+            if not klines_arr:
+                return 0.0, 0.0
+            sl = klines_arr[-min(bars, len(klines_arr)):]
+            net_delta_usd = 0.0
+            for k in sl:
+                try:
+                    q_vol = float(k[7])
+                    taker_buy_q = float(k[10])
+                    net_delta_usd += (2.0 * taker_buy_q - q_vol)
+                except Exception:
+                    continue
+            try:
+                first_open = float(sl[0][1])
+                last_close = float(sl[-1][4])
+                pct_chg = ((last_close - first_open) / max(1e-9, first_open)) * 100.0
+            except Exception:
+                pct_chg = 0.0
+            return net_delta_usd, pct_chg
+
+        spot_cvd_30m, spot_price_chg_30m = _calc_klines_cvd_and_chg(spot_klines, bars=6)
+        fut_cvd_30m, fut_price_chg_30m = _calc_klines_cvd_and_chg(fut_klines, bars=6)
+        ref_price_chg = fut_price_chg_30m if fut_klines else spot_price_chg_30m
+
+        cvd_div_regime = "NEUTRAL"
+        if spot_klines and fut_klines:
+            if spot_cvd_30m > 0 and fut_cvd_30m < 0:
+                cvd_div_regime = "SPOT_ABSORPTION_BULLISH"
+            elif spot_cvd_30m < 0 and fut_cvd_30m > 0:
+                cvd_div_regime = "SPOT_DISTRIBUTION_BEARISH"
+            elif spot_cvd_30m > 0 and fut_cvd_30m > 0:
+                cvd_div_regime = "ALIGNED_BULLISH"
+            elif spot_cvd_30m < 0 and fut_cvd_30m < 0:
+                cvd_div_regime = "ALIGNED_BEARISH"
+
+        # 4. Compute 4-Quadrant OI Regime (Recent 15-30m OI Delta vs Price Direction)
+        oi_change_pct = 0.0
+        oi_regime = "NEUTRAL"
+        if isinstance(oi_hist, list) and len(oi_hist) >= 2:
+            try:
+                prev_oi = float(oi_hist[max(0, len(oi_hist) - 4)].get("sumOpenInterest", 0.0))
+                curr_oi = float(oi_hist[-1].get("sumOpenInterest", 0.0))
+                if prev_oi > 0:
+                    oi_change_pct = ((curr_oi - prev_oi) / prev_oi) * 100.0
+                    # Evaluate 4-Quadrant OI Regime
+                    if ref_price_chg < -0.05 and oi_change_pct < -0.05:
+                        oi_regime = "LONG_LIQUIDATION_FLUSH"
+                    elif ref_price_chg > 0.05 and oi_change_pct < -0.05:
+                        oi_regime = "SHORT_COVERING_SQUEEZE"
+                    elif ref_price_chg > 0.05 and oi_change_pct > 0.05:
+                        oi_regime = "LONG_BUILD_UP"
+                    elif ref_price_chg < -0.05 and oi_change_pct > 0.05:
+                        oi_regime = "SHORT_BUILD_UP"
+            except Exception:
+                pass
+
+        # 5. Compute Whale vs Retail Intent & Squeeze Direction
         inst_bid_share = total_inst_bids / max(1.0, total_inst_bids + total_inst_asks)
         whale_pressure_buy_pct = round(top_trader_long_pct * 0.5 + inst_bid_share * 100.0 * 0.5, 1)
         retail_pressure_long_pct = round(retail_long_pct, 1)
 
-        # Market Intent Deduction:
-        # If Whales are Buying (Whale Buy Wall) while Ritel is Shorting -> High probability Short Squeeze upward!
-        # If Whales are Selling while Ritel is Longing -> High probability Long Cascade downward!
         intent = "NEUTRAL_ACCUMULATION"
         intent_description = "Buku order seimbang. Menunggu dorongan volume institusi."
         confidence = 50
@@ -308,6 +400,17 @@ class MarketXrayService:
                 "open_interest_coins": oi_val,
                 "open_interest_usd": round(oi_val * current_price, 2)
             },
+            "spot_vs_futures": {
+                "spot_cvd_30m_usd": round(spot_cvd_30m, 2),
+                "futures_cvd_30m_usd": round(fut_cvd_30m, 2),
+                "price_change_30m_pct": round(ref_price_chg, 3),
+                "regime": cvd_div_regime
+            },
+            "oi_regime": {
+                "regime": oi_regime,
+                "oi_change_pct": round(oi_change_pct, 3),
+                "price_change_pct": round(ref_price_chg, 3)
+            },
             "stop_loss_pools": {
                 "short_sl_magnet": primary_short_sl,
                 "long_sl_cascade": primary_long_sl
@@ -323,6 +426,22 @@ class MarketXrayService:
                     "usd_value": round(top_whale_ask["usd"], 2),
                     "distance_pct": round(((top_whale_ask["price"] - current_price) / current_price) * 100.0, 2)
                 },
+                "bid_walls": [
+                    {
+                        "price": round(w["price"], 2),
+                        "usd_value": round(w["usd"], 2),
+                        "distance_pct": round(((w["price"] - current_price) / current_price) * 100.0, 2)
+                    }
+                    for w in whale_bids[:5]
+                ],
+                "ask_walls": [
+                    {
+                        "price": round(w["price"], 2),
+                        "usd_value": round(w["usd"], 2),
+                        "distance_pct": round(((w["price"] - current_price) / current_price) * 100.0, 2)
+                    }
+                    for w in whale_asks[:5]
+                ],
                 "total_inst_bids_usd": round(total_inst_bids, 2),
                 "total_inst_asks_usd": round(total_inst_asks, 2)
             },

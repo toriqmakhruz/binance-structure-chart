@@ -33,12 +33,27 @@ export interface LimitOrderAverage {
   label: string;
 }
 
+export interface SpotVsFuturesData {
+  spot_cvd_30m_usd: number;
+  futures_cvd_30m_usd: number;
+  price_change_30m_pct: number;
+  regime: 'SPOT_ABSORPTION_BULLISH' | 'SPOT_DISTRIBUTION_BEARISH' | 'ALIGNED_BULLISH' | 'ALIGNED_BEARISH' | 'NEUTRAL';
+}
+
+export interface OiRegimeData {
+  regime: 'LONG_LIQUIDATION_FLUSH' | 'SHORT_COVERING_SQUEEZE' | 'LONG_BUILD_UP' | 'SHORT_BUILD_UP' | 'NEUTRAL';
+  oi_change_pct: number;
+  price_change_pct: number;
+}
+
 export interface MarketXrayData {
   symbol: string;
   market: string;
   current_price: number;
   timestamp: number;
   telemetry: MarketXrayTelemetry;
+  spot_vs_futures?: SpotVsFuturesData;
+  oi_regime?: OiRegimeData;
   stop_loss_pools: {
     short_sl_magnet: StopLossPool;
     long_sl_cascade: StopLossPool;
@@ -46,6 +61,8 @@ export interface MarketXrayData {
   whale_fortress: {
     top_bid_wall: WhaleWall;
     top_ask_wall: WhaleWall;
+    bid_walls?: WhaleWall[];
+    ask_walls?: WhaleWall[];
     total_inst_bids_usd: number;
     total_inst_asks_usd: number;
   };

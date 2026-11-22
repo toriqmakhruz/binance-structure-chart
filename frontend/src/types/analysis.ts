@@ -289,6 +289,7 @@ export interface LayerVisibility {
   judasSwing?: boolean
   marketXray?: boolean
   smartDivergence?: boolean
+  sniperEntry?: boolean
 }
 
 export * from './fibonacci'
@@ -298,6 +299,7 @@ export * from './marketSessions'
 export * from './institutional'
 export * from './marketXray'
 export * from './divergence'
+export * from './sniper'
 
 
 export type DrawingToolType = 
