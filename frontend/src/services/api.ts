@@ -511,6 +511,7 @@ export async function testTelegramNotification(params: { bot_token?: string; cha
 
 import { LiquidityMatrixResponse } from '../types/liquidityMatrix'
 import { MarketXrayData } from '../types/marketXray'
+import { ITITelemetryResponse, ITIDataHealth } from '../types/iti'
 
 export async function fetchLiquidityMatrix(
   symbol: string,
@@ -534,4 +535,40 @@ export async function fetchMarketXray(
   }
   return resp.json()
 }
+
+export async function fetchItiTelemetry(
+  symbol?: string,
+  market: 'spot' | 'futures' = 'futures'
+): Promise<ITITelemetryResponse> {
+  const query = symbol ? `?symbol=${encodeURIComponent(symbol)}&market=${market}` : `?market=${market}`
+  const resp = await fetch(`${API_BASE}/iti/telemetry${query}`)
+  if (!resp.ok) {
+    throw new Error(`Failed to fetch ITI telemetry: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export async function selectItiPair(
+  symbol: string,
+  market: 'spot' | 'futures' = 'futures'
+): Promise<{ status: string; active_symbol: string; generation_id: number }> {
+  const resp = await fetch(`${API_BASE}/iti/select-pair`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ symbol, market })
+  })
+  if (!resp.ok) {
+    throw new Error(`Failed to switch active ITI pair: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export async function fetchItiDataHealth(): Promise<ITIDataHealth> {
+  const resp = await fetch(`${API_BASE}/iti/data-health`)
+  if (!resp.ok) {
+    throw new Error(`Failed to fetch ITI data health: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
 

@@ -25,7 +25,7 @@ import { AutoFibSettings, DEFAULT_AUTO_FIB_SETTINGS } from '../../types/fibonacc
 import { VolumeProfileSettings, DEFAULT_VOLUME_PROFILE_SETTINGS } from '../../types/volumeProfile'
 import { OrderflowSettings, DEFAULT_ORDERFLOW_SETTINGS } from '../../types/orderflow'
 import { formatPrice, getPricePrecision, formatOpenInterestValue, formatOpenInterest } from '../../utils/formatters'
-import { Crosshair, Clock, Trash2, Move, Palette, Check, X, Sliders, Gauge, ChevronDown, Radar, Activity } from 'lucide-react'
+import { Crosshair, Clock, Trash2, Move, Palette, Check, X, Sliders, Gauge, ChevronDown, Radar, Activity, Shield } from 'lucide-react'
 import { fetchMarketXray } from '../../services/api'
 import { MarketXrayData } from '../../types/marketXray'
 import { OpenInterestPane } from './OpenInterestPane'
@@ -5046,17 +5046,31 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
                   </div>
                 </div>
 
-                {/* Action Button: Buka DOM Matrix L2 */}
-                {onOpenLiquidityMatrix && (
+                {/* Action Buttons: Buka DOM Matrix L2 & ITI Workspace */}
+                <div className="flex items-center space-x-1.5 mt-1.5 pt-1 border-t border-[#21262d]">
+                  {onOpenLiquidityMatrix && (
+                    <button
+                      type="button"
+                      onClick={onOpenLiquidityMatrix}
+                      className="flex-1 py-1 px-1.5 rounded bg-rose-900/40 hover:bg-rose-800/60 text-rose-200 border border-rose-700/50 flex items-center justify-center space-x-1 transition-colors text-[9px] font-semibold"
+                      title="Buka Orderbook DOM Matriks L2"
+                    >
+                      <Activity className="w-3 h-3 text-rose-400" />
+                      <span>DOM L2</span>
+                    </button>
+                  )}
                   <button
                     type="button"
-                    onClick={onOpenLiquidityMatrix}
-                    className="w-full mt-1 py-1 px-2 rounded bg-rose-900/40 hover:bg-rose-800/60 text-rose-200 border border-rose-700/50 flex items-center justify-center space-x-1.5 transition-colors text-[9.5px] font-semibold"
+                    onClick={() => {
+                      window.dispatchEvent(new CustomEvent('cp_open_tab', { detail: 'iti' }))
+                    }}
+                    className="flex-1 py-1 px-1.5 rounded bg-indigo-900/40 hover:bg-indigo-800/60 text-indigo-200 border border-indigo-700/50 flex items-center justify-center space-x-1 transition-colors text-[9px] font-semibold"
+                    title="Buka Workspace Institutional Trading Intelligence (ITI)"
                   >
-                    <Activity className="w-3 h-3 text-rose-400" />
-                    <span>Buka Orderbook DOM Matriks</span>
+                    <Shield className="w-3 h-3 text-indigo-400" />
+                    <span>ITI Intel</span>
                   </button>
-                )}
+                </div>
               </div>
             ) : (
               <div className="flex items-center justify-between mt-1 text-[9px] text-slate-400">

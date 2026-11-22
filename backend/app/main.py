@@ -8,6 +8,7 @@ from .api.routes import router as api_router
 from .api.websocket import ws_router
 from .api.trade_routes import trade_router
 from .api.telegram_routes import telegram_router
+from .api.iti_routes import iti_router
 from .services.telegram_service import telegram_service
 from .services.trade_service import trade_service
 
@@ -87,6 +88,7 @@ app.include_router(api_router)
 app.include_router(ws_router)
 app.include_router(trade_router)
 app.include_router(telegram_router)
+app.include_router(iti_router)
 
 @app.get("/health")
 def health_check():

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { Search, X, Flame, ArrowUpRight, ArrowDownRight } from 'lucide-react'
-import { fetchSymbols } from '../../services/api'
+import { fetchSymbols, selectItiPair } from '../../services/api'
 
 interface SymbolSelectorProps {
   isOpen: boolean
@@ -91,6 +91,7 @@ export const SymbolSelector: React.FC<SymbolSelectorProps> = ({
                 <div
                   key={item.symbol}
                   onClick={() => {
+                    selectItiPair(item.symbol, market).catch(() => {})
                     onSelectSymbol(item.symbol)
                     onClose()
                   }}
