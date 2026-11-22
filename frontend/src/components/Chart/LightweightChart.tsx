@@ -2177,60 +2177,86 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
       ctx.restore()
     }
 
-    // 0.10. ICT Judas Swing / Institutional Fakeout Detector
+    // 0.10. ICT Judas Swing / Institutional Fakeout Detector (Compact & Anti-Overlap)
     if (visibility.judasSwing && judasSwingEvents.length > 0) {
       ctx.save()
+      const maxChartX = Math.max(40, width - 68)
+      const drawnJudasRects: { x: number; y: number; w: number; h: number }[] = []
+
       judasSwingEvents.forEach((ev) => {
         const pTrap = resolveCoord(ev.trapTime, ev.sweepPrice)
         const pConfirm = resolveCoord(ev.confirmTime, ev.reclaimPrice)
-        if (!pTrap || pTrap.x < -40 || pTrap.x > width + 40) return
+        if (!pTrap || pTrap.x < 6 || pTrap.x > maxChartX - 6) return
 
         const isBearTrap = ev.trapType === 'BEAR_TRAP'
         const color = isBearTrap ? '#10b981' : '#f43f5e'
-        const bgColor = isBearTrap ? 'rgba(6, 78, 59, 0.94)' : 'rgba(136, 19, 55, 0.94)'
+        const bgColor = isBearTrap ? 'rgba(6, 78, 59, 0.92)' : 'rgba(136, 19, 55, 0.92)'
 
-        // 1. Draw dashed horizontal sweep marker
+        // 1. Short, clean dashed horizontal sweep tick
         ctx.beginPath()
-        ctx.setLineDash([3, 3])
+        ctx.setLineDash([2, 2])
         ctx.strokeStyle = color
-        ctx.lineWidth = 1.2
-        ctx.globalAlpha = 0.8
-        const lineX2 = pConfirm ? Math.max(pConfirm.x + 20, pTrap.x + 50) : pTrap.x + 50
-        ctx.moveTo(pTrap.x - 20, pTrap.y)
-        ctx.lineTo(lineX2, pTrap.y)
+        ctx.lineWidth = 1.1
+        ctx.globalAlpha = 0.75
+        const lineX2 = pConfirm ? Math.min(pConfirm.x + 10, pTrap.x + 26) : pTrap.x + 22
+        ctx.moveTo(Math.max(4, pTrap.x - 10), pTrap.y)
+        ctx.lineTo(Math.min(maxChartX, lineX2), pTrap.y)
         ctx.stroke()
         ctx.setLineDash([])
 
-        // 2. Draw connector from sweep to reclaim
-        if (pConfirm) {
-          ctx.beginPath()
-          ctx.strokeStyle = color
-          ctx.lineWidth = 1.5
-          ctx.globalAlpha = 0.9
-          ctx.moveTo(pTrap.x, pTrap.y)
-          ctx.lineTo(pConfirm.x, pConfirm.y)
-          ctx.stroke()
+        // 2. Small anchor dot at sweep tip
+        ctx.globalAlpha = 0.95
+        ctx.fillStyle = color
+        ctx.beginPath()
+        ctx.arc(pTrap.x, pTrap.y, 2.5, 0, Math.PI * 2)
+        ctx.fill()
+
+        // 3. Compact Non-Overlapping Trap Pill Badge
+        ctx.globalAlpha = 1.0
+        ctx.font = 'bold 8.5px Inter, monospace'
+        const badgeTxt = isBearTrap ? '⚡ JUDAS ↑' : '⚡ JUDAS ↓'
+        const badgeW = Math.ceil(ctx.measureText(badgeTxt).width + 10)
+        const badgeH = 14
+        const badgeX = Math.max(6, Math.min(maxChartX - badgeW - 4, Math.round(pTrap.x - badgeW / 2)))
+        let badgeY = isBearTrap ? Math.min(height - 22, pTrap.y + 8) : Math.max(12, pTrap.y - badgeH - 8)
+
+        // Anti-collision check against previously drawn Judas badges
+        const overlaps = (rx: number, ry: number) =>
+          drawnJudasRects.some(
+            (r) =>
+              rx < r.x + r.w + 6 &&
+              rx + badgeW + 6 > r.x &&
+              ry < r.y + r.h + 4 &&
+              ry + badgeH + 4 > r.y
+          )
+
+        if (overlaps(badgeX, badgeY)) {
+          const shiftedY = isBearTrap ? badgeY + badgeH + 4 : badgeY - badgeH - 4
+          if (shiftedY >= 10 && shiftedY <= height - 22 && !overlaps(badgeX, shiftedY)) {
+            badgeY = shiftedY
+          } else {
+            // Skip overlapping duplicate badge in tight cluster to keep chart clean
+            return
+          }
         }
 
-        // 3. Floating Institutional Trap Badge
-        ctx.globalAlpha = 1.0
-        ctx.font = 'bold 9px monospace'
-        const badgeTxt = isBearTrap
-          ? `⚡ JUDAS SWING (BEAR TRAP) ➔ TARGET: EXPANSION UP`
-          : `⚡ JUDAS SWING (BULL TRAP) ➔ TARGET: EXPANSION DOWN`
-        const badgeW = ctx.measureText(badgeTxt).width + 12
-        const badgeH = 16
-        const badgeX = Math.max(6, Math.min(width - badgeW - 6, pTrap.x - 20))
-        const badgeY = isBearTrap ? Math.min(height - 20, pTrap.y + 16) : Math.max(14, pTrap.y - 24)
+        drawnJudasRects.push({ x: badgeX, y: badgeY, w: badgeW, h: badgeH })
 
         ctx.fillStyle = bgColor
-        ctx.fillRect(badgeX, badgeY, badgeW, badgeH)
         ctx.strokeStyle = color
-        ctx.lineWidth = 1.2
-        ctx.strokeRect(badgeX, badgeY, badgeW, badgeH)
+        ctx.lineWidth = 1
+        ctx.beginPath()
+        if (typeof (ctx as any).roundRect === 'function') {
+          ;(ctx as any).roundRect(badgeX, badgeY, badgeW, badgeH, 3)
+        } else {
+          ctx.rect(badgeX, badgeY, badgeW, badgeH)
+        }
+        ctx.fill()
+        ctx.stroke()
 
+        ctx.textAlign = 'left'
         ctx.fillStyle = isBearTrap ? '#a7f3d0' : '#fecdd3'
-        ctx.fillText(badgeTxt, badgeX + 6, badgeY + 11.5)
+        ctx.fillText(badgeTxt, badgeX + 5, badgeY + 10)
       })
       ctx.restore()
     }

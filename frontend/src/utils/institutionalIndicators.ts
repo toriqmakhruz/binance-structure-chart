@@ -325,7 +325,7 @@ export function calculateJudasSwing(candles: Candle[], timeframe: string): Judas
         const futureBars = killzoneCandles.slice(i, i + 3)
         const confirmed = futureBars.some((fb) => fb.close > asiaLow + 0.1 * asiaRange)
         if (confirmed) {
-          const alreadyExists = events.some((e) => Math.abs(e.trapTime - c.time) < 14400)
+          const alreadyExists = events.some((e) => Math.abs(e.trapTime - c.time) < 21600)
           if (!alreadyExists) {
             events.push({
               trapTime: c.time,
@@ -337,7 +337,7 @@ export function calculateJudasSwing(candles: Candle[], timeframe: string): Judas
               reclaimPrice: futureBars[futureBars.length - 1].close,
               asiaHigh,
               asiaLow,
-              label: `⚡ JUDAS SWING (BEAR TRAP) ➔ TARGET: EXPANSION UP`
+              label: `⚡ JUDAS ↑`
             })
           }
         }
@@ -348,7 +348,7 @@ export function calculateJudasSwing(candles: Candle[], timeframe: string): Judas
         const futureBars = killzoneCandles.slice(i, i + 3)
         const confirmed = futureBars.some((fb) => fb.close < asiaHigh - 0.1 * asiaRange)
         if (confirmed) {
-          const alreadyExists = events.some((e) => Math.abs(e.trapTime - c.time) < 14400)
+          const alreadyExists = events.some((e) => Math.abs(e.trapTime - c.time) < 21600)
           if (!alreadyExists) {
             events.push({
               trapTime: c.time,
@@ -360,7 +360,7 @@ export function calculateJudasSwing(candles: Candle[], timeframe: string): Judas
               reclaimPrice: futureBars[futureBars.length - 1].close,
               asiaHigh,
               asiaLow,
-              label: `⚡ JUDAS SWING (BULL TRAP) ➔ TARGET: EXPANSION DOWN`
+              label: `⚡ JUDAS ↓`
             })
           }
         }
