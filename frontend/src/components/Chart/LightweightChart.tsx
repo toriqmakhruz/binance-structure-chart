@@ -25,7 +25,7 @@ import { AutoFibSettings, DEFAULT_AUTO_FIB_SETTINGS } from '../../types/fibonacc
 import { VolumeProfileSettings, DEFAULT_VOLUME_PROFILE_SETTINGS } from '../../types/volumeProfile'
 import { OrderflowSettings, DEFAULT_ORDERFLOW_SETTINGS } from '../../types/orderflow'
 import { formatPrice, getPricePrecision, formatOpenInterestValue, formatOpenInterest } from '../../utils/formatters'
-import { Crosshair, Clock, Trash2, Move, Palette, Check, X, Sliders, Gauge, ChevronDown, Radar, Activity, Shield } from 'lucide-react'
+import { Crosshair, Clock, Trash2, Move, RotateCcw, Palette, Check, X, Sliders, Gauge, ChevronDown, Radar, Activity, Shield } from 'lucide-react'
 import { fetchMarketXray } from '../../services/api'
 import { MarketXrayData } from '../../types/marketXray'
 import { OpenInterestPane } from './OpenInterestPane'
@@ -253,6 +253,74 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
       return false
     }
   })
+
+  // Draggable Market X-Ray Radar Card
+  const [xrayCardPos, setXrayCardPos] = useState<{ x: number; y: number } | null>(() => {
+    try {
+      const saved = localStorage.getItem('cp_xray_card_pos')
+      return saved ? JSON.parse(saved) : null
+    } catch {
+      return null
+    }
+  })
+
+  const isDraggingXrayCardRef = useRef<{ startX: number; startY: number; initLeft: number; initTop: number } | null>(null)
+
+  const handleXrayCardDragStart = useCallback((e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('button') || (e.target as HTMLElement).closest('.no-drag')) return
+    e.preventDefault()
+    e.stopPropagation()
+
+    const cardEl = (e.currentTarget as HTMLElement).closest('.xray-radar-card') as HTMLElement
+    if (!cardEl) return
+    const rect = cardEl.getBoundingClientRect()
+    const container = cardEl.parentElement?.getBoundingClientRect()
+    if (!container) return
+
+    const currentLeft = rect.left - container.left
+    const currentTop = rect.top - container.top
+
+    isDraggingXrayCardRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      initLeft: currentLeft,
+      initTop: currentTop
+    }
+
+    const onMouseMove = (moveEv: MouseEvent) => {
+      if (!isDraggingXrayCardRef.current) return
+      const dx = moveEv.clientX - isDraggingXrayCardRef.current.startX
+      const dy = moveEv.clientY - isDraggingXrayCardRef.current.startY
+      const newX = Math.max(8, Math.min((container.width || 800) - rect.width - 8, isDraggingXrayCardRef.current.initLeft + dx))
+      const newY = Math.max(8, Math.min((container.height || 600) - rect.height - 8, isDraggingXrayCardRef.current.initTop + dy))
+      setXrayCardPos({ x: newX, y: newY })
+    }
+
+    const onMouseUp = () => {
+      isDraggingXrayCardRef.current = null
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+      setXrayCardPos((current) => {
+        if (current) {
+          try {
+            localStorage.setItem('cp_xray_card_pos', JSON.stringify(current))
+          } catch {}
+        }
+        return current
+      })
+    }
+
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+  }, [])
+
+  const resetXrayCardPos = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    setXrayCardPos(null)
+    try {
+      localStorage.removeItem('cp_xray_card_pos')
+    } catch {}
+  }, [])
 
   const toggleXrayCard = useCallback(() => {
     setIsXrayCardCollapsed((prev) => {
@@ -2155,15 +2223,34 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     }
 
     // 0.11. Market X-Ray: Big Data Stop Loss Pools & Whale Fortress Walls
+    // 0.11. Market X-Ray: Big Data Stop Loss Pools & Whale Fortress Walls (With Collision Resolver)
     if (visibility.marketXray && xrayData) {
       ctx.save()
       const maxChartX = Math.max(40, width - 68)
+
+      // Structure to register labels for collision relaxation
+      interface XrayLabelItem {
+        id: string
+        actualY: number
+        placedY: number
+        height: number
+        width: number
+        tagX: number
+        font: string
+        text: string
+        bg: string
+        border: string
+        textCol: string
+        lineWidth: number
+        connectorColor: string
+      }
+      const labelItems: XrayLabelItem[] = []
 
       // 1. Short Stop Loss Squeeze Corridor (Magnet di Atas Harga Saat Ini)
       const shortSl = xrayData.stop_loss_pools?.short_sl_magnet
       if (shortSl && shortSl.price > 0) {
         const yShort = series.priceToCoordinate(shortSl.price)
-        if (yShort !== null && yShort >= -10 && yShort <= height + 10) {
+        if (yShort !== null && yShort >= -20 && yShort <= height + 20) {
           // Corridor glowing background
           ctx.fillStyle = 'rgba(244, 63, 94, 0.08)'
           ctx.fillRect(0, yShort - 8, maxChartX, 16)
@@ -2179,24 +2266,27 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
           ctx.stroke()
           ctx.setLineDash([])
 
-          // Floating Squeeze Target Badge
-          ctx.globalAlpha = 1.0
+          // Register Badge
           ctx.font = 'bold 9.5px monospace'
           const isHunting = xrayData.telemetry?.intent === 'HUNTING_SHORT_SL'
           const tagTxt = `🧲 SHORT SL MAGNET: $${shortSl.price.toLocaleString()} | ~$${(shortSl.est_usd / 1e6).toFixed(1)}M (${shortSl.distance_pct > 0 ? '+' : ''}${shortSl.distance_pct}%)${isHunting ? ' 🔥 [SQUEEZE TARGET]' : ''}`
           const tagW = ctx.measureText(tagTxt).width + 14
           const tagH = 17
-          const tagX = Math.max(10, maxChartX - tagW - 8)
-          const tagY = Math.max(6, Math.min(height - 24, yShort - 8.5))
-
-          ctx.fillStyle = isHunting ? 'rgba(159, 18, 57, 0.95)' : 'rgba(30, 9, 15, 0.92)'
-          ctx.fillRect(tagX, tagY, tagW, tagH)
-          ctx.strokeStyle = isHunting ? '#fb7185' : '#f43f5e'
-          ctx.lineWidth = 1.2
-          ctx.strokeRect(tagX, tagY, tagW, tagH)
-
-          ctx.fillStyle = '#ffe4e6'
-          ctx.fillText(tagTxt, tagX + 7, tagY + 12)
+          labelItems.push({
+            id: 'short_sl',
+            actualY: yShort,
+            placedY: yShort - 8.5,
+            height: tagH,
+            width: tagW,
+            tagX: Math.max(10, maxChartX - tagW - 8),
+            font: 'bold 9.5px monospace',
+            text: tagTxt,
+            bg: isHunting ? 'rgba(159, 18, 57, 0.95)' : 'rgba(30, 9, 15, 0.92)',
+            border: isHunting ? '#fb7185' : '#f43f5e',
+            textCol: '#ffe4e6',
+            lineWidth: 1.2,
+            connectorColor: '#f43f5e',
+          })
         }
       }
 
@@ -2204,7 +2294,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
       const longSl = xrayData.stop_loss_pools?.long_sl_cascade
       if (longSl && longSl.price > 0) {
         const yLong = series.priceToCoordinate(longSl.price)
-        if (yLong !== null && yLong >= -10 && yLong <= height + 10) {
+        if (yLong !== null && yLong >= -20 && yLong <= height + 20) {
           // Corridor glowing background
           ctx.fillStyle = 'rgba(16, 185, 129, 0.08)'
           ctx.fillRect(0, yLong - 8, maxChartX, 16)
@@ -2220,24 +2310,27 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
           ctx.stroke()
           ctx.setLineDash([])
 
-          // Floating Cascade Target Badge
-          ctx.globalAlpha = 1.0
+          // Register Badge
           ctx.font = 'bold 9.5px monospace'
           const isHunting = xrayData.telemetry?.intent === 'HUNTING_LONG_SL'
           const tagTxt = `🧲 LONG SL CASCADE: $${longSl.price.toLocaleString()} | ~$${(longSl.est_usd / 1e6).toFixed(1)}M (${longSl.distance_pct > 0 ? '+' : ''}${longSl.distance_pct}%)${isHunting ? ' 🩸 [FLUSH TARGET]' : ''}`
           const tagW = ctx.measureText(tagTxt).width + 14
           const tagH = 17
-          const tagX = Math.max(10, maxChartX - tagW - 8)
-          const tagY = Math.max(6, Math.min(height - 24, yLong - 8.5))
-
-          ctx.fillStyle = isHunting ? 'rgba(6, 78, 59, 0.95)' : 'rgba(6, 44, 30, 0.92)'
-          ctx.fillRect(tagX, tagY, tagW, tagH)
-          ctx.strokeStyle = isHunting ? '#34d399' : '#10b981'
-          ctx.lineWidth = 1.2
-          ctx.strokeRect(tagX, tagY, tagW, tagH)
-
-          ctx.fillStyle = '#d1fae5'
-          ctx.fillText(tagTxt, tagX + 7, tagY + 12)
+          labelItems.push({
+            id: 'long_sl',
+            actualY: yLong,
+            placedY: yLong - 8.5,
+            height: tagH,
+            width: tagW,
+            tagX: Math.max(10, maxChartX - tagW - 8),
+            font: 'bold 9.5px monospace',
+            text: tagTxt,
+            bg: isHunting ? 'rgba(6, 78, 59, 0.95)' : 'rgba(6, 44, 30, 0.92)',
+            border: isHunting ? '#34d399' : '#10b981',
+            textCol: '#d1fae5',
+            lineWidth: 1.2,
+            connectorColor: '#10b981',
+          })
         }
       }
 
@@ -2245,7 +2338,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
       const bidWall = xrayData.whale_fortress?.top_bid_wall
       if (bidWall && bidWall.price > 0 && bidWall.usd_value > 0) {
         const yBid = series.priceToCoordinate(bidWall.price)
-        if (yBid !== null && yBid >= -10 && yBid <= height + 10) {
+        if (yBid !== null && yBid >= -20 && yBid <= height + 20) {
           ctx.beginPath()
           ctx.setLineDash([2, 4])
           ctx.strokeStyle = '#06b6d4'
@@ -2256,29 +2349,32 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
           ctx.stroke()
           ctx.setLineDash([])
 
-          ctx.globalAlpha = 1.0
           ctx.font = 'bold 9px monospace'
           const wallTxt = `🐋 WHALE BID WALL: $${bidWall.price.toLocaleString()} ($${(bidWall.usd_value / 1e6).toFixed(1)}M limit)`
           const wallW = ctx.measureText(wallTxt).width + 10
           const wallH = 15
-          const wallX = Math.max(10, maxChartX - wallW - 8)
-          const wallY = Math.max(6, Math.min(height - 20, yBid - 7.5))
-
-          ctx.fillStyle = 'rgba(8, 47, 73, 0.90)'
-          ctx.fillRect(wallX, wallY, wallW, wallH)
-          ctx.strokeStyle = '#06b6d4'
-          ctx.lineWidth = 1.0
-          ctx.strokeRect(wallX, wallY, wallW, wallH)
-
-          ctx.fillStyle = '#bae6fd'
-          ctx.fillText(wallTxt, wallX + 5, wallY + 11)
+          labelItems.push({
+            id: 'bid_wall',
+            actualY: yBid,
+            placedY: yBid - 7.5,
+            height: wallH,
+            width: wallW,
+            tagX: Math.max(10, maxChartX - wallW - 8),
+            font: 'bold 9px monospace',
+            text: wallTxt,
+            bg: 'rgba(8, 47, 73, 0.92)',
+            border: '#06b6d4',
+            textCol: '#bae6fd',
+            lineWidth: 1.0,
+            connectorColor: '#06b6d4',
+          })
         }
       }
 
       const askWall = xrayData.whale_fortress?.top_ask_wall
       if (askWall && askWall.price > 0 && askWall.usd_value > 0) {
         const yAsk = series.priceToCoordinate(askWall.price)
-        if (yAsk !== null && yAsk >= -10 && yAsk <= height + 10) {
+        if (yAsk !== null && yAsk >= -20 && yAsk <= height + 20) {
           ctx.beginPath()
           ctx.setLineDash([2, 4])
           ctx.strokeStyle = '#f59e0b'
@@ -2289,22 +2385,25 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
           ctx.stroke()
           ctx.setLineDash([])
 
-          ctx.globalAlpha = 1.0
           ctx.font = 'bold 9px monospace'
           const wallTxt = `🐋 WHALE ASK WALL: $${askWall.price.toLocaleString()} ($${(askWall.usd_value / 1e6).toFixed(1)}M limit)`
           const wallW = ctx.measureText(wallTxt).width + 10
           const wallH = 15
-          const wallX = Math.max(10, maxChartX - wallW - 8)
-          const wallY = Math.max(6, Math.min(height - 20, yAsk - 7.5))
-
-          ctx.fillStyle = 'rgba(69, 26, 3, 0.90)'
-          ctx.fillRect(wallX, wallY, wallW, wallH)
-          ctx.strokeStyle = '#f59e0b'
-          ctx.lineWidth = 1.0
-          ctx.strokeRect(wallX, wallY, wallW, wallH)
-
-          ctx.fillStyle = '#fde68a'
-          ctx.fillText(wallTxt, wallX + 5, wallY + 11)
+          labelItems.push({
+            id: 'ask_wall',
+            actualY: yAsk,
+            placedY: yAsk - 7.5,
+            height: wallH,
+            width: wallW,
+            tagX: Math.max(10, maxChartX - wallW - 8),
+            font: 'bold 9px monospace',
+            text: wallTxt,
+            bg: 'rgba(69, 26, 3, 0.92)',
+            border: '#f59e0b',
+            textCol: '#fde68a',
+            lineWidth: 1.0,
+            connectorColor: '#f59e0b',
+          })
         }
       }
 
@@ -2315,7 +2414,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         const wLong = avgLimits.whale_avg_long
         if (wLong && wLong.price > 0) {
           const yWLong = series.priceToCoordinate(wLong.price)
-          if (yWLong !== null && yWLong >= -10 && yWLong <= height + 10) {
+          if (yWLong !== null && yWLong >= -20 && yWLong <= height + 20) {
             ctx.beginPath()
             ctx.setLineDash([8, 4])
             ctx.strokeStyle = '#06b6d4'
@@ -2326,22 +2425,25 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
             ctx.stroke()
             ctx.setLineDash([])
 
-            ctx.globalAlpha = 1.0
             ctx.font = 'bold 9px monospace'
             const tagTxt = `🐋 WHALE AVG LONG: $${wLong.price.toLocaleString()} | ~$${(wLong.usd_value / 1e6).toFixed(1)}M (${wLong.distance_pct}%)`
             const tagW = ctx.measureText(tagTxt).width + 10
             const tagH = 15
-            const tagX = Math.max(10, maxChartX - tagW - 8)
-            const tagY = Math.max(6, Math.min(height - 20, yWLong - 7.5))
-
-            ctx.fillStyle = 'rgba(8, 47, 73, 0.92)'
-            ctx.fillRect(tagX, tagY, tagW, tagH)
-            ctx.strokeStyle = '#06b6d4'
-            ctx.lineWidth = 1.0
-            ctx.strokeRect(tagX, tagY, tagW, tagH)
-
-            ctx.fillStyle = '#bae6fd'
-            ctx.fillText(tagTxt, tagX + 5, tagY + 11)
+            labelItems.push({
+              id: 'whale_avg_long',
+              actualY: yWLong,
+              placedY: yWLong - 7.5,
+              height: tagH,
+              width: tagW,
+              tagX: Math.max(10, maxChartX - tagW - 8),
+              font: 'bold 9px monospace',
+              text: tagTxt,
+              bg: 'rgba(8, 47, 73, 0.92)',
+              border: '#06b6d4',
+              textCol: '#bae6fd',
+              lineWidth: 1.0,
+              connectorColor: '#06b6d4',
+            })
           }
         }
 
@@ -2349,7 +2451,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         const wShort = avgLimits.whale_avg_short
         if (wShort && wShort.price > 0) {
           const yWShort = series.priceToCoordinate(wShort.price)
-          if (yWShort !== null && yWShort >= -10 && yWShort <= height + 10) {
+          if (yWShort !== null && yWShort >= -20 && yWShort <= height + 20) {
             ctx.beginPath()
             ctx.setLineDash([8, 4])
             ctx.strokeStyle = '#f59e0b'
@@ -2360,22 +2462,25 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
             ctx.stroke()
             ctx.setLineDash([])
 
-            ctx.globalAlpha = 1.0
             ctx.font = 'bold 9px monospace'
             const tagTxt = `🐋 WHALE AVG SHORT: $${wShort.price.toLocaleString()} | ~$${(wShort.usd_value / 1e6).toFixed(1)}M (+${wShort.distance_pct}%)`
             const tagW = ctx.measureText(tagTxt).width + 10
             const tagH = 15
-            const tagX = Math.max(10, maxChartX - tagW - 8)
-            const tagY = Math.max(6, Math.min(height - 20, yWShort - 7.5))
-
-            ctx.fillStyle = 'rgba(69, 26, 3, 0.92)'
-            ctx.fillRect(tagX, tagY, tagW, tagH)
-            ctx.strokeStyle = '#f59e0b'
-            ctx.lineWidth = 1.0
-            ctx.strokeRect(tagX, tagY, tagW, tagH)
-
-            ctx.fillStyle = '#fde68a'
-            ctx.fillText(tagTxt, tagX + 5, tagY + 11)
+            labelItems.push({
+              id: 'whale_avg_short',
+              actualY: yWShort,
+              placedY: yWShort - 7.5,
+              height: tagH,
+              width: tagW,
+              tagX: Math.max(10, maxChartX - tagW - 8),
+              font: 'bold 9px monospace',
+              text: tagTxt,
+              bg: 'rgba(69, 26, 3, 0.92)',
+              border: '#f59e0b',
+              textCol: '#fde68a',
+              lineWidth: 1.0,
+              connectorColor: '#f59e0b',
+            })
           }
         }
 
@@ -2383,7 +2488,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         const rLong = avgLimits.retail_avg_long
         if (rLong && rLong.price > 0) {
           const yRLong = series.priceToCoordinate(rLong.price)
-          if (yRLong !== null && yRLong >= -10 && yRLong <= height + 10) {
+          if (yRLong !== null && yRLong >= -20 && yRLong <= height + 20) {
             ctx.beginPath()
             ctx.setLineDash([3, 3])
             ctx.strokeStyle = '#34d399'
@@ -2394,22 +2499,25 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
             ctx.stroke()
             ctx.setLineDash([])
 
-            ctx.globalAlpha = 1.0
             ctx.font = 'bold 8.5px monospace'
             const tagTxt = `🦐 RETAIL AVG LONG: $${rLong.price.toLocaleString()} | ~$${(rLong.usd_value / 1e6).toFixed(1)}M (${rLong.distance_pct}%)`
             const tagW = ctx.measureText(tagTxt).width + 8
             const tagH = 14
-            const tagX = Math.max(10, maxChartX - tagW - 8)
-            const tagY = Math.max(6, Math.min(height - 20, yRLong - 7))
-
-            ctx.fillStyle = 'rgba(6, 44, 30, 0.90)'
-            ctx.fillRect(tagX, tagY, tagW, tagH)
-            ctx.strokeStyle = '#34d399'
-            ctx.lineWidth = 0.9
-            ctx.strokeRect(tagX, tagY, tagW, tagH)
-
-            ctx.fillStyle = '#a7f3d0'
-            ctx.fillText(tagTxt, tagX + 4, tagY + 10)
+            labelItems.push({
+              id: 'retail_avg_long',
+              actualY: yRLong,
+              placedY: yRLong - 7,
+              height: tagH,
+              width: tagW,
+              tagX: Math.max(10, maxChartX - tagW - 8),
+              font: 'bold 8.5px monospace',
+              text: tagTxt,
+              bg: 'rgba(6, 44, 30, 0.92)',
+              border: '#34d399',
+              textCol: '#a7f3d0',
+              lineWidth: 0.9,
+              connectorColor: '#34d399',
+            })
           }
         }
 
@@ -2417,7 +2525,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         const rShort = avgLimits.retail_avg_short
         if (rShort && rShort.price > 0) {
           const yRShort = series.priceToCoordinate(rShort.price)
-          if (yRShort !== null && yRShort >= -10 && yRShort <= height + 10) {
+          if (yRShort !== null && yRShort >= -20 && yRShort <= height + 20) {
             ctx.beginPath()
             ctx.setLineDash([3, 3])
             ctx.strokeStyle = '#fb7185'
@@ -2428,23 +2536,114 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
             ctx.stroke()
             ctx.setLineDash([])
 
-            ctx.globalAlpha = 1.0
             ctx.font = 'bold 8.5px monospace'
             const tagTxt = `🦐 RETAIL AVG SHORT: $${rShort.price.toLocaleString()} | ~$${(rShort.usd_value / 1e6).toFixed(1)}M (+${rShort.distance_pct}%)`
             const tagW = ctx.measureText(tagTxt).width + 8
             const tagH = 14
-            const tagX = Math.max(10, maxChartX - tagW - 8)
-            const tagY = Math.max(6, Math.min(height - 20, yRShort - 7))
-
-            ctx.fillStyle = 'rgba(67, 10, 20, 0.90)'
-            ctx.fillRect(tagX, tagY, tagW, tagH)
-            ctx.strokeStyle = '#fb7185'
-            ctx.lineWidth = 0.9
-            ctx.strokeRect(tagX, tagY, tagW, tagH)
-
-            ctx.fillStyle = '#fecdd3'
-            ctx.fillText(tagTxt, tagX + 4, tagY + 10)
+            labelItems.push({
+              id: 'retail_avg_short',
+              actualY: yRShort,
+              placedY: yRShort - 7,
+              height: tagH,
+              width: tagW,
+              tagX: Math.max(10, maxChartX - tagW - 8),
+              font: 'bold 8.5px monospace',
+              text: tagTxt,
+              bg: 'rgba(67, 10, 20, 0.92)',
+              border: '#fb7185',
+              textCol: '#fecdd3',
+              lineWidth: 0.9,
+              connectorColor: '#fb7185',
+            })
           }
+        }
+      }
+
+      // 5. Anti-Overlap Collision Relaxation Algorithm & Rendering
+      if (labelItems.length > 0) {
+        // Sort items by actualY ascending (top to bottom)
+        labelItems.sort((a, b) => a.actualY - b.actualY)
+
+        const minGap = 4
+        const minTop = 6
+        const maxBottom = height - 18
+
+        // Forward push: push down if overlapping previous item
+        for (let i = 0; i < labelItems.length - 1; i++) {
+          const current = labelItems[i]
+          const next = labelItems[i + 1]
+          if (next.placedY < current.placedY + current.height + minGap) {
+            next.placedY = current.placedY + current.height + minGap
+          }
+        }
+
+        // Backward push: if lowest item exceeds maxBottom, shift backwards up
+        const lastIdx = labelItems.length - 1
+        if (labelItems[lastIdx].placedY + labelItems[lastIdx].height > maxBottom) {
+          labelItems[lastIdx].placedY = maxBottom - labelItems[lastIdx].height
+          for (let i = lastIdx - 1; i >= 0; i--) {
+            const current = labelItems[i]
+            const next = labelItems[i + 1]
+            if (current.placedY + current.height + minGap > next.placedY) {
+              current.placedY = next.placedY - current.height - minGap
+            }
+          }
+        }
+
+        // Clamp top if pushed above minTop and re-relax downwards
+        if (labelItems[0].placedY < minTop) {
+          labelItems[0].placedY = minTop
+          for (let i = 0; i < labelItems.length - 1; i++) {
+            const current = labelItems[i]
+            const next = labelItems[i + 1]
+            if (next.placedY < current.placedY + current.height + minGap) {
+              next.placedY = current.placedY + current.height + minGap
+            }
+          }
+        }
+
+        // Draw each badge and connector line
+        ctx.globalAlpha = 1.0
+        for (const item of labelItems) {
+          const badgeCenterY = item.placedY + item.height / 2
+          const yDiff = Math.abs(badgeCenterY - item.actualY)
+
+          // If label was shifted by >= 3px to avoid overlap, draw connector hairline & anchor dot
+          if (yDiff >= 3) {
+            ctx.beginPath()
+            ctx.setLineDash([2, 2])
+            ctx.strokeStyle = item.connectorColor
+            ctx.lineWidth = 0.9
+            ctx.globalAlpha = 0.65
+
+            // Anchor dot at line end
+            ctx.arc(maxChartX - 3, item.actualY, 2, 0, Math.PI * 2)
+            ctx.fillStyle = item.connectorColor
+            ctx.fill()
+
+            // Line from price anchor to badge right edge
+            ctx.moveTo(maxChartX - 3, item.actualY)
+            ctx.lineTo(item.tagX + item.width + 1, badgeCenterY)
+            ctx.stroke()
+            ctx.setLineDash([])
+            ctx.globalAlpha = 1.0
+          }
+
+          // Badge Background
+          ctx.fillStyle = item.bg
+          ctx.fillRect(item.tagX, item.placedY, item.width, item.height)
+
+          // Badge Border
+          ctx.strokeStyle = item.border
+          ctx.lineWidth = item.lineWidth
+          ctx.strokeRect(item.tagX, item.placedY, item.width, item.height)
+
+          // Badge Text
+          ctx.fillStyle = item.textCol
+          ctx.font = item.font
+          const textOffsetY = item.height >= 16 ? 12 : (item.height >= 15 ? 11 : 10)
+          const textOffsetX = item.height >= 16 ? 7 : (item.height >= 15 ? 5 : 4)
+          ctx.fillText(item.text, item.tagX + textOffsetX, item.placedY + textOffsetY)
         }
       }
 
@@ -5109,22 +5308,36 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
           </div>
         )}
 
-        {/* Floating Market X-Ray: Big Data Stop Loss Radar (Pojok Bawah Kiri) */}
+        {/* Floating Market X-Ray: Big Data Stop Loss Radar (Pojok Bawah Kiri / Bebas Digeser) */}
         {visibility.marketXray && xrayData && (
           <div
-            className="absolute bottom-8 left-2 sm:left-4 z-20 bg-[#0d1117]/94 border border-rose-900/50 backdrop-blur-md rounded-lg shadow-2xl p-2 select-none font-mono text-[10px] w-64 sm:w-72 pointer-events-auto transition-all"
+            className={`absolute z-20 bg-[#0d1117]/94 border border-rose-900/50 backdrop-blur-md rounded-lg shadow-2xl p-2 select-none font-mono text-[10px] w-64 sm:w-72 pointer-events-auto transition-all xray-radar-card ${
+              xrayCardPos ? '' : 'bottom-8 left-2 sm:left-4'
+            }`}
+            style={xrayCardPos ? { left: `${xrayCardPos.x}px`, top: `${xrayCardPos.y}px`, bottom: 'auto' } : undefined}
           >
-            {/* Header Row */}
-            <div
-              className="flex items-center justify-between pb-1.5 border-b border-[#21262d] cursor-pointer group/hdr"
-              onClick={toggleXrayCard}
-              title={isXrayCardCollapsed ? 'Klik untuk membuka rincian Market X-Ray' : 'Klik untuk meminimalkan'}
-            >
-              <div className="flex items-center space-x-1.5">
+            {/* Header Row (Bisa Digeser) */}
+            <div className="flex items-center justify-between pb-1.5 border-b border-[#21262d]">
+              <div
+                className="flex items-center space-x-1.5 cursor-grab active:cursor-grabbing group/drag py-0.5"
+                onMouseDown={handleXrayCardDragStart}
+                title="Klik dan geser untuk memindahkan posisi kartu radar"
+              >
+                <Move className="w-3 h-3 text-slate-500 group-hover/drag:text-rose-400 transition-colors" />
                 <Radar className="w-3.5 h-3.5 text-rose-400 animate-pulse" />
                 <span className="font-bold text-white text-[10.5px]">Market X-Ray Radar</span>
               </div>
               <div className="flex items-center space-x-1.5">
+                {xrayCardPos && (
+                  <button
+                    type="button"
+                    onClick={resetXrayCardPos}
+                    className="p-0.5 rounded text-slate-500 hover:text-rose-400 hover:bg-[#1f293d] transition-colors"
+                    title="Kembalikan ke posisi awal (Pojok Kiri Bawah)"
+                  >
+                    <RotateCcw className="w-2.5 h-2.5" />
+                  </button>
+                )}
                 <span
                   className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
                     xrayData.telemetry.intent === 'HUNTING_SHORT_SL'
@@ -5136,11 +5349,18 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
                 >
                   {xrayData.telemetry.confidence}% Conf
                 </span>
-                <ChevronDown
-                  className={`w-3 h-3 text-slate-400 group-hover/hdr:text-white transition-transform ${
-                    isXrayCardCollapsed ? '-rotate-90' : ''
-                  }`}
-                />
+                <button
+                  type="button"
+                  onClick={toggleXrayCard}
+                  className="p-0.5 rounded text-slate-400 hover:text-white hover:bg-[#1f293d] transition-colors"
+                  title={isXrayCardCollapsed ? 'Klik untuk membuka rincian Market X-Ray' : 'Klik untuk meminimalkan'}
+                >
+                  <ChevronDown
+                    className={`w-3.5 h-3.5 transition-transform ${
+                      isXrayCardCollapsed ? '-rotate-90' : ''
+                    }`}
+                  />
+                </button>
               </div>
             </div>
 
@@ -5254,11 +5474,15 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
                 </div>
               </div>
             ) : (
-              <div className="flex items-center justify-between mt-1 text-[9px] text-slate-400">
+              <div 
+                className="flex items-center justify-between mt-1 text-[9px] text-slate-400 cursor-pointer hover:text-white transition-colors"
+                onClick={toggleXrayCard}
+                title="Klik untuk membuka rincian Market X-Ray"
+              >
                 <span className="truncate">
                   {xrayData.telemetry.intent === 'HUNTING_SHORT_SL' ? '🔥 Berburu Short SL' : xrayData.telemetry.intent === 'HUNTING_LONG_SL' ? '🩸 Target Long SL' : '⚖️ Orderbook Stabil'}
                 </span>
-                <span className="font-bold text-white ml-2">${xrayData.stop_loss_pools.short_sl_magnet.price.toLocaleString()}</span>
+                <span className="font-bold text-white ml-2 font-mono">${xrayData.stop_loss_pools.short_sl_magnet.price.toLocaleString()}</span>
               </div>
             )}
           </div>
