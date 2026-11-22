@@ -280,26 +280,56 @@ export const ITIWorkspacePanel: React.FC<ITIWorkspacePanelProps> = ({
           </div>
         </div>
 
-        {/* 3. TRADE PLAN EKSEKUSI (MANUAL V1) */}
-        {data.trade_plan && (
+        {/* 3. TRADE PLAN EKSEKUSI (STOP LOSS HUNT ENGINE) */}
+        {data.trade_plan ? (
           <div className="bg-[#111622] border border-[#21262d] rounded-xl p-3 space-y-2.5">
             <div className="flex items-center justify-between pb-1.5 border-b border-[#21262d]">
               <div className="flex items-center space-x-1.5">
                 <Target className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="font-bold text-white text-[11px]">Rencana Eksekusi Trading (Manual)</span>
+                <span className="font-bold text-white text-[11px]">Rencana Stop Loss Hunt (Institusi)</span>
               </div>
               <span className="text-[10px] text-amber-400 font-bold">
                 1 : {data.trade_plan.risk_reward_ratio} R:R
               </span>
             </div>
 
+            {/* Target SL Pool Info Banner */}
+            {data.trade_plan.sl_pool_name && (
+              <div className="bg-[#161c28] p-2 rounded border border-[#232a39] space-y-1">
+                <div className="flex items-center justify-between text-[9.5px]">
+                  <span className="text-amber-400 font-bold flex items-center space-x-1">
+                    <span>🎯</span>
+                    <span>Target SL Ritel:</span>
+                  </span>
+                  <span className="text-white font-bold">{data.trade_plan.sl_pool_name}</span>
+                </div>
+                {data.trade_plan.sl_hunt_rationale && (
+                  <p className="text-[9px] text-slate-300 leading-snug">
+                    {data.trade_plan.sl_hunt_rationale}
+                  </p>
+                )}
+              </div>
+            )}
+
             <div className="space-y-1.5 text-[10px]">
               <div className="flex justify-between py-1 border-b border-[#1f2636]">
                 <span className="text-slate-400">Tipe & Harga Entry</span>
-                <span className="font-bold text-white">
-                  {data.trade_plan.entry_type} @ ${data.trade_plan.entry_price.toLocaleString()}
+                <span className="font-bold text-white flex items-center space-x-1.5">
+                  <span className="px-1.5 py-0.2 rounded bg-indigo-950 text-indigo-300 border border-indigo-800 text-[9px]">
+                    {data.trade_plan.entry_type}
+                  </span>
+                  <span>${data.trade_plan.entry_price.toLocaleString()}</span>
                 </span>
               </div>
+
+              {data.trade_plan.sl_pool_distance_pct !== undefined && data.trade_plan.sl_pool_distance_pct !== 0 && (
+                <div className="flex justify-between py-1 border-b border-[#1f2636]">
+                  <span className="text-slate-400">Jarak dari Harga Saat Ini</span>
+                  <span className={`font-bold ${data.trade_plan.sl_pool_distance_pct > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                    {data.trade_plan.sl_pool_distance_pct > 0 ? '+' : ''}{data.trade_plan.sl_pool_distance_pct}%
+                  </span>
+                </div>
+              )}
 
               <div className="flex justify-between py-1 border-b border-[#1f2636]">
                 <span className="text-rose-400 font-bold">Invalidation Stop Loss</span>
@@ -309,21 +339,21 @@ export const ITIWorkspacePanel: React.FC<ITIWorkspacePanelProps> = ({
               </div>
 
               <div className="flex justify-between py-1 border-b border-[#1f2636]">
-                <span className="text-emerald-400">Target TP 1 (1.5R - 50%)</span>
+                <span className="text-emerald-400">Target TP 1 (1.8R - Likuiditas Awal)</span>
                 <span className="font-bold text-emerald-400">
                   ${data.trade_plan.tp1_price.toLocaleString()}
                 </span>
               </div>
 
               <div className="flex justify-between py-1 border-b border-[#1f2636]">
-                <span className="text-emerald-400">Target TP 2 (2.5R - 30%)</span>
+                <span className="text-emerald-400">Target TP 2 (Opposite SL Pool)</span>
                 <span className="font-bold text-emerald-400">
                   ${data.trade_plan.tp2_price.toLocaleString()}
                 </span>
               </div>
 
               <div className="flex justify-between py-1 border-b border-[#1f2636]">
-                <span className="text-emerald-400">Target TP 3 (4.0R - Runner)</span>
+                <span className="text-emerald-400">Target TP 3 (Runner Ekstrem)</span>
                 <span className="font-bold text-emerald-400">
                   ${data.trade_plan.tp3_price.toLocaleString()}
                 </span>
@@ -344,9 +374,19 @@ export const ITIWorkspacePanel: React.FC<ITIWorkspacePanelProps> = ({
                 className="w-full mt-2 py-2 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-black font-black text-xs flex items-center justify-center space-x-2 transition-all shadow-lg shadow-emerald-950/40"
               >
                 <Zap className="w-3.5 h-3.5 fill-current" />
-                <span>Buka Eksekusi Order Sekarang</span>
+                <span>Buka Limit Order di Titik SL Hunt</span>
               </button>
             )}
+          </div>
+        ) : (
+          <div className="bg-[#111622] border border-[#21262d] rounded-xl p-3 space-y-2">
+            <div className="flex items-center space-x-1.5 text-amber-400 font-bold text-[11px]">
+              <Target className="w-3.5 h-3.5 text-amber-400" />
+              <span>Menunggu Kluster Stop Loss Tersapu</span>
+            </div>
+            <p className="text-[10px] text-slate-300 leading-relaxed">
+              Sistem berdisiplin tinggi: <strong>tidak memberikan entry di harga sekarang</strong> untuk menghindari jebakan volatilitas. Entry institusi disiapkan ketika harga mendekati kluster likuiditas Stop Loss ritel ({data.liquidity.nearest_ssl?.price ? `$${data.liquidity.nearest_ssl.price.toLocaleString()} (SSL)` : 'Long SL Cascade'} di bawah atau {data.liquidity.nearest_bsl?.price ? `$${data.liquidity.nearest_bsl.price.toLocaleString()} (BSL)` : 'Short SL Magnet'} di atas).
+            </p>
           </div>
         )}
 

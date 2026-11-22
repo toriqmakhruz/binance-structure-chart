@@ -89,7 +89,7 @@ class ITIDerivativesFeatures(BaseModel):
 
 class ITITradePlan(BaseModel):
     direction: str  # 'LONG' | 'SHORT' | 'NEUTRAL'
-    entry_type: str = "LIMIT_CONFIRMATION"  # 'LIMIT_OB' | 'MARKET_RECLAIM' | 'LIMIT_CONFIRMATION'
+    entry_type: str = "SL_HUNT_LIMIT"  # 'SL_HUNT_LIMIT_BUY' | 'SL_HUNT_LIMIT_SELL' | 'SL_SWEEP_RECLAIM'
     entry_price: float = 0.0
     entry_zone_high: float = 0.0
     entry_zone_low: float = 0.0
@@ -98,8 +98,12 @@ class ITITradePlan(BaseModel):
     tp2_price: float = 0.0
     tp3_price: float = 0.0
     risk_reward_ratio: float = 0.0
-    recommended_leverage: int = 10
-    suggested_risk_pct: float = 1.0
+    recommended_leverage: int = 15
+    suggested_risk_pct: float = 1.5
+    sl_pool_name: str = ""
+    sl_pool_price: float = 0.0
+    sl_pool_distance_pct: float = 0.0
+    sl_hunt_rationale: str = ""
 
 class ITIDataHealth(BaseModel):
     feed_status: str = "ONLINE"  # 'ONLINE' | 'CONNECTING' | 'STALE' | 'OFFLINE'

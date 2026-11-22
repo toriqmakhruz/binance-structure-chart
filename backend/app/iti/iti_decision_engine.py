@@ -181,53 +181,124 @@ class ITIDecisionEngine:
         else:
             lifecycle_state = "WATCH"
 
-        # Trade Plan Construction
+        # Trade Plan Construction:
+        # STRICT INSTITUTIONAL RULE: Entry is ANCHORED to where the largest cluster of Stop Losses sit (Liquidity Pools),
+        # NEVER at random current_price!
         trade_plan = None
-        if direction == "LONG":
-            entry = smc.active_ob["high"] if (smc.active_ob and smc.active_ob["type"] == "BULLISH" and smc.active_ob["high"] < current_price) else current_price
-            stop_loss = sl.sweep_price if (sl.last_sweep_type == "BEAR_TRAP_SWEEP" and sl.sweep_price < entry) else (smc.active_ob["low"] * 0.998 if smc.active_ob else current_price * 0.988)
+
+        # 1. Identify Key Stop Loss Pools
+        # Long SL Cascade Pool (below current price - where retail longs place stop loss)
+        long_sl_pool = 0.0
+        long_sl_name = ""
+        if liq.eql_detected and liq.eql_price > 0 and liq.eql_price < current_price:
+            long_sl_pool = liq.eql_price
+            long_sl_name = f"Equal Lows (EQL) Pool (${round(liq.eql_price, 2)})"
+        elif liq.nearest_ssl and liq.nearest_ssl.get("price", 0.0) < current_price and liq.nearest_ssl.get("price", 0.0) > 0:
+            long_sl_pool = liq.nearest_ssl["price"]
+            long_sl_name = f"Sell-Side Liquidity (SSL) Pool (${round(long_sl_pool, 2)})"
+        elif smc.swing_low > 0 and smc.swing_low < current_price:
+            long_sl_pool = smc.swing_low
+            long_sl_name = f"Key Swing Low Liquidity (${round(smc.swing_low, 2)})"
+        else:
+            long_sl_pool = round(current_price * 0.9805, 2)
+            long_sl_name = f"Long 50x SL Cascade Pool"
+
+        # Short SL Magnet Pool (above current price - where retail shorts place stop loss)
+        short_sl_pool = 0.0
+        short_sl_name = ""
+        if liq.eqh_detected and liq.eqh_price > 0 and liq.eqh_price > current_price:
+            short_sl_pool = liq.eqh_price
+            short_sl_name = f"Equal Highs (EQH) Pool (${round(liq.eqh_price, 2)})"
+        elif liq.nearest_bsl and liq.nearest_bsl.get("price", 0.0) > current_price:
+            short_sl_pool = liq.nearest_bsl["price"]
+            short_sl_name = f"Buy-Side Liquidity (BSL) Pool (${round(short_sl_pool, 2)})"
+        elif smc.swing_high > 0 and smc.swing_high > current_price:
+            short_sl_pool = smc.swing_high
+            short_sl_name = f"Key Swing High Liquidity (${round(smc.swing_high, 2)})"
+        else:
+            short_sl_pool = round(current_price * 1.0195, 2)
+            short_sl_name = f"Short 50x SL Magnet Pool"
+
+        if direction == "LONG" and long_sl_pool > 0:
+            # Case 1: Stop sweep ALREADY occurred and price reclaimed the level
+            if sl.last_sweep_type == "BEAR_TRAP_SWEEP" and sl.reclaim_confirmed and sl.reclaim_price > 0:
+                entry = sl.reclaim_price
+                entry_type = "SL_SWEEP_RECLAIM"
+                stop_loss = round(sl.sweep_price * 0.997, 2) if sl.sweep_price > 0 else round(entry * 0.993, 2)
+                rationale = f"Stop Loss ritel telah tersapu di ${sl.sweep_price}. Entry pada konfirmasi reclaim likuiditas."
+            # Case 2: Smart Money accumulation - limit order set directly at the stop loss purge level
+            else:
+                entry = long_sl_pool
+                entry_type = "SL_HUNT_LIMIT_BUY"
+                stop_loss = round(entry * 0.993, 2)  # 0.7% invalidation buffer below stop loss cluster
+                dist_pct = round(((entry - current_price) / current_price) * 100.0, 2)
+                rationale = f"Menunggu sapuan likuiditas Stop Loss ritel di {long_sl_name} ({dist_pct}% di bawah harga). Limit buy menyerap forced market sell."
+
             risk = max(1e-6, entry - stop_loss)
-            tp1 = round(entry + risk * 1.5, 2)
-            tp2 = round(entry + risk * 2.5, 2)
-            tp3 = round(entry + risk * 4.0, 2)
+            tp1 = round(entry + risk * 1.8, 2)
+            tp2 = short_sl_pool if short_sl_pool > entry else round(entry + risk * 3.0, 2)
+            tp3 = round(tp2 * 1.01, 2)
             rr = round((tp1 - entry) / risk, 2)
+            dist_to_pool = round(((entry - current_price) / current_price) * 100.0, 2)
 
             trade_plan = ITITradePlan(
                 direction="LONG",
-                entry_type="LIMIT_OB" if entry < current_price else "MARKET_RECLAIM",
+                entry_type=entry_type,
                 entry_price=round(entry, 2),
-                entry_zone_high=round(entry * 1.002, 2),
-                entry_zone_low=round(entry * 0.998, 2),
+                entry_zone_high=round(entry * 1.001, 2),
+                entry_zone_low=round(entry * 0.997, 2),
                 invalidation_stop_loss=round(stop_loss, 2),
                 tp1_price=tp1,
                 tp2_price=tp2,
                 tp3_price=tp3,
                 risk_reward_ratio=rr,
                 recommended_leverage=15,
-                suggested_risk_pct=1.5
+                suggested_risk_pct=1.5,
+                sl_pool_name=long_sl_name,
+                sl_pool_price=round(long_sl_pool, 2),
+                sl_pool_distance_pct=dist_to_pool,
+                sl_hunt_rationale=rationale
             )
-        elif direction == "SHORT":
-            entry = smc.active_ob["low"] if (smc.active_ob and smc.active_ob["type"] == "BEARISH" and smc.active_ob["low"] > current_price) else current_price
-            stop_loss = sl.sweep_price if (sl.last_sweep_type == "BULL_TRAP_SWEEP" and sl.sweep_price > entry) else (smc.active_ob["high"] * 1.002 if smc.active_ob else current_price * 1.012)
+
+        elif direction == "SHORT" and short_sl_pool > 0:
+            # Case 1: Short squeeze sweep ALREADY occurred and price rejected back below
+            if sl.last_sweep_type == "BULL_TRAP_SWEEP" and sl.reclaim_confirmed and sl.reclaim_price > 0:
+                entry = sl.reclaim_price
+                entry_type = "SL_SWEEP_REJECT"
+                stop_loss = round(sl.sweep_price * 1.003, 2) if sl.sweep_price > 0 else round(entry * 1.007, 2)
+                rationale = f"Short stop loss ritel telah tersapu di ${sl.sweep_price}. Entry pada konfirmasi penolakan (rejection)."
+            # Case 2: Smart Money distribution - limit order set directly at the stop loss squeeze level
+            else:
+                entry = short_sl_pool
+                entry_type = "SL_HUNT_LIMIT_SELL"
+                stop_loss = round(entry * 1.007, 2)  # 0.7% invalidation buffer above stop loss cluster
+                dist_pct = round(((entry - current_price) / current_price) * 100.0, 2)
+                rationale = f"Menunggu pompa likuiditas menyapu Short Stop Loss di {short_sl_name} (+{dist_pct}% di atas harga). Limit sell menyerap forced market buy."
+
             risk = max(1e-6, stop_loss - entry)
-            tp1 = round(entry - risk * 1.5, 2)
-            tp2 = round(entry - risk * 2.5, 2)
-            tp3 = round(entry - risk * 4.0, 2)
+            tp1 = round(entry - risk * 1.8, 2)
+            tp2 = long_sl_pool if (long_sl_pool > 0 and long_sl_pool < entry) else round(entry - risk * 3.0, 2)
+            tp3 = round(tp2 * 0.99, 2)
             rr = round((entry - tp1) / risk, 2)
+            dist_to_pool = round(((entry - current_price) / current_price) * 100.0, 2)
 
             trade_plan = ITITradePlan(
                 direction="SHORT",
-                entry_type="LIMIT_OB" if entry > current_price else "MARKET_RECLAIM",
+                entry_type=entry_type,
                 entry_price=round(entry, 2),
-                entry_zone_high=round(entry * 1.002, 2),
-                entry_zone_low=round(entry * 0.998, 2),
+                entry_zone_high=round(entry * 1.003, 2),
+                entry_zone_low=round(entry * 0.999, 2),
                 invalidation_stop_loss=round(stop_loss, 2),
                 tp1_price=tp1,
                 tp2_price=tp2,
                 tp3_price=tp3,
                 risk_reward_ratio=rr,
                 recommended_leverage=15,
-                suggested_risk_pct=1.5
+                suggested_risk_pct=1.5,
+                sl_pool_name=short_sl_name,
+                sl_pool_price=round(short_sl_pool, 2),
+                sl_pool_distance_pct=dist_to_pool,
+                sl_hunt_rationale=rationale
             )
 
         return (

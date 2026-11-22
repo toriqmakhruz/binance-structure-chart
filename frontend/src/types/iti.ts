@@ -110,6 +110,10 @@ export interface ITITradePlan {
   risk_reward_ratio: number
   recommended_leverage: number
   suggested_risk_pct: number
+  sl_pool_name?: string
+  sl_pool_price?: number
+  sl_pool_distance_pct?: number
+  sl_hunt_rationale?: string
 }
 
 export interface ITIDataHealth {

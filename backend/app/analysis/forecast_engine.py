@@ -397,7 +397,7 @@ class ForecastEngine:
                                         "tp": tp,
                                         "rr": rr,
                                         "name": "A+ Setup: Turtle Soup (Sapuan Likuiditas EQL)",
-                                        "weight": 65.0
+                                        "weight": 95.0
                                     })
                         elif lp.type == "EQH":
                             if is_bullish_bos or current_trend == "BULLISH":
@@ -423,7 +423,7 @@ class ForecastEngine:
                                         "tp": tp,
                                         "rr": rr,
                                         "name": "A+ Setup: Turtle Soup (Sapuan Likuiditas EQH)",
-                                        "weight": 65.0
+                                        "weight": 95.0
                                     })
 
         return active_candidates
@@ -525,8 +525,8 @@ class ForecastEngine:
                 is_bullish_bos=is_bullish_bos
             )
 
-        # Urutkan berdasarkan entry_time paling baru (setup teranyar yang sedang aktif)
-        active_candidates.sort(key=lambda x: x["entry_time"], reverse=True)
+        # Prioritaskan setup sapuan likuiditas/stop loss (weight tinggi) lalu waktu entri terbaru
+        active_candidates.sort(key=lambda x: (x.get("weight", 50.0), x["entry_time"]), reverse=True)
         active_setup = active_candidates[0] if active_candidates else None
 
         # Unit Test Fallback (ketika smc=None)
