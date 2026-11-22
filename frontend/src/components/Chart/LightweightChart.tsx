@@ -45,6 +45,7 @@ import {
   calculateDeltaAbsorption,
   calculateJudasSwing
 } from '../../utils/institutionalIndicators'
+import { detectSmartDivergences } from '../../utils/divergenceEngine'
 
 interface LightweightChartProps {
   symbol: string
@@ -214,6 +215,11 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     if (!visibility.judasSwing || !candles || candles.length < 24) return []
     return calculateJudasSwing(candles, timeframe)
   }, [visibility.judasSwing, candles, timeframe])
+
+  const smartDivergenceSignals = useMemo(() => {
+    if (!visibility.smartDivergence || !candles || candles.length < 40) return []
+    return detectSmartDivergences(candles, smc)
+  }, [visibility.smartDivergence, candles, smc])
 
   const [activeSessionInfo, setActiveSessionInfo] = useState<ActiveSessionResult>(() => getCurrentActiveSessions(sessionSettings))
 
@@ -2219,6 +2225,153 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         ctx.fillStyle = isBearTrap ? '#a7f3d0' : '#fecdd3'
         ctx.fillText(badgeTxt, badgeX + 6, badgeY + 11.5)
       })
+      ctx.restore()
+    }
+
+    // 0.10b. Apex Smart Multi-Divergence Radar (RSI + MACD + CVD Validated)
+    if (visibility.smartDivergence && smartDivergenceSignals.length > 0) {
+      ctx.save()
+      const maxChartX = Math.max(40, width - 68)
+      const drawnPillRects: { x: number; y: number; w: number; h: number }[] = []
+
+      smartDivergenceSignals.forEach((sig) => {
+        const pStart = resolveCoord(sig.startTime, sig.startPrice)
+        const pEnd = resolveCoord(sig.endTime, sig.endPrice)
+        if (!pStart || !pEnd) return
+        if (Math.max(pStart.x, pEnd.x) < -20 || Math.min(pStart.x, pEnd.x) > width + 20) return
+
+        const isBull = sig.direction === 'BULLISH'
+        const lineColor = isBull ? '#10b981' : '#f43f5e'
+        const glowColor = isBull ? 'rgba(16, 185, 129, 0.32)' : 'rgba(244, 63, 94, 0.32)'
+        const pillBg = isBull ? 'rgba(6, 54, 42, 0.94)' : 'rgba(76, 10, 26, 0.94)'
+        const titleColor = isBull ? '#34d399' : '#fb7185'
+        const subColor = isBull ? '#d1fae5' : '#ffe4e6'
+        const offsetY = isBull ? 5 : -5
+
+        const x1 = pStart.x
+        const y1 = pStart.y + offsetY
+        const x2 = pEnd.x
+        const y2 = pEnd.y + offsetY
+
+        // 1. Subtle outer glow for divergence line
+        ctx.beginPath()
+        ctx.strokeStyle = glowColor
+        ctx.lineWidth = 4.5
+        ctx.moveTo(x1, y1)
+        ctx.lineTo(x2, y2)
+        ctx.stroke()
+
+        // 2. Crisp dashed divergence trendline
+        ctx.beginPath()
+        ctx.setLineDash([5, 3])
+        ctx.strokeStyle = lineColor
+        ctx.lineWidth = 1.8
+        ctx.globalAlpha = 0.95
+        ctx.moveTo(x1, y1)
+        ctx.lineTo(x2, y2)
+        ctx.stroke()
+        ctx.setLineDash([])
+
+        // 3. Glowing anchor dots at both swing pivots
+        ;[
+          { x: x1, y: y1 },
+          { x: x2, y: y2 }
+        ].forEach((pt) => {
+          if (pt.x < -10 || pt.x > maxChartX + 10) return
+          ctx.beginPath()
+          ctx.arc(pt.x, pt.y, 4.5, 0, Math.PI * 2)
+          ctx.fillStyle = glowColor
+          ctx.fill()
+
+          ctx.beginPath()
+          ctx.arc(pt.x, pt.y, 2.8, 0, Math.PI * 2)
+          ctx.fillStyle = lineColor
+          ctx.fill()
+        })
+
+        // 4. Micro Invalidation SL Tick right at p2
+        const ySl = series.priceToCoordinate(sig.stopLossPrice)
+        if (ySl !== null && x2 >= 0 && x2 <= maxChartX) {
+          ctx.beginPath()
+          ctx.setLineDash([2, 2])
+          ctx.strokeStyle = isBull ? 'rgba(16, 185, 129, 0.55)' : 'rgba(244, 63, 94, 0.55)'
+          ctx.lineWidth = 1
+          ctx.moveTo(Math.max(4, x2 - 18), ySl)
+          ctx.lineTo(Math.min(maxChartX, x2 + 28), ySl)
+          ctx.stroke()
+          ctx.setLineDash([])
+        }
+
+        // 5. Minimalist Validated Badge Pill (Anti-Clutter & Anti-Overlap)
+        if (x2 >= -10 && x2 <= maxChartX + 10) {
+          const stars = sig.grade === 'A' ? '⭐⭐⭐' : '⭐⭐'
+          const metricsTxt = sig.confirmingMetrics.join('+')
+          const titleTxt = `${isBull ? '🟢 BULL DIV' : '🔴 BEAR DIV'} [${metricsTxt}] • Grade ${sig.grade} ${stars}`
+          const reasonTxt = `Valid: ${sig.reasons.join(' + ')} | SL: $${formatPrice(sig.stopLossPrice)}`
+
+          ctx.font = 'bold 9.5px monospace'
+          const w1 = ctx.measureText(titleTxt).width
+          ctx.font = '8.5px monospace'
+          const w2 = ctx.measureText(reasonTxt).width
+
+          const pillW = Math.max(w1, w2) + 14
+          const pillH = 29
+          const pillX = Math.max(8, Math.min(maxChartX - pillW - 6, x2 - pillW / 2))
+          let pillY = isBull
+            ? Math.min(height - pillH - 20, y2 + 12)
+            : Math.max(8, y2 - pillH - 12)
+
+          // Prevent collision between Bull & Bear pills if both exist nearby
+          for (const prevRect of drawnPillRects) {
+            const horizOverlap = pillX < prevRect.x + prevRect.w + 6 && pillX + pillW + 6 > prevRect.x
+            const vertOverlap = pillY < prevRect.y + prevRect.h + 6 && pillY + pillH + 6 > prevRect.y
+            if (horizOverlap && vertOverlap) {
+              pillY = isBull
+                ? Math.min(height - pillH - 10, prevRect.y + prevRect.h + 6)
+                : Math.max(6, prevRect.y - pillH - 6)
+            }
+          }
+          drawnPillRects.push({ x: pillX, y: pillY, w: pillW, h: pillH })
+
+          // Guide stem from pivot dot to pill edge
+          const pillCenterX = Math.max(pillX + 6, Math.min(pillX + pillW - 6, x2))
+          const pillEdgeY = isBull ? pillY : pillY + pillH
+          ctx.beginPath()
+          ctx.setLineDash([2, 2])
+          ctx.strokeStyle = lineColor
+          ctx.lineWidth = 1
+          ctx.globalAlpha = 0.7
+          ctx.moveTo(x2, y2)
+          ctx.lineTo(pillCenterX, pillEdgeY)
+          ctx.stroke()
+          ctx.setLineDash([])
+          ctx.globalAlpha = 1.0
+
+          // Rounded Pill Box
+          ctx.fillStyle = pillBg
+          ctx.strokeStyle = lineColor
+          ctx.lineWidth = 1.2
+          ctx.beginPath()
+          if (typeof (ctx as any).roundRect === 'function') {
+            ;(ctx as any).roundRect(pillX, pillY, pillW, pillH, 4)
+          } else {
+            ctx.rect(pillX, pillY, pillW, pillH)
+          }
+          ctx.fill()
+          ctx.stroke()
+
+          // Text Line 1 (Title + Metrics + Grade)
+          ctx.font = 'bold 9.5px monospace'
+          ctx.fillStyle = titleColor
+          ctx.fillText(titleTxt, pillX + 7, pillY + 12)
+
+          // Text Line 2 (Validation reasons + SL)
+          ctx.font = '8.5px monospace'
+          ctx.fillStyle = subColor
+          ctx.fillText(reasonTxt, pillX + 7, pillY + 23.5)
+        }
+      })
+
       ctx.restore()
     }
 
@@ -4705,7 +4858,9 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     vpvrSettings,
     orderflowSettings,
     visibility.marketXray,
-    xrayData
+    xrayData,
+    visibility.smartDivergence,
+    smartDivergenceSignals
   ])
 
   // Always update the ref with the latest redraw function

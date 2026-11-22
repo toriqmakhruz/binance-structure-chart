@@ -68,7 +68,8 @@ const DEFAULT_VISIBILITY: LayerVisibility = {
   anchoredVwap: true,
   deltaAbsorption: true,
   judasSwing: true,
-  marketXray: true
+  marketXray: true,
+  smartDivergence: true
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -757,7 +758,7 @@ export function App() {
         'srLevels', 'marketSessions', 'forecastCone', 'forecastScenarios',
         'entryBoxes', 'htfOverlay', 'volume', 'openInterest', 'fundingRate',
         'fibonacci', 'volumeProfile', 'liquidationHeatmap', 'cvdOrderflow',
-        'trendRibbon', 'trendStrengthMeter', 'anchoredVwap', 'deltaAbsorption', 'judasSwing', 'marketXray'
+        'trendRibbon', 'trendStrengthMeter', 'anchoredVwap', 'deltaAbsorption', 'judasSwing', 'marketXray', 'smartDivergence'
       ]
       const updatedVis = { ...currentPaneVis }
       allKeys.forEach((k) => {
@@ -793,7 +794,8 @@ export function App() {
         anchoredVwap: enabled,
         deltaAbsorption: enabled,
         judasSwing: enabled,
-        marketXray: enabled
+        marketXray: enabled,
+        smartDivergence: enabled
       })
     }
   }, [visibility])
@@ -832,7 +834,8 @@ export function App() {
       anchoredVwap: enabled,
       deltaAbsorption: enabled,
       judasSwing: enabled,
-      marketXray: enabled
+      marketXray: enabled,
+      smartDivergence: enabled
     })
     if (layout !== 'single') {
       handleSetAllPaneLayers(activePaneId, enabled)

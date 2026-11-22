@@ -99,6 +99,14 @@ export const PaneLayerDropdown: React.FC<PaneLayerDropdownProps> = ({
       color: 'text-rose-400'
     },
     {
+      key: 'smartDivergence' as keyof LayerVisibility,
+      category: 'institusional',
+      label: 'Smart Divergence (RSI+MACD+CVD)',
+      desc: 'Bull/Bear Divergence tervalidasi Sweep, Pinbar & OB/FVG',
+      icon: <Target className="w-3.5 h-3.5" />,
+      color: 'text-emerald-400'
+    },
+    {
       key: 'anchoredVwap' as keyof LayerVisibility,
       category: 'institusional',
       label: 'Anchored VWAP (AVWAP)',

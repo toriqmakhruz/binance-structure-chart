@@ -288,6 +288,7 @@ export interface LayerVisibility {
   deltaAbsorption?: boolean
   judasSwing?: boolean
   marketXray?: boolean
+  smartDivergence?: boolean
 }
 
 export * from './fibonacci'
@@ -296,6 +297,7 @@ export * from './orderflow'
 export * from './marketSessions'
 export * from './institutional'
 export * from './marketXray'
+export * from './divergence'
 
 
 export type DrawingToolType = 

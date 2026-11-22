@@ -108,6 +108,7 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
       badgeClass: 'bg-amber-950/60 text-amber-300 border-amber-800/50',
       items: [
         { key: 'marketXray', label: 'Market X-Ray (Stop Loss & Whale Radar)', desc: 'Radar jeroan orderbook: Squeeze Magnet, SL Cascade & Whale Walls', icon: <Radar className="w-3.5 h-3.5" />, color: 'text-rose-400', bgHover: 'hover:bg-rose-950/30' },
+        { key: 'smartDivergence', label: 'Smart Divergence (RSI+MACD+CVD)', desc: 'Bull/Bear Divergence tervalidasi Sweep, Pinbar & OB/FVG', icon: <Target className="w-3.5 h-3.5" />, color: 'text-emerald-400', bgHover: 'hover:bg-emerald-950/30' },
         { key: 'anchoredVwap', label: 'Anchored VWAP (AVWAP)', desc: 'Patokan harga wajar institusi ±1σ & ±2σ bands', icon: <Anchor className="w-3.5 h-3.5" />, color: 'text-amber-400', bgHover: 'hover:bg-amber-950/30' },
         { key: 'deltaAbsorption', label: 'Delta Absorption & Exhaustion', desc: 'Deteksi paus menyerap panic sell / FOMO buy', icon: <ShieldCheck className="w-3.5 h-3.5" />, color: 'text-emerald-400', bgHover: 'hover:bg-emerald-950/30' },
         { key: 'judasSwing', label: 'ICT Judas Swing (Trap Detector)', desc: 'Jebakan breakout palsu awal sesi London & NY', icon: <Zap className="w-3.5 h-3.5" />, color: 'text-yellow-400', bgHover: 'hover:bg-yellow-950/30' },
@@ -153,7 +154,7 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
 
   // Count active layers
   const allKeys: (keyof LayerVisibility)[] = [
-    'marketXray', 'anchoredVwap', 'deltaAbsorption', 'judasSwing', 'smcEvents', 'orderBlocks', 'fvgs', 'smcSwings',
+    'marketXray', 'smartDivergence', 'anchoredVwap', 'deltaAbsorption', 'judasSwing', 'smcEvents', 'orderBlocks', 'fvgs', 'smcSwings',
     'liquidationHeatmap', 'cvdOrderflow', 'marketSessions',
     'trendRibbon', 'trendStrengthMeter', 'fibonacci', 'patterns', 'srLevels', 'volumeProfile',
     'entryBoxes', 'forecastCone', 'forecastScenarios', 'volume', 'openInterest', 'fundingRate',
@@ -174,6 +175,7 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
   // Quick chips for top core indicators
   const quickChips: { key: keyof LayerVisibility; label: string }[] = [
     { key: 'marketXray', label: 'X-Ray' },
+    { key: 'smartDivergence', label: 'SmartDiv' },
     { key: 'anchoredVwap', label: 'AVWAP' },
     { key: 'deltaAbsorption', label: 'Absorption' },
     { key: 'judasSwing', label: 'Judas' },
