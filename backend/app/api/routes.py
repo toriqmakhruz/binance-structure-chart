@@ -696,3 +696,33 @@ async def get_market_xray(
             detail=f"Gagal mengambil telemetry Market X-Ray: {str(e)}"
         )
 
+
+@router.get("/market/sentiment-matrix")
+async def get_whale_sentiment_matrix(
+    symbol: str = Query("BTCUSDT", description="Trading pair symbol"),
+    market: str = Query("futures", description="Market type ('futures' or 'spot')"),
+    period: str = Query("5m", description="Period granularity ('5m', '15m', '1h')")
+):
+    """
+    Whale vs Retail Sentiment Matrix (Smart Money Long/Short Divergence):
+    - Top Trader Long/Short Position Ratio (Whale Contract Volume)
+    - Top Trader Long/Short Account Ratio (Whale Trader Count)
+    - Global Long/Short Account Ratio (Retail Public)
+    - Taker Buy/Sell Aggression Ratio
+    - Smart Money vs Retail Divergence Delta & Actionable Guidance
+    """
+    from ..services.whale_sentiment_service import whale_sentiment_service
+    try:
+        return await whale_sentiment_service.get_sentiment_matrix(
+            symbol=symbol,
+            market=market,
+            period=period
+        )
+    except Exception as e:
+        logger.error(f"Error generating sentiment matrix: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Gagal mengambil Whale Sentiment Matrix: {str(e)}"
+        )
+
+

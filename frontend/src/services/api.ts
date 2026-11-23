@@ -658,6 +658,23 @@ export async function fetchSqueezeHunterScan(
   return resp.json()
 }
 
+export * from '../types/sentiment'
+
+export async function fetchWhaleSentimentMatrix(
+  symbol: string,
+  market: 'spot' | 'futures' = 'futures',
+  period: string = '5m'
+): Promise<import('../types/sentiment').WhaleSentimentMatrixResponse> {
+  const resp = await fetch(
+    `${API_BASE}/market/sentiment-matrix?symbol=${symbol}&market=${market}&period=${period}`
+  )
+  if (!resp.ok) {
+    throw new Error(`Gagal memuat Whale Sentiment Matrix: HTTP ${resp.status}`)
+  }
+  return resp.json()
+}
+
+
 
 
 

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { Crosshair, Layers, Search, Database } from 'lucide-react'
 import { LightweightChart } from './LightweightChart'
 import { PaneLayerDropdown } from './PaneLayerDropdown'
+import { WhaleSentimentHUD } from '../HUD/WhaleSentimentHUD'
 import { fetchAnalysis, defaultAppSettings } from '../../services/api'
 import { BinanceWsClient } from '../../services/binanceWs'
 import {
@@ -600,6 +601,22 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
                   onTogglePaneLayer(chartId, key)
                 } else if (onToggleLayer) {
                   onToggleLayer(key)
+                }
+              }}
+            />
+          )}
+
+          {/* Whale vs Retail Sentiment Matrix HUD Overlay (Low Opacity Smart Money Table) */}
+          {isPrimary && (
+            <WhaleSentimentHUD
+              symbol={symbol}
+              market={market}
+              isVisible={paneVis.whaleSentimentMatrix ?? true}
+              onClose={() => {
+                if (onTogglePaneLayer) {
+                  onTogglePaneLayer(chartId === 'chart-main' ? 'chart-1' : chartId, 'whaleSentimentMatrix')
+                } else if (onToggleLayer) {
+                  onToggleLayer('whaleSentimentMatrix')
                 }
               }}
             />

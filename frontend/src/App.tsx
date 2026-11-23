@@ -70,7 +70,8 @@ const DEFAULT_VISIBILITY: LayerVisibility = {
   judasSwing: true,
   marketXray: true,
   smartDivergence: true,
-  sniperEntry: true
+  sniperEntry: true,
+  whaleSentimentMatrix: true
 }
 
 const DEFAULT_SETTINGS: AppSettings = {

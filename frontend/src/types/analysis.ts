@@ -290,6 +290,7 @@ export interface LayerVisibility {
   marketXray?: boolean
   smartDivergence?: boolean
   sniperEntry?: boolean
+  whaleSentimentMatrix?: boolean
 }
 
 export * from './fibonacci'

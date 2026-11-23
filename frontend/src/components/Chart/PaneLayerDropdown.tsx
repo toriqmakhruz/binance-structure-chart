@@ -92,6 +92,14 @@ export const PaneLayerDropdown: React.FC<PaneLayerDropdownProps> = ({
   const layerOptions: LayerOption[] = [
     // 1. KATEGORI 1: INDIKATOR INSTITUSIONAL (Smart Money, Order Flow & Market Structure)
     {
+      key: 'whaleSentimentMatrix' as keyof LayerVisibility,
+      category: 'institusional',
+      label: 'Whale vs Retail Matrix HUD',
+      desc: 'Tabel transparansi posisi Paus vs Retail & Taker Aggression',
+      icon: <span className="text-xs">🐋</span>,
+      color: 'text-cyan-400'
+    },
+    {
       key: 'sniperEntry' as keyof LayerVisibility,
       category: 'institusional',
       label: 'Sniper Entry Crosshair (3-in-1)',
