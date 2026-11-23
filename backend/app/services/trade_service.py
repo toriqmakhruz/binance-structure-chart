@@ -105,6 +105,17 @@ class TradeService:
                     "positions": self._paper_positions,
                     "history": self._paper_history
                 }, f, indent=2)
+            self._positions_cache.clear()
+            self._orders_cache.clear()
+            try:
+                from .user_data_stream_service import user_data_stream_manager
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.create_task(user_data_stream_manager.broadcast_paper_event("ACCOUNT_UPDATE", {
+                        "positions": [p for p in self._paper_positions if p.get("status") == "FILLED"]
+                    }))
+            except Exception:
+                pass
         except Exception as exc:
             logger.warning(f"Failed saving paper trading data: {exc}")
 

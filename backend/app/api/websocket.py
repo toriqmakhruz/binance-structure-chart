@@ -358,3 +358,64 @@ async def websocket_kline_relay(
         stop_event.set()
         forward_task.cancel()
         await asyncio.gather(forward_task, return_exceptions=True)
+
+
+@ws_router.websocket("/ws/user-data/{market}/{mode}")
+async def websocket_user_data_relay(
+    websocket: WebSocket,
+    market: str = "futures",
+    mode: str = "demo"
+):
+    """
+    Real-time bidirectional WebSocket relay for Binance User Data Stream:
+    - Live positions updates (entry, margin, mark price, PnL, close)
+    - Order status updates (NEW, FILLED, PARTIALLY_FILLED, CANCELED)
+    - Balance & margin call updates
+    - Also delivers simulated paper trading events with identical schema
+    """
+    await websocket.accept()
+    from ..services.user_data_stream_service import user_data_stream_manager
+
+    mode_clean = mode.lower().strip()
+    market_clean = market.lower().strip()
+
+    await user_data_stream_manager.register_client(
+        websocket,
+        market=market_clean,
+        mode=mode_clean
+    )
+
+    try:
+        # Send initial confirmation message
+        await websocket.send_text(json.dumps({
+            "type": "USER_STREAM_STATUS",
+            "status": "CONNECTED",
+            "market": market_clean,
+            "mode": mode_clean,
+            "timestamp": int(time.time() * 1000),
+            "message": f"Connected to {mode_clean.upper()} user data stream"
+        }))
+
+        while True:
+            client_msg = await websocket.receive_text()
+            if client_msg == "ping":
+                await websocket.send_text("pong")
+            else:
+                try:
+                    data = json.loads(client_msg)
+                    if data.get("type") == "AUTH":
+                        # Client sending credentials update
+                        await user_data_stream_manager.register_client(
+                            websocket,
+                            market=market_clean,
+                            mode=mode_clean,
+                            api_key=data.get("apiKey", ""),
+                            api_secret=data.get("apiSecret", "")
+                        )
+                except Exception:
+                    pass
+    except WebSocketDisconnect:
+        logger.info(f"Browser client disconnected from user data stream ({market_clean}_{mode_clean})")
+    finally:
+        await user_data_stream_manager.unregister_client(websocket)
+

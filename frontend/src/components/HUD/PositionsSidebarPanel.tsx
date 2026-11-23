@@ -114,6 +114,7 @@ export const PositionsSidebarPanel: React.FC<PositionsSidebarPanelProps> = ({
     window.addEventListener('cp_trade_mode_change', handleSync)
     window.addEventListener('cp_position_closed', handleSync)
     window.addEventListener('cp_credentials_updated', handleSync)
+    window.addEventListener('cp_user_data_update', handleSync)
     window.addEventListener('storage', handleSync)
 
     return () => {
@@ -121,6 +122,7 @@ export const PositionsSidebarPanel: React.FC<PositionsSidebarPanelProps> = ({
       window.removeEventListener('cp_trade_mode_change', handleSync)
       window.removeEventListener('cp_position_closed', handleSync)
       window.removeEventListener('cp_credentials_updated', handleSync)
+      window.removeEventListener('cp_user_data_update', handleSync)
       window.removeEventListener('storage', handleSync)
     }
   }, [loadData])

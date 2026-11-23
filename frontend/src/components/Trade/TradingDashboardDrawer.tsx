@@ -36,10 +36,12 @@ import {
   History,
   DollarSign,
   Award,
-  BookOpen
+  BookOpen,
+  Wifi
 } from 'lucide-react'
 import { ApiCredentialsModal } from '../Settings/ApiCredentialsModal'
 import { TradingJournalView } from '../Journal/TradingJournalView'
+import { UserDataWsClient } from '../../services/userDataWs'
 
 interface TradingDashboardDrawerProps {
   isOpen: boolean
@@ -84,6 +86,7 @@ export const TradingDashboardDrawer: React.FC<TradingDashboardDrawerProps> = ({
   const [orders, setOrders] = useState<TradeOrderItem[]>([])
   const [totalUnPnl, setTotalUnPnl] = useState<number>(0)
   const [isLoading, setIsLoading] = useState<boolean>(false)
+  const [isWsConnected, setIsWsConnected] = useState<boolean>(false)
   const [actionLoading, setActionLoading] = useState<string | null>(null) // symbol or orderId being actioned
   const [filterCurrentSymbol, setFilterCurrentSymbol] = useState<boolean>(false)
   const [statusNotice, setStatusNotice] = useState<string | null>(null)
@@ -168,14 +171,44 @@ export const TradingDashboardDrawer: React.FC<TradingDashboardDrawerProps> = ({
     }).catch(console.warn)
   }, [isOpen, activeTab, market, mode, filterCurrentSymbol, currentSymbol])
 
-  // Periodic polling and reactive sync when drawer is open
+  // Real-time Binance User Data Stream WebSocket (< 50ms latency)
+  useEffect(() => {
+    const creds = getStoredCredentials()
+    const apiKey = mode === 'demo' ? creds.demoApiKey : creds.liveApiKey
+    const apiSecret = mode === 'demo' ? creds.demoApiSecret : creds.liveApiSecret
+
+    const wsClient = new UserDataWsClient(market, mode, {
+      onStatusChange: (connected) => {
+        setIsWsConnected(connected)
+      },
+      onAccountUpdate: () => {
+        // Instant push notification from Binance -> refresh UI
+        loadData(true)
+      },
+      onOrderUpdate: () => {
+        // Instant push notification from Binance -> refresh UI
+        loadData(true)
+      }
+    })
+
+    wsClient.connect(apiKey, apiSecret)
+
+    return () => {
+      wsClient.disconnect()
+    }
+  }, [market, mode, loadData])
+
+  // Periodic polling and reactive sync when drawer is open (acts as silent backup to WebSocket)
   useEffect(() => {
     if (!isOpen) return
     loadData(false)
+
+    // Jika WebSocket tersambung aktif, kurangi frekuensi polling ke 25s untuk hemat API & baterai
+    const intervalMs = isWsConnected ? 25000 : 8000
     const timer = setInterval(() => {
       if (typeof document !== 'undefined' && document.hidden) return
       loadData(true)
-    }, 5000)
+    }, intervalMs)
 
     const handleSync = () => {
       try {
@@ -196,6 +229,7 @@ export const TradingDashboardDrawer: React.FC<TradingDashboardDrawerProps> = ({
     window.addEventListener('cp_position_closed', handleSync)
     window.addEventListener('cp_credentials_updated', handleSync)
     window.addEventListener('cp_open_journal_tab', handleOpenJournal)
+    window.addEventListener('cp_user_data_update', handleSync)
     window.addEventListener('storage', handleSync)
 
     return () => {
@@ -204,9 +238,10 @@ export const TradingDashboardDrawer: React.FC<TradingDashboardDrawerProps> = ({
       window.removeEventListener('cp_position_closed', handleSync)
       window.removeEventListener('cp_credentials_updated', handleSync)
       window.removeEventListener('cp_open_journal_tab', handleOpenJournal)
+      window.removeEventListener('cp_user_data_update', handleSync)
       window.removeEventListener('storage', handleSync)
     }
-  }, [isOpen, loadData, onToggle, refreshTrigger])
+  }, [isOpen, loadData, onToggle, refreshTrigger, isWsConnected])
 
   // Close Position handler
   const handleClosePosition = async (sym: string) => {
@@ -547,6 +582,19 @@ export const TradingDashboardDrawer: React.FC<TradingDashboardDrawerProps> = ({
             >
               LIVE
             </button>
+          </div>
+
+          {/* Real-time Binance User Data Stream indicator */}
+          <div
+            className={`hidden sm:flex items-center space-x-1 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold transition-all ${
+              isWsConnected
+                ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-800/60'
+                : 'bg-slate-900/80 text-slate-400 border border-slate-700/50'
+            }`}
+            title={isWsConnected ? 'Binance User Data Stream Terhubung (Instan < 50ms)' : 'Menghubungkan Stream Akun...'}
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${isWsConnected ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}`} />
+            <span>{isWsConnected ? 'WS LIVE' : 'WS SYNC'}</span>
           </div>
 
           <button

@@ -1137,12 +1137,14 @@ export function App() {
     window.addEventListener('cp_trade_mode_change', handleSyncTrigger)
     window.addEventListener('cp_position_closed', handleSyncTrigger)
     window.addEventListener('cp_credentials_updated', handleSyncTrigger)
+    window.addEventListener('cp_user_data_update', handleSyncTrigger)
 
     return () => {
       window.removeEventListener('cp_locked_setups_reconciled', handleReconcile)
       window.removeEventListener('cp_trade_mode_change', handleSyncTrigger)
       window.removeEventListener('cp_position_closed', handleSyncTrigger)
       window.removeEventListener('cp_credentials_updated', handleSyncTrigger)
+      window.removeEventListener('cp_user_data_update', handleSyncTrigger)
       clearInterval(timer)
     }
   }, [market])
