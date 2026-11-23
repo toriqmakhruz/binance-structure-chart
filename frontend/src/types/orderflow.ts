@@ -10,6 +10,8 @@ export interface OrderflowSettings {
   showLiqMagnets: boolean // Highlight Top 2 Short Liq & Top 2 Long Liq Magnet Lines
   showLiqLabels: boolean // Show price & leverage tier badges
   minIntensityThreshold: number // 0.15 to 0.60 (filter weak noise pools), default 0.25
+  showLiqProfileBar?: boolean // Coinglass Right-Side Liquidation Depth Profile / Bar (default true)
+  showLiqLegend?: boolean // Coinglass Thermal Intensity Color Scale Legend (default true)
 
   // 2. CVD & Orderflow Divergence Settings
   showCvdRibbon: boolean // Render CVD cumulative line & delta histogram at bottom of chart
@@ -33,6 +35,8 @@ export const DEFAULT_ORDERFLOW_SETTINGS: OrderflowSettings = {
   showLiqMagnets: true,
   showLiqLabels: true,
   minIntensityThreshold: 0.25,
+  showLiqProfileBar: true,
+  showLiqLegend: true,
 
   showCvdRibbon: true,
   cvdRibbonHeightPct: 16,

@@ -22,7 +22,7 @@ def create_archive():
             dirs[:] = [d for d in dirs if d not in exclude_dirs]
             for file in files:
                 file_path = os.path.join(root, file)
-                arcname = os.path.relpath(file_path, ".")
+                arcname = os.path.relpath(file_path, ".").replace("\\", "/")
                 tar.add(file_path, arcname=arcname)
                 
     size_mb = os.path.getsize(ARCHIVE_NAME) / (1024 * 1024)

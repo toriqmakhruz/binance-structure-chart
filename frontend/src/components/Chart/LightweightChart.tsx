@@ -1439,48 +1439,75 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
       }
     }
 
-    // 0.6. Liquidation Heatmap (25x / 50x / 100x Un-Swept Leverage Liquidity Pools)
+    // 0.6. Coinglass Authentic Liquidation Heatmap (100x / 50x / 25x / 10x Continuous Thermal Matrix)
     if (visibility.liquidationHeatmap && candles.length >= 20) {
       const ofConfig: OrderflowSettings = orderflowSettings || DEFAULT_ORDERFLOW_SETTINGS
       const maxChartX = Math.max(40, width - 68)
-      const lookbackCount = Math.max(40, Math.min(candles.length, ofConfig.liqLookbackBars || 160))
+      const lookbackCount = Math.max(40, Math.min(candles.length, ofConfig.liqLookbackBars || 180))
       const sliceStart = candles.length - lookbackCount
       const lbCandles = candles.slice(sliceStart)
       const currentPrice = candles[candles.length - 1].close
 
       const activeTiers: { label: string; dist: number; weight: number }[] = []
-      if (ofConfig.enable100x) activeTiers.push({ label: '100x', dist: 0.0095, weight: 1.35 })
-      if (ofConfig.enable50x) activeTiers.push({ label: '50x', dist: 0.0190, weight: 1.18 })
-      if (ofConfig.enable25x) activeTiers.push({ label: '25x', dist: 0.0385, weight: 1.0 })
+      if (ofConfig.enable100x) activeTiers.push({ label: '100x', dist: 0.0095, weight: 1.40 })
+      if (ofConfig.enable50x) activeTiers.push({ label: '50x', dist: 0.0190, weight: 1.25 })
+      if (ofConfig.enable25x) activeTiers.push({ label: '25x', dist: 0.0385, weight: 1.05 })
       if (ofConfig.enable10x) activeTiers.push({ label: '10x', dist: 0.0950, weight: 0.85 })
 
       if (activeTiers.length > 0 && lbCandles.length >= 10) {
         const n = lbCandles.length
-        // Suffix max High & min Low untuk cek cepat apakah level likuidasi sudah tersapu (swept)
-        const suffixMaxHigh = new Array<number>(n).fill(-Infinity)
-        const suffixMinLow = new Array<number>(n).fill(Infinity)
-        let runMax = -Infinity
-        let runMin = Infinity
-        for (let i = n - 1; i >= 0; i--) {
-          suffixMaxHigh[i] = runMax
-          suffixMinLow[i] = runMin
-          if (lbCandles[i].high > runMax) runMax = lbCandles[i].high
-          if (lbCandles[i].low < runMin) runMin = lbCandles[i].low
+
+        // Hitung rata-rata dollar volume untuk normalisasi bobot klaster likuidasi
+        let totalDollarVol = 0
+        let validVolCount = 0
+        for (let i = 0; i < n; i++) {
+          const v = (lbCandles[i].volume || 0) * (lbCandles[i].close || currentPrice)
+          if (v > 0) {
+            totalDollarVol += v
+            validVolCount++
+          }
+        }
+        const avgDollarVol = validVolCount > 0 ? Math.max(1000, totalDollarVol / validVolCount) : 100000
+
+        // Deteksi swing pivot (lokal high/low radius 2 bar) tempat akumulasi likuiditas tertinggi
+        const isPivotHigh = new Array<boolean>(n).fill(false)
+        const isPivotLow = new Array<boolean>(n).fill(false)
+        for (let i = 2; i < n - 2; i++) {
+          const h = lbCandles[i].high
+          const l = lbCandles[i].low
+          if (h >= lbCandles[i - 1].high && h >= lbCandles[i - 2].high && h >= lbCandles[i + 1].high && h >= lbCandles[i + 2].high) {
+            isPivotHigh[i] = true
+          }
+          if (l <= lbCandles[i - 1].low && l <= lbCandles[i - 2].low && l <= lbCandles[i + 1].low && l <= lbCandles[i + 2].low) {
+            isPivotLow[i] = true
+          }
         }
 
-        const minLow = runMin * 0.965
-        const maxHigh = runMax * 1.035
+        // Tentukan rentang harga vertikal heatmap dengan margin leverage
+        let minLow = Infinity
+        let maxHigh = -Infinity
+        for (let i = 0; i < n; i++) {
+          if (lbCandles[i].low < minLow) minLow = lbCandles[i].low
+          if (lbCandles[i].high > maxHigh) maxHigh = lbCandles[i].high
+        }
+        const maxTierDist = activeTiers.reduce((max, t) => Math.max(max, t.dist), 0.02)
+        minLow = minLow * (1 - maxTierDist * 1.05)
+        maxHigh = maxHigh * (1 + maxTierDist * 1.05)
         const span = maxHigh - minLow
-        const numBuckets = 56
+
+        // Granularitas vertikal tinggi khas Coinglass (96 baris harga)
+        const numBuckets = 96
         const bucketStep = span / numBuckets
 
-        if (Number.isFinite(span) && span > 0) {
+        if (Number.isFinite(span) && span > 0 && bucketStep > 0) {
           interface LiqBucket {
             lowP: number
             highP: number
             midP: number
-            intensity: number
-            originTime: number
+            unsweptWeight: number
+            sweptWeight: number
+            totalDensity: number
+            earliestOriginTime: number
             side: 'SHORT_LIQ' | 'LONG_LIQ'
             tierCounts: Record<string, number>
           }
@@ -1493,143 +1520,325 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
               lowP,
               highP,
               midP,
-              intensity: 0,
-              originTime: lbCandles[n - 1].time,
+              unsweptWeight: 0,
+              sweptWeight: 0,
+              totalDensity: 0,
+              earliestOriginTime: lbCandles[n - 1].time,
               side: midP >= currentPrice ? 'SHORT_LIQ' : 'LONG_LIQ',
               tierCounts: {}
             }
           })
 
-          // Hitung rata-rata volume untuk bobot klaster
-          let avgVol = 0
-          for (let i = 0; i < n; i++) avgVol += lbCandles[i].volume || 0
-          avgVol = Math.max(1e-9, avgVol / n)
-
+          // Evaluasi level likuidasi untuk setiap bar beserta status tersapu (swept)
           for (let i = 0; i < n - 1; i++) {
             const c = lbCandles[i]
-            const relVol = Math.min(4.0, (c.volume || 0) / avgVol)
-            if (relVol < 0.35) continue
-
-            // Cek apakah candle merupakan lokal swing high/low (bobot likuiditas ekstra)
-            const isLocalHigh =
-              i >= 2 &&
-              i < n - 2 &&
-              c.high >= lbCandles[i - 1].high &&
-              c.high >= lbCandles[i - 2].high &&
-              c.high >= lbCandles[i + 1].high
-            const isLocalLow =
-              i >= 2 &&
-              i < n - 2 &&
-              c.low <= lbCandles[i - 1].low &&
-              c.low <= lbCandles[i - 2].low &&
-              c.low <= lbCandles[i + 1].low
-
-            const pivotBoostHigh = isLocalHigh ? 2.1 : 1.0
-            const pivotBoostLow = isLocalLow ? 2.1 : 1.0
+            const cDollarVol = (c.volume || 0) * (c.close || currentPrice)
+            const relVol = Math.max(0.3, Math.min(4.5, cDollarVol / avgDollarVol))
+            const pivotBoostHigh = isPivotHigh[i] ? 2.5 : 1.0
+            const pivotBoostLow = isPivotLow[i] ? 2.5 : 1.0
 
             for (let t = 0; t < activeTiers.length; t++) {
               const tier = activeTiers[t]
 
-              // 1. Short Liquidation Pool di atas candle High (Short Squeeze Target)
+              // 1. Short Liquidation Pool di atas High (Short Squeeze Target)
               const shortLiqPrice = c.high * (1 + tier.dist)
-              if (shortLiqPrice > suffixMaxHigh[i] && shortLiqPrice > currentPrice) {
+              if (shortLiqPrice >= minLow && shortLiqPrice <= maxHigh) {
+                // Cari bar pertama setelah i yang menyapu (wick >= level)
+                let sweptIdx = -1
+                for (let k = i + 1; k < n; k++) {
+                  if (lbCandles[k].high >= shortLiqPrice) {
+                    sweptIdx = k
+                    break
+                  }
+                }
+
+                const isSwept = sweptIdx !== -1
                 const bIdx = Math.floor((shortLiqPrice - minLow) / bucketStep)
+
                 if (bIdx >= 0 && bIdx < numBuckets) {
                   const w = relVol * tier.weight * pivotBoostHigh
-                  buckets[bIdx].intensity += w
-                  buckets[bIdx].side = 'SHORT_LIQ'
-                  if (c.time < buckets[bIdx].originTime) buckets[bIdx].originTime = c.time
-                  buckets[bIdx].tierCounts[tier.label] = (buckets[bIdx].tierCounts[tier.label] || 0) + w
+                  const b = buckets[bIdx]
+                  if (isSwept) {
+                    b.sweptWeight += w * 0.22
+                  } else {
+                    b.unsweptWeight += w
+                    if (c.time < b.earliestOriginTime) b.earliestOriginTime = c.time
+                  }
+                  b.tierCounts[tier.label] = (b.tierCounts[tier.label] || 0) + w
                 }
               }
 
-              // 2. Long Liquidation Pool di bawah candle Low (Long Squeeze Target)
+              // 2. Long Liquidation Pool di bawah Low (Long Squeeze Target)
               const longLiqPrice = c.low * (1 - tier.dist)
-              if (longLiqPrice < suffixMinLow[i] && longLiqPrice < currentPrice) {
+              if (longLiqPrice >= minLow && longLiqPrice <= maxHigh) {
+                // Cari bar pertama setelah i yang menyapu (wick <= level)
+                let sweptIdx = -1
+                for (let k = i + 1; k < n; k++) {
+                  if (lbCandles[k].low <= longLiqPrice) {
+                    sweptIdx = k
+                    break
+                  }
+                }
+
+                const isSwept = sweptIdx !== -1
                 const bIdx = Math.floor((longLiqPrice - minLow) / bucketStep)
+
                 if (bIdx >= 0 && bIdx < numBuckets) {
                   const w = relVol * tier.weight * pivotBoostLow
-                  buckets[bIdx].intensity += w
-                  buckets[bIdx].side = 'LONG_LIQ'
-                  if (c.time < buckets[bIdx].originTime) buckets[bIdx].originTime = c.time
-                  buckets[bIdx].tierCounts[tier.label] = (buckets[bIdx].tierCounts[tier.label] || 0) + w
+                  const b = buckets[bIdx]
+                  if (isSwept) {
+                    b.sweptWeight += w * 0.22
+                  } else {
+                    b.unsweptWeight += w
+                    if (c.time < b.earliestOriginTime) b.earliestOriginTime = c.time
+                  }
+                  b.tierCounts[tier.label] = (b.tierCounts[tier.label] || 0) + w
                 }
               }
             }
           }
 
-          let maxIntensity = 0
+          // Hitung densitas total dan temukan nilai maksimum
+          let maxUnsweptWeight = 0
+          let maxTotalDensity = 0
           for (let i = 0; i < numBuckets; i++) {
-            if (buckets[i].intensity > maxIntensity) maxIntensity = buckets[i].intensity
+            const b = buckets[i]
+            b.totalDensity = b.unsweptWeight + b.sweptWeight
+            if (b.unsweptWeight > maxUnsweptWeight) maxUnsweptWeight = b.unsweptWeight
+            if (b.totalDensity > maxTotalDensity) maxTotalDensity = b.totalDensity
           }
 
-          if (maxIntensity > 0) {
-            const getThermalColor = (norm: number): string => {
+          if (maxTotalDensity > 0) {
+            // Palet Warna Thermal Coinglass Otentik (Interpolasi Mulus 7-Stop)
+            const getCoinglassColor = (norm: number, alpha: number): string => {
+              const t = Math.max(0, Math.min(1, norm))
               const theme = ofConfig.liqTheme || 'coinglass'
+
               if (theme === 'fire') {
-                if (norm >= 0.82) return '#fde047' // Bright Yellow
-                if (norm >= 0.58) return '#f97316' // Orange
-                return '#dc2626' // Red
+                let r = 0, g = 0, b = 0
+                if (t < 0.25) {
+                  const u = t / 0.25
+                  r = Math.round(120 * u + 40)
+                  g = Math.round(10 * u)
+                  b = Math.round(20 * (1 - u))
+                } else if (t < 0.55) {
+                  const u = (t - 0.25) / 0.30
+                  r = Math.round(160 + 80 * u)
+                  g = Math.round(10 + 90 * u)
+                  b = 0
+                } else if (t < 0.85) {
+                  const u = (t - 0.55) / 0.30
+                  r = Math.round(240 + 15 * u)
+                  g = Math.round(100 + 120 * u)
+                  b = Math.round(20 * u)
+                } else {
+                  const u = (t - 0.85) / 0.15
+                  r = 255
+                  g = Math.round(220 + 35 * u)
+                  b = Math.round(20 + 200 * u)
+                }
+                return `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(3)})`
               }
+
               if (theme === 'cyber') {
-                if (norm >= 0.82) return '#facc15' // Gold
-                if (norm >= 0.55) return '#10b981' // Emerald
-                return '#0284c7' // Cyber Blue
+                let r = 0, g = 0, b = 0
+                if (t < 0.30) {
+                  const u = t / 0.30
+                  r = Math.round(10 + 20 * u)
+                  g = Math.round(25 + 90 * u)
+                  b = Math.round(80 + 160 * u)
+                } else if (t < 0.60) {
+                  const u = (t - 0.30) / 0.30
+                  r = Math.round(30 + 10 * u)
+                  g = Math.round(115 + 100 * u)
+                  b = Math.round(240 - 50 * u)
+                } else if (t < 0.85) {
+                  const u = (t - 0.60) / 0.25
+                  r = Math.round(40 + 180 * u)
+                  g = Math.round(215 + 30 * u)
+                  b = Math.round(190 - 150 * u)
+                } else {
+                  const u = (t - 0.85) / 0.15
+                  r = Math.round(220 + 35 * u)
+                  g = Math.round(245 + 10 * u)
+                  b = Math.round(40 + 180 * u)
+                }
+                return `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(3)})`
               }
-              // Default Coinglass Thermal (Purple -> Cyan -> Emerald -> Bright Yellow)
-              if (norm >= 0.82) return '#facc15'
-              if (norm >= 0.62) return '#10b981'
-              if (norm >= 0.42) return '#06b6d4'
-              return '#7c3aed'
+
+              // Coinglass Classic 7-Stop Thermal Ramp:
+              // 0.00: Dark Void (#0b092b) -> 0.16: Deep Violet (#3b1063) -> 0.34: Royal Blue (#1e40af)
+              // -> 0.52: Cyan Aqua (#06b6d4) -> 0.70: Emerald Green (#10b981) -> 0.86: Gold Yellow (#facc15) -> 1.00: White Hot (#ffffea)
+              let r = 11, g = 9, b = 43
+              if (t <= 0.16) {
+                const u = t / 0.16
+                r = Math.round(11 + (59 - 11) * u)
+                g = Math.round(9 + (16 - 9) * u)
+                b = Math.round(43 + (99 - 43) * u)
+              } else if (t <= 0.34) {
+                const u = (t - 0.16) / 0.18
+                r = Math.round(59 + (30 - 59) * u)
+                g = Math.round(16 + (64 - 16) * u)
+                b = Math.round(99 + (175 - 99) * u)
+              } else if (t <= 0.52) {
+                const u = (t - 0.34) / 0.18
+                r = Math.round(30 + (6 - 30) * u)
+                g = Math.round(64 + (182 - 64) * u)
+                b = Math.round(175 + (212 - 175) * u)
+              } else if (t <= 0.70) {
+                const u = (t - 0.52) / 0.18
+                r = Math.round(6 + (16 - 6) * u)
+                g = Math.round(182 + (185 - 182) * u)
+                b = Math.round(212 + (129 - 212) * u)
+              } else if (t <= 0.86) {
+                const u = (t - 0.70) / 0.16
+                r = Math.round(16 + (250 - 16) * u)
+                g = Math.round(185 + (204 - 185) * u)
+                b = Math.round(129 + (21 - 129) * u)
+              } else {
+                const u = (t - 0.86) / 0.14
+                r = Math.round(250 + (255 - 250) * u)
+                g = Math.round(204 + (255 - 204) * u)
+                b = Math.round(21 + (230 - 21) * u)
+              }
+              return `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(3)})`
             }
 
             const minThresh = ofConfig.minIntensityThreshold || 0.25
+            const baseOpacity = ofConfig.liqOpacity || 0.55
             ctx.save()
 
-            // Render pita-pita thermal heatmap
+            // 1. Render Pita-Pita Thermal Heatmap Horizontal
             for (let i = 0; i < numBuckets; i++) {
               const b = buckets[i]
-              const norm = b.intensity / maxIntensity
-              if (norm < minThresh) continue
+              const norm = b.totalDensity / maxTotalDensity
+              if (norm < minThresh * 0.6) continue
 
               const yTop = series.priceToCoordinate(b.highP)
               const yBot = series.priceToCoordinate(b.lowP)
               if (yTop === null || yBot === null) continue
 
               const bandY = Math.min(yTop, yBot)
-              const bandH = Math.max(2, Math.abs(yBot - yTop) - 0.5)
+              const bandH = Math.max(2, Math.abs(yBot - yTop))
               if (bandY + bandH < 0 || bandY > height) continue
 
-              const pOrigin = resolveCoord(b.originTime, b.midP)
+              const hasUnswept = b.unsweptWeight > 0
+              const pOrigin = resolveCoord(b.earliestOriginTime, b.midP)
               const startX = pOrigin ? Math.max(0, Math.min(maxChartX - 40, pOrigin.x)) : 0
-              const bandW = Math.max(20, maxChartX - startX)
+              const bandW = Math.max(24, maxChartX - startX)
 
-              const col = getThermalColor(norm)
-              ctx.fillStyle = col
-              ctx.globalAlpha = Math.min(0.85, (ofConfig.liqOpacity || 0.55) * (0.35 + 0.65 * norm))
+              const activeAlpha = Math.min(0.85, baseOpacity * (hasUnswept ? (0.35 + 0.65 * norm) : (0.12 + 0.25 * norm)))
+
+              // Gradient horizontal mulus dari titik asal menuju harga terkini/kanan
+              const hGrad = ctx.createLinearGradient(startX, 0, maxChartX, 0)
+              hGrad.addColorStop(0, getCoinglassColor(norm, activeAlpha * 0.35))
+              hGrad.addColorStop(Math.min(0.25, 40 / bandW), getCoinglassColor(norm, activeAlpha))
+              hGrad.addColorStop(1, getCoinglassColor(norm, activeAlpha * 0.95))
+
+              ctx.fillStyle = hGrad
               ctx.fillRect(startX, bandY, bandW, bandH)
             }
 
-            ctx.globalAlpha = 1.0
+            // 2. Coinglass Right-Side Liquidation Depth Profile / Bar (Histogram di sisi kanan dekat sumbu harga)
+            if (ofConfig.showLiqProfileBar !== false && maxUnsweptWeight > 0) {
+              const profileW = 74
+              let peakShortIdx = -1
+              let peakLongIdx = -1
+              let peakShortW = 0
+              let peakLongW = 0
 
-            // Cari Top Magnet Short Liq (di atas harga) & Top Magnet Long Liq (di bawah harga)
-            if (ofConfig.showLiqMagnets) {
+              for (let i = 0; i < numBuckets; i++) {
+                const b = buckets[i]
+                if (b.unsweptWeight <= 0) continue
+                const norm = b.unsweptWeight / maxUnsweptWeight
+                if (norm < 0.08) continue
+
+                const yTop = series.priceToCoordinate(b.highP)
+                const yBot = series.priceToCoordinate(b.lowP)
+                if (yTop === null || yBot === null) continue
+
+                const bandY = Math.min(yTop, yBot)
+                const bandH = Math.max(2, Math.abs(yBot - yTop))
+                if (bandY + bandH < 0 || bandY > height) continue
+
+                const barW = Math.max(3, norm * profileW)
+                const barX = maxChartX - barW
+
+                // Bar profile dengan warna thermal sesuai intensitas
+                ctx.fillStyle = getCoinglassColor(norm, 0.70)
+                ctx.fillRect(barX, bandY, barW, bandH)
+
+                // Garis aksen highlight tepi kanan
+                ctx.fillStyle = getCoinglassColor(norm, 0.95)
+                ctx.fillRect(maxChartX - 1.5, bandY, 1.5, bandH)
+
+                if (b.side === 'SHORT_LIQ' && b.unsweptWeight > peakShortW) {
+                  peakShortW = b.unsweptWeight
+                  peakShortIdx = i
+                } else if (b.side === 'LONG_LIQ' && b.unsweptWeight > peakLongW) {
+                  peakLongW = b.unsweptWeight
+                  peakLongIdx = i
+                }
+              }
+
+              // Label nominal estimasi $ volume pada puncak short & long likuidasi terbesar
+              const renderPeakDepthBadge = (bIdx: number, isShort: boolean) => {
+                if (bIdx < 0) return
+                const b = buckets[bIdx]
+                const norm = b.unsweptWeight / maxUnsweptWeight
+                if (norm < 0.65) return
+
+                const yMid = series.priceToCoordinate(b.midP)
+                if (yMid === null || yMid < 15 || yMid > height - 15) return
+
+                // Estimasi realistis $ USD dari bobot klaster likuidasi
+                const estDollarLiq = b.unsweptWeight * (avgDollarVol * 0.45)
+                const depthText = formatOpenInterestValue(estDollarLiq)
+
+                ctx.font = 'bold 8.5px Inter, monospace'
+                const tw = ctx.measureText(depthText).width
+                const bx = maxChartX - (norm * profileW) - tw - 12
+                const by = yMid - 7
+
+                ctx.fillStyle = 'rgba(10, 14, 23, 0.88)'
+                ctx.strokeStyle = isShort ? 'rgba(239, 68, 68, 0.6)' : 'rgba(16, 185, 129, 0.6)'
+                ctx.lineWidth = 1
+                ctx.beginPath()
+                if (typeof (ctx as any).roundRect === 'function') {
+                  ;(ctx as any).roundRect(bx, by, tw + 8, 14, 3)
+                } else {
+                  ctx.rect(bx, by, tw + 8, 14)
+                }
+                ctx.fill()
+                ctx.stroke()
+
+                ctx.fillStyle = norm >= 0.85 ? '#fde047' : '#e2e8f0'
+                ctx.textAlign = 'left'
+                ctx.fillText(depthText, bx + 4, by + 10)
+              }
+
+              renderPeakDepthBadge(peakShortIdx, true)
+              renderPeakDepthBadge(peakLongIdx, false)
+            }
+
+            // 3. Top Magnet Short Liq (di atas harga) & Top Magnet Long Liq (di bawah harga)
+            if (ofConfig.showLiqMagnets && maxUnsweptWeight > 0) {
               const shortPools = buckets
-                .filter((b) => b.side === 'SHORT_LIQ' && b.intensity / maxIntensity >= minThresh)
-                .sort((a, b) => b.intensity - a.intensity)
+                .filter((b) => b.side === 'SHORT_LIQ' && b.unsweptWeight / maxUnsweptWeight >= minThresh)
+                .sort((a, b) => b.unsweptWeight - a.unsweptWeight)
                 .slice(0, 2)
 
               const longPools = buckets
-                .filter((b) => b.side === 'LONG_LIQ' && b.intensity / maxIntensity >= minThresh)
-                .sort((a, b) => b.intensity - a.intensity)
+                .filter((b) => b.side === 'LONG_LIQ' && b.unsweptWeight / maxUnsweptWeight >= minThresh)
+                .sort((a, b) => b.unsweptWeight - a.unsweptWeight)
                 .slice(0, 2)
 
               const drawMagnetPool = (pool: LiqBucket, rank: number) => {
                 const y = series.priceToCoordinate(pool.midP)
                 if (y === null || y < 10 || y > height - 24) return
 
-                const norm = pool.intensity / maxIntensity
-                const pOrigin = resolveCoord(pool.originTime, pool.midP)
+                const norm = pool.unsweptWeight / maxUnsweptWeight
+                const pOrigin = resolveCoord(pool.earliestOriginTime, pool.midP)
                 const startX = pOrigin ? Math.max(0, Math.min(maxChartX - 80, pOrigin.x)) : 0
 
                 // Cari dominant tier label
@@ -1656,22 +1865,22 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
                 if (ofConfig.showLiqLabels) {
                   const sideTag = pool.side === 'SHORT_LIQ' ? 'SHORT LIQ' : 'LONG LIQ'
                   const pctDist = Math.abs(((pool.midP - currentPrice) / currentPrice) * 100).toFixed(2)
-                  const labelText = `🔥 ${sideTag} [${domTier}] $${formatPrice(pool.midP)} (${pool.side === 'SHORT_LIQ' ? '+' : '-'}${pctDist}%)`
+                  const estUsd = formatOpenInterestValue(pool.unsweptWeight * (avgDollarVol * 0.45))
+                  const labelText = `🔥 ${sideTag} [${domTier}] $${formatPrice(pool.midP)} • ${estUsd} (${pool.side === 'SHORT_LIQ' ? '+' : '-'}${pctDist}%)`
                   ctx.font = 'bold 9px Inter, monospace'
                   const textW = ctx.measureText(labelText).width
-                  const padX = 5
+                  const padX = 6
                   const pillW = textW + padX * 2
-                  const pillH = 14
-                  // Tempatkan di sisi kiri pita magnet agar tidak menumpuk dengan label VPVR di kanan
-                  const pillX = Math.max(8, Math.min(startX + 6, maxChartX - pillW - 12))
+                  const pillH = 15
+                  const pillX = Math.max(8, Math.min(startX + 8, maxChartX - pillW - 85))
                   const pillY = y - pillH / 2
 
-                  ctx.fillStyle = 'rgba(11, 15, 25, 0.92)'
+                  ctx.fillStyle = 'rgba(11, 15, 25, 0.94)'
                   ctx.strokeStyle = color
                   ctx.lineWidth = 1
                   ctx.beginPath()
                   if (typeof (ctx as any).roundRect === 'function') {
-                    ;(ctx as any).roundRect(pillX, pillY, pillW, pillH, 3)
+                    ;(ctx as any).roundRect(pillX, pillY, pillW, pillH, 3.5)
                   } else {
                     ctx.rect(pillX, pillY, pillW, pillH)
                   }
@@ -1680,13 +1889,81 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
 
                   ctx.textAlign = 'left'
                   ctx.fillStyle = norm >= 0.75 ? '#fde047' : color
-                  ctx.fillText(labelText, pillX + padX, pillY + 10)
+                  ctx.fillText(labelText, pillX + padX, pillY + 11)
                 }
                 ctx.restore()
               }
 
               shortPools.forEach((p, idx) => drawMagnetPool(p, idx))
               longPools.forEach((p, idx) => drawMagnetPool(p, idx))
+            }
+
+            // 4. Coinglass Thermal Intensity Color Scale (Legend Bar di sudut chart)
+            if (ofConfig.showLiqLegend !== false) {
+              const legendW = 205
+              const legendH = 38
+              const legendX = Math.max(12, maxChartX - legendW - 14)
+              const legendY = 16
+
+              ctx.save()
+              ctx.fillStyle = 'rgba(12, 16, 26, 0.88)'
+              ctx.strokeStyle = 'rgba(45, 55, 75, 0.65)'
+              ctx.lineWidth = 1
+              ctx.beginPath()
+              if (typeof (ctx as any).roundRect === 'function') {
+                ;(ctx as any).roundRect(legendX, legendY, legendW, legendH, 5)
+              } else {
+                ctx.rect(legendX, legendY, legendW, legendH)
+              }
+              ctx.fill()
+              ctx.stroke()
+
+              // Header teks legend
+              ctx.font = 'bold 8.5px Inter, monospace'
+              ctx.textAlign = 'left'
+              ctx.fillStyle = '#f8fafc'
+              ctx.fillText('🔥 COINGLASS HEATMAP', legendX + 7, legendY + 11)
+
+              // Tiers aktif
+              const tierStr = activeTiers.map((t) => t.label).join(' • ')
+              ctx.font = '7.5px Inter, monospace'
+              ctx.textAlign = 'right'
+              ctx.fillStyle = '#fbbf24'
+              ctx.fillText(tierStr, legendX + legendW - 7, legendY + 11)
+
+              // Pita gradient thermal 7-stop
+              const gradBarX = legendX + 7
+              const gradBarY = legendY + 16
+              const gradBarW = legendW - 14
+              const gradBarH = 5
+
+              const cGrad = ctx.createLinearGradient(gradBarX, 0, gradBarX + gradBarW, 0)
+              cGrad.addColorStop(0.0, '#0b092b')
+              cGrad.addColorStop(0.16, '#3b1063')
+              cGrad.addColorStop(0.34, '#1e40af')
+              cGrad.addColorStop(0.52, '#06b6d4')
+              cGrad.addColorStop(0.70, '#10b981')
+              cGrad.addColorStop(0.86, '#facc15')
+              cGrad.addColorStop(1.0, '#ffffea')
+
+              ctx.fillStyle = cGrad
+              ctx.fillRect(gradBarX, gradBarY, gradBarW, gradBarH)
+
+              // Teks Min / Mid / High
+              ctx.font = '7.5px Inter, monospace'
+              ctx.textAlign = 'left'
+              ctx.fillStyle = '#64748b'
+              ctx.fillText('Min Liq', gradBarX, gradBarY + gradBarH + 9)
+
+              ctx.textAlign = 'center'
+              ctx.fillStyle = '#94a3b8'
+              ctx.fillText('Mid', gradBarX + gradBarW / 2, gradBarY + gradBarH + 9)
+
+              ctx.textAlign = 'right'
+              ctx.fillStyle = '#facc15'
+              ctx.fillText('High Density', gradBarX + gradBarW, gradBarY + gradBarH + 9)
+
+              ctx.restore()
             }
 
             ctx.restore()

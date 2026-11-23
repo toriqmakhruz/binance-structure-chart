@@ -317,6 +317,32 @@ export const OrderflowModal: React.FC<OrderflowModalProps> = ({
                       className="rounded bg-[#0b0e14] border-slate-600 text-amber-500 focus:ring-0"
                     />
                   </label>
+
+                  <label className="flex items-center justify-between cursor-pointer pt-1">
+                    <div>
+                      <div className="text-xs text-slate-300">Histogram Profil Likuidasi (Sisi Kanan)</div>
+                      <div className="text-[10px] text-slate-400">Bar kumulatif kedalaman likuidasi gaya Coinglass</div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={form.showLiqProfileBar ?? true}
+                      onChange={(e) => setForm({ ...form, showLiqProfileBar: e.target.checked })}
+                      className="rounded bg-[#0b0e14] border-slate-600 text-amber-500 focus:ring-0"
+                    />
+                  </label>
+
+                  <label className="flex items-center justify-between cursor-pointer pt-1">
+                    <div>
+                      <div className="text-xs text-slate-300">Legend Skala Thermal Coinglass</div>
+                      <div className="text-[10px] text-slate-400">Colorbar spektrum thermal di sudut chart</div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={form.showLiqLegend ?? true}
+                      onChange={(e) => setForm({ ...form, showLiqLegend: e.target.checked })}
+                      className="rounded bg-[#0b0e14] border-slate-600 text-amber-500 focus:ring-0"
+                    />
+                  </label>
                 </div>
               </div>
             </div>

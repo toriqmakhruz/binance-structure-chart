@@ -118,7 +118,7 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
         { key: 'fvgs', label: 'Fair Value Gaps (FVG)', desc: 'Ketidakseimbangan likuiditas pasar', icon: <Layers className="w-3.5 h-3.5" />, color: 'text-cyan-400', bgHover: 'hover:bg-cyan-950/30' },
         { key: 'smcEvents', label: 'BOS / CHoCH', desc: 'Break of Structure & Change of Character', icon: <Split className="w-3.5 h-3.5" />, color: 'text-amber-400', bgHover: 'hover:bg-amber-950/30' },
         { key: 'smcSwings', label: 'Swings (HH/LL Structure)', desc: 'Struktur titik puncak & lembah swing', icon: <GitCommit className="w-3.5 h-3.5" />, color: 'text-purple-400', bgHover: 'hover:bg-purple-950/30' },
-        { key: 'liquidationHeatmap', label: 'Liquidation Heatmap (25x/50x/100x)', desc: 'Zona magnet likuidasi leverage Short & Long', icon: <Flame className="w-3.5 h-3.5" />, color: 'text-amber-400', bgHover: 'hover:bg-amber-950/30' },
+        { key: 'liquidationHeatmap', label: 'Coinglass Liquidation Heatmap', desc: 'Matriks thermal likuidasi leverage 100x/50x/25x & Depth Bar', icon: <Flame className="w-3.5 h-3.5" />, color: 'text-amber-400', bgHover: 'hover:bg-amber-950/30' },
         { key: 'cvdOrderflow', label: 'CVD & Orderflow Divergence', desc: 'Kurva Cumulative Volume Delta & Bull/Bear Div', icon: <Activity className="w-3.5 h-3.5" />, color: 'text-emerald-400', bgHover: 'hover:bg-emerald-950/30' },
         { key: 'marketSessions', label: 'Sesi Pasar & Killzones', desc: 'Asia, London, New York & Range H/L', icon: <Clock className="w-3.5 h-3.5" />, color: 'text-amber-400', bgHover: 'hover:bg-amber-950/30' }
       ]

@@ -174,8 +174,8 @@ export const PaneLayerDropdown: React.FC<PaneLayerDropdownProps> = ({
     {
       key: 'liquidationHeatmap',
       category: 'institusional',
-      label: 'Liquidation Heatmap (25x/50x/100x)',
-      desc: 'Zona magnet likuidasi leverage Short & Long',
+      label: 'Coinglass Liquidation Heatmap',
+      desc: 'Matriks thermal likuidasi leverage 100x/50x/25x & Depth Bar',
       icon: <Flame className="w-3.5 h-3.5" />,
       color: 'text-amber-400'
     },
