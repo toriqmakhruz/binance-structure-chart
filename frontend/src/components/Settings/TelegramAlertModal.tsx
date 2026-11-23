@@ -9,7 +9,8 @@ import {
   EyeOff,
   HelpCircle,
   Target,
-  Flame
+  Flame,
+  Radio
 } from 'lucide-react'
 import {
   fetchTelegramSettings,
@@ -47,6 +48,7 @@ export const TelegramAlertModal: React.FC<TelegramAlertModalProps> = ({
     timeframe: '15m',
     scan_interval_seconds: 60,
     min_confluence_score: 50.0,
+    notify_setup_radar: true,
     notify_smart_div: true,
     notify_squeeze: true
   })
@@ -78,6 +80,9 @@ export const TelegramAlertModal: React.FC<TelegramAlertModalProps> = ({
       const payload: Partial<TelegramSettings> = {
         enabled: form.enabled,
         chat_id: form.chat_id.trim(),
+        min_rr: form.min_rr,
+        min_confluence_score: form.min_confluence_score,
+        notify_setup_radar: form.notify_setup_radar ?? true,
         notify_smart_div: form.notify_smart_div ?? true,
         notify_squeeze: form.notify_squeeze ?? true
       }
@@ -266,7 +271,26 @@ export const TelegramAlertModal: React.FC<TelegramAlertModalProps> = ({
             <div className="pt-2 border-t border-[#21262d] space-y-2.5">
               <label className="block font-semibold text-slate-300">Pilihan Tipe Sinyal Alert</label>
               
-              {/* Option 1: Smart Divergence Grade A+ */}
+              {/* Option 1: Setup Radar (SMC & Pattern Setup) */}
+              <label className="flex items-start gap-3 p-3 rounded-xl bg-[#0d1117] border border-[#30363d] hover:border-cyan-500/40 cursor-pointer transition-colors">
+                <input
+                  type="checkbox"
+                  checked={form.notify_setup_radar ?? true}
+                  onChange={(e) => setForm({ ...form, notify_setup_radar: e.target.checked })}
+                  className="mt-0.5 rounded border-slate-700 text-cyan-500 focus:ring-0 focus:ring-offset-0 bg-slate-900 cursor-pointer w-4 h-4"
+                />
+                <div className="space-y-0.5">
+                  <div className="font-semibold text-white text-xs flex items-center gap-1.5">
+                    <Radio className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Sinyal Setup Radar (SMC & Pola Struktur)</span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    Kirim notifikasi otomatis saat setup valid terdeteksi di panel Setup Radar (Order Block, FVG, BOS/CHoCH, R:R ≥ {form.min_rr || 1.5}).
+                  </p>
+                </div>
+              </label>
+
+              {/* Option 2: Smart Divergence Grade A+ */}
               <label className="flex items-start gap-3 p-3 rounded-xl bg-[#0d1117] border border-[#30363d] hover:border-emerald-500/40 cursor-pointer transition-colors">
                 <input
                   type="checkbox"
@@ -285,7 +309,7 @@ export const TelegramAlertModal: React.FC<TelegramAlertModalProps> = ({
                 </div>
               </label>
 
-              {/* Option 2: Whale Squeeze Hunter */}
+              {/* Option 3: Whale Squeeze Hunter */}
               <label className="flex items-start gap-3 p-3 rounded-xl bg-[#0d1117] border border-[#30363d] hover:border-amber-500/40 cursor-pointer transition-colors">
                 <input
                   type="checkbox"

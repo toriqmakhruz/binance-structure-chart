@@ -470,6 +470,7 @@ export interface TelegramSettings {
   scan_interval_seconds: number
   min_confluence_score: number
   is_running?: boolean
+  notify_setup_radar?: boolean
   notify_smart_div?: boolean
   notify_squeeze?: boolean
 }

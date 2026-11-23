@@ -24,6 +24,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "timeframe": "15m",
     "scan_interval_seconds": 60,
     "min_confluence_score": 50.0,
+    "notify_setup_radar": True,
     "notify_smart_div": True,
     "notify_squeeze": True
 }
@@ -100,6 +101,7 @@ class TelegramService:
             "timeframe": self.settings.get("timeframe", "15m"),
             "scan_interval_seconds": int(self.settings.get("scan_interval_seconds", 60)),
             "min_confluence_score": float(self.settings.get("min_confluence_score", 50.0)),
+            "notify_setup_radar": bool(self.settings.get("notify_setup_radar", True)),
             "notify_smart_div": bool(self.settings.get("notify_smart_div", True)),
             "notify_squeeze": bool(self.settings.get("notify_squeeze", True)),
             "is_running": self._is_running
@@ -129,6 +131,8 @@ class TelegramService:
                 self.settings["scan_interval_seconds"] = max(30, min(600, int(new_settings["scan_interval_seconds"])))
             except (ValueError, TypeError):
                 pass
+        if "notify_setup_radar" in new_settings:
+            self.settings["notify_setup_radar"] = bool(new_settings["notify_setup_radar"])
         if "notify_smart_div" in new_settings:
             self.settings["notify_smart_div"] = bool(new_settings["notify_smart_div"])
         if "notify_squeeze" in new_settings:
@@ -229,7 +233,7 @@ class TelegramService:
 
     async def notify_new_setups_from_radar(self, setups: List[Dict[str, Any]]) -> int:
         """Notify any newly detected setups directly from Setup Radar."""
-        if not self.settings.get("enabled"):
+        if not self.settings.get("enabled") or not self.settings.get("notify_setup_radar", True):
             return 0
         if not self.settings.get("bot_token") or not self.settings.get("chat_id"):
             return 0
@@ -265,7 +269,7 @@ class TelegramService:
         Scan market for new valid setups and dispatch notifications.
         Returns count of new setups notified.
         """
-        if not self.settings.get("enabled"):
+        if not self.settings.get("enabled") or not self.settings.get("notify_setup_radar", True):
             return 0
         if not self.settings.get("bot_token") or not self.settings.get("chat_id"):
             return 0
@@ -521,7 +525,8 @@ class TelegramService:
                 interval = int(self.settings.get("scan_interval_seconds", 60))
                 if self.settings.get("enabled") and self.settings.get("bot_token") and self.settings.get("chat_id"):
                     # 1. Standard chart pattern setups
-                    await self.scan_and_notify_new_setups()
+                    if self.settings.get("notify_setup_radar", True):
+                        await self.scan_and_notify_new_setups()
                     # 2. Smart Divergence Grade A+ setups
                     if self.settings.get("notify_smart_div", True):
                         await self.scan_and_notify_smart_divergences()
