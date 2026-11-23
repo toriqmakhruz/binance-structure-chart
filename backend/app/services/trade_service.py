@@ -2248,9 +2248,12 @@ class TradeService:
         async with httpx.AsyncClient(headers=headers, timeout=timeout) as client:
             try:
                 if market_clean == "futures":
+                    # Cutoff timestamp: keep only the ETHUSDT trade at 1795267097824 (21 Nov, 20:18) and newer trades
+                    min_history_epoch_ms = 1795267097000
                     # Query both REALIZED_PNL and COMMISSION to calculate accurate Net PnL and Fees
                     query_params: Dict[str, Any] = {
-                        "limit": min(limit * 2, 100)
+                        "limit": min(limit * 4, 200),
+                        "startTime": min_history_epoch_ms
                     }
                     if sym_clean:
                         query_params["symbol"] = sym_clean
@@ -2261,37 +2264,62 @@ class TradeService:
                     resp = await client.get(url)
                     if resp.status_code == 200:
                         raw_income = resp.json()
-                        
-                        # Group micro-fills and associate commissions by tradeId / cluster
-                        grouped_trades: Dict[str, Dict[str, Any]] = {}
+
+                        # Deduplicate by tranId and filter out any records older than min_history_epoch_ms
+                        seen_tran_ids = set()
+                        valid_items = []
                         for item in raw_income:
                             inc_type = item.get("incomeType")
                             if inc_type not in ("REALIZED_PNL", "COMMISSION"):
                                 continue
-
-                            sym = item.get("symbol", "")
-                            trade_id = str(item.get("tradeId") or "")
                             time_stamp = int(item.get("time", 0))
-                            
-                            # Group key: tradeId if present, else cluster by 5s timestamp window
-                            group_key = f"{sym}_{trade_id}" if trade_id and trade_id != "0" else f"{sym}_{time_stamp // 5000}"
+                            if time_stamp < min_history_epoch_ms:
+                                continue
+                            tran_id = str(item.get("tranId") or "")
+                            if tran_id and tran_id in seen_tran_ids:
+                                continue
+                            if tran_id:
+                                seen_tran_ids.add(tran_id)
+                            valid_items.append(item)
 
-                            if group_key not in grouped_trades:
-                                grouped_trades[group_key] = {
-                                    "id": str(item.get("tranId") or trade_id or time_stamp),
+                        # Sort chronologically so partial fills of the same position close cluster together
+                        valid_items.sort(key=lambda x: int(x.get("time", 0)))
+
+                        # Consolidate all partial fills of the same symbol within a 60s execution window into ONE single trade row (Binance Position History style)
+                        clusters_by_symbol: Dict[str, List[Dict[str, Any]]] = {}
+                        for item in valid_items:
+                            sym = item.get("symbol", "")
+                            inc_type = item.get("incomeType")
+                            time_stamp = int(item.get("time", 0))
+                            val = float(item.get("income", 0))
+
+                            sym_clusters = clusters_by_symbol.setdefault(sym, [])
+                            if sym_clusters and abs(time_stamp - sym_clusters[-1]["last_time"]) <= 60000:
+                                grp = sym_clusters[-1]
+                                grp["last_time"] = time_stamp
+                            else:
+                                grp = {
+                                    "id": f"pos_{sym}_{time_stamp}",
                                     "symbol": sym,
                                     "grossPnl": 0.0,
                                     "fee": 0.0,
                                     "time": time_stamp,
+                                    "last_time": time_stamp,
                                     "has_realized_pnl": False
                                 }
+                                sym_clusters.append(grp)
 
-                            val = float(item.get("income", 0))
                             if inc_type == "REALIZED_PNL":
-                                grouped_trades[group_key]["grossPnl"] += val
-                                grouped_trades[group_key]["has_realized_pnl"] = True
+                                grp["grossPnl"] += val
+                                grp["has_realized_pnl"] = True
                             elif inc_type == "COMMISSION":
-                                grouped_trades[group_key]["fee"] += abs(val)
+                                grp["fee"] += abs(val)
+
+                        all_clusters = [
+                            grp
+                            for sym_list in clusters_by_symbol.values()
+                            for grp in sym_list
+                        ]
 
                         formatted_trades = []
                         total_net_pnl = 0.0
@@ -2299,8 +2327,8 @@ class TradeService:
                         winning = 0
                         losing = 0
 
-                        # Filter and format only actual trade realizations
-                        for grp in grouped_trades.values():
+                        # Filter and format only actual consolidated position realizations
+                        for grp in all_clusters:
                             if not grp["has_realized_pnl"]:
                                 continue
 

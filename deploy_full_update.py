@@ -26,7 +26,7 @@ def create_archive():
                 if file in ("deploy_to_vps.py", "deploy_update.py", "test_vps.py", "indo_diagnose.py", "deploy_to_indo_vps.py", "test_oi.py"):
                     continue
                 file_path = os.path.join(root, file)
-                arcname = os.path.relpath(file_path, ".")
+                arcname = os.path.relpath(file_path, ".").replace("\\", "/")
                 tar.add(file_path, arcname=arcname)
                 
     size_mb = os.path.getsize(ARCHIVE_NAME) / (1024 * 1024)

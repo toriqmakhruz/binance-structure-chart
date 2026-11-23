@@ -294,6 +294,103 @@ export function analyzeBehavioralHealth(trades: JournalTradeRecord[]): Behaviora
   }
 }
 
+// Cutoff epoch (21 Nov, 20:18 ETHUSDT trade = 1795267097824): remove all older non-ETH trades prior to this timestamp
+const MIN_HISTORY_EPOCH_MS = 1795267097000
+
+/**
+ * Bersihkan riwayat trade lama selain ETHUSDT di atas (sebelum 1795267097000)
+ * dan gabungkan pecahan partial-fill (micro-fills) pada simbol & waktu eksekusi yang sama (<= 60 detik)
+ * menjadi 1 baris total Realized PnL utuh seperti di Binance Position History.
+ */
+export function consolidateAndCleanJournalRecords(
+  records: JournalTradeRecord[]
+): JournalTradeRecord[] {
+  if (!Array.isArray(records) || records.length === 0) return []
+
+  // 1. Filter: hapus semua riwayat lama sebelum trade ETHUSDT (1795267097000)
+  const validRecords = records.filter((r) => {
+    const t = r.exitTime || r.entryTime || 0
+    return t >= MIN_HISTORY_EPOCH_MS
+  })
+
+  // Pisahkan catatan manual murni yang dibuat via form ("manual_...") dari catatan sinkronisasi bursa
+  const manualFormRecords = validRecords.filter((r) => String(r.id).startsWith('manual_'))
+  const exchangeRecords = validRecords.filter((r) => !String(r.id).startsWith('manual_'))
+
+  // Jika sudah ada record terkonsolidasi ("pos_...") pada (symbol, window 60s),
+  // buang pecahan lama ber-ID numerik pada window waktu yang sama agar tidak terhitung ganda
+  const posConsolidated = exchangeRecords.filter((r) => String(r.id).startsWith('pos_'))
+  const legacySplits = exchangeRecords.filter((r) => !String(r.id).startsWith('pos_'))
+
+  const unmergedSplits = legacySplits.filter((leg) => {
+    const legTime = leg.exitTime || leg.entryTime || 0
+    return !posConsolidated.some(
+      (pos) =>
+        pos.symbol.toUpperCase() === leg.symbol.toUpperCase() &&
+        Math.abs((pos.exitTime || pos.entryTime || 0) - legTime) <= 60000
+    )
+  })
+
+  // Urutkan kronologis untuk menggabungkan partial-fill yang berada dalam window 60 detik
+  const allExchange = [...posConsolidated, ...unmergedSplits].sort(
+    (a, b) => (a.exitTime || a.entryTime || 0) - (b.exitTime || b.entryTime || 0)
+  )
+
+  const clustersBySymbol = new Map<string, JournalTradeRecord[]>()
+
+  for (const rec of allExchange) {
+    const sym = rec.symbol.toUpperCase()
+    const recTime = rec.exitTime || rec.entryTime || 0
+    const symList = clustersBySymbol.get(sym) || []
+
+    if (symList.length > 0) {
+      const last = symList[symList.length - 1]
+      const lastTime = last.exitTime || last.entryTime || 0
+      if (Math.abs(recTime - lastTime) <= 60000) {
+        // Jika sama-sama ID "pos_..." yang identik, jangan dijumlahkan dua kali
+        if (last.id === rec.id) {
+          continue
+        }
+        const totalGross = Math.round(((last.grossPnl || last.netPnl) + (rec.grossPnl || rec.netPnl)) * 100) / 100
+        const totalFee = Math.round(((last.fee || 0) + (rec.fee || 0)) * 10000) / 10000
+        const totalNet = Math.round((last.netPnl + rec.netPnl) * 100) / 100
+        const outcome = totalNet > 0.001 ? 'WIN' : totalNet < -0.001 ? 'LOSS' : 'BREAKEVEN'
+
+        symList[symList.length - 1] = {
+          ...last,
+          id: String(last.id).startsWith('pos_') ? last.id : `pos_${sym}_${lastTime}`,
+          grossPnl: totalGross,
+          fee: totalFee,
+          netPnl: totalNet,
+          outcome,
+          quantity: (last.quantity || 0) + (rec.quantity || 0),
+          lessons: last.lessons || rec.lessons,
+          rationale:
+            last.rationale && last.rationale !== 'Realized PnL'
+              ? last.rationale
+              : rec.rationale || 'Realized PnL'
+        }
+        continue
+      }
+    }
+
+    symList.push({
+      ...rec,
+      id: String(rec.id).startsWith('pos_') ? rec.id : `pos_${sym}_${recTime}`
+    })
+    clustersBySymbol.set(sym, symList)
+  }
+
+  const consolidatedExchange: JournalTradeRecord[] = []
+  for (const list of clustersBySymbol.values()) {
+    consolidatedExchange.push(...list)
+  }
+
+  const finalRecords = [...manualFormRecords, ...consolidatedExchange]
+  finalRecords.sort((a, b) => (b.exitTime || b.entryTime) - (a.exitTime || a.entryTime))
+  return finalRecords
+}
+
 /**
  * Sinkronisasi data server TradeHistoryItem ke JournalTradeRecord.
  */
@@ -301,21 +398,27 @@ export function mergeHistoryIntoJournal(
   serverHistory: TradeHistoryItem[],
   existingRecords: JournalTradeRecord[]
 ): JournalTradeRecord[] {
+  const cleanedExisting = consolidateAndCleanJournalRecords(existingRecords)
   const existingMap = new Map<string, JournalTradeRecord>()
-  for (const r of existingRecords) {
+  for (const r of cleanedExisting) {
     existingMap.set(r.id, r)
   }
 
-  const merged: JournalTradeRecord[] = [...existingRecords]
+  const merged: JournalTradeRecord[] = [...cleanedExisting]
 
   for (const item of serverHistory) {
-    if (!existingMap.has(item.id)) {
+    if ((item.time || 0) < MIN_HISTORY_EPOCH_MS) continue
+
+    const sym = item.symbol.toUpperCase()
+    const canonicalId = String(item.id).startsWith('pos_') ? item.id : `pos_${sym}_${item.time}`
+
+    if (!existingMap.has(canonicalId) && !existingMap.has(item.id)) {
       const netPnl = item.netPnl !== undefined ? item.netPnl : item.realizedPnl
       const outcome = netPnl > 0.001 ? 'WIN' : netPnl < -0.001 ? 'LOSS' : 'BREAKEVEN'
-      
+
       const newRecord: JournalTradeRecord = {
-        id: item.id,
-        symbol: item.symbol,
+        id: canonicalId,
+        symbol: sym,
         market: 'futures',
         direction: (item.side.toUpperCase() === 'SHORT' || item.side.toUpperCase() === 'SELL') ? 'SHORT' : 'LONG',
         source: item.reason && item.reason.toLowerCase().includes('bot') ? 'bot' : 'manual',
@@ -327,7 +430,7 @@ export function mergeHistoryIntoJournal(
           ? 'Apex Quant'
           : 'Manual Discretionary',
         mode: item.is_simulated ? 'demo' : 'live',
-        entryTime: item.time - (15 * 60 * 1000), // Estimasi 15m sebelum close jika tidak ada
+        entryTime: item.time - (15 * 60 * 1000),
         exitTime: item.time,
         holdDurationMinutes: 15,
         entryPrice: item.entryPrice || item.price || 0,
@@ -340,19 +443,17 @@ export function mergeHistoryIntoJournal(
         netPnl: netPnl,
         roePct: item.roePct || 0,
         outcome: outcome,
-        rationale: item.reason || 'Eksekusi transaksi via aplikasi',
+        rationale: item.reason || 'Realized PnL',
         disciplineRating: 9,
         emotionalState: 'calm',
         tags: [item.is_simulated ? 'demo' : 'live']
       }
       merged.unshift(newRecord)
-      existingMap.set(item.id, newRecord)
+      existingMap.set(canonicalId, newRecord)
     }
   }
 
-  // Urutkan terbaru di atas
-  merged.sort((a, b) => (b.exitTime || b.entryTime) - (a.exitTime || a.entryTime))
-  return merged
+  return consolidateAndCleanJournalRecords(merged)
 }
 
 /**

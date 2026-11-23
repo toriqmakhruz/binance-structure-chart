@@ -11,6 +11,7 @@ import {
   getStrategyPerformanceBreakdown,
   analyzeBehavioralHealth,
   mergeHistoryIntoJournal,
+  consolidateAndCleanJournalRecords,
   exportJournalToCsv
 } from '../../utils/journalAnalytics'
 import { fetchTradeHistory, TradeHistoryItem } from '../../services/api'
@@ -60,11 +61,14 @@ export const TradingJournalView: React.FC<TradingJournalViewProps> = ({
   onClose,
   onSelectSymbol
 }) => {
-  // Load journal records from localStorage
+  // Load journal records from localStorage (automatically consolidated & cleaned)
   const [records, setRecords] = useState<JournalTradeRecord[]>(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY)
-      if (raw) return JSON.parse(raw)
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        return consolidateAndCleanJournalRecords(parsed)
+      }
     } catch {}
     return []
   })
@@ -737,8 +741,10 @@ export const TradingJournalView: React.FC<TradingJournalViewProps> = ({
 
                       {/* Entry / Exit */}
                       <td className="py-2.5 px-3 text-right whitespace-nowrap">
-                        <div className="text-white">${formatPrice(t.entryPrice)}</div>
-                        {t.exitPrice ? (
+                        <div className="text-white">
+                          {t.entryPrice && t.entryPrice > 0 ? `$${formatPrice(t.entryPrice)}` : 'Market'}
+                        </div>
+                        {t.exitPrice && t.exitPrice > 0 ? (
                           <div className="text-[10px] text-slate-400">Exit: ${formatPrice(t.exitPrice)}</div>
                         ) : null}
                       </td>
@@ -754,11 +760,15 @@ export const TradingJournalView: React.FC<TradingJournalViewProps> = ({
                         <div className={t.netPnl >= 0 ? 'text-[#00c087]' : 'text-[#f6465d]'}>
                           {t.netPnl >= 0 ? '+' : ''}${t.netPnl.toFixed(2)}
                         </div>
-                        {t.roePct !== undefined && (
+                        {t.roePct && Math.abs(t.roePct) > 0.01 ? (
                           <div className="text-[9.5px] text-slate-500">
                             {t.roePct >= 0 ? '+' : ''}{t.roePct.toFixed(1)}%
                           </div>
-                        )}
+                        ) : t.fee && t.fee > 0 ? (
+                          <div className="text-[9.5px] text-slate-500">
+                            Fee: -${t.fee.toFixed(2)}
+                          </div>
+                        ) : null}
                       </td>
 
                       {/* Status Outcome */}
