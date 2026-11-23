@@ -1001,6 +1001,11 @@ export function App() {
           fetchOpenOrders(market, mode, key, secret)
         ])
 
+        if (!res?.success && !ordRes?.success) {
+          // Koneksi API sementara bermasalah, lewati sync putaran ini agar chart setup tidak hilang
+          return
+        }
+
         const activePositions = (res && res.success && Array.isArray(res.positions)) ? res.positions : []
         const openOrders = (ordRes && ordRes.success && Array.isArray(ordRes.orders)) ? ordRes.orders : []
 

@@ -91,6 +91,8 @@ export const TradingDashboardDrawer: React.FC<TradingDashboardDrawerProps> = ({
 
   const handleSetMode = (m: TradeAccountMode) => {
     setMode(m)
+    setPositions([])
+    setOrders([])
     try {
       localStorage.setItem('cp_trade_active_mode', m)
       window.dispatchEvent(new CustomEvent('cp_trade_mode_change', { detail: m }))
@@ -110,38 +112,61 @@ export const TradingDashboardDrawer: React.FC<TradingDashboardDrawerProps> = ({
         fetchOpenOrders(market, mode, apiKey, apiSecret)
       ])
 
-      if (posRes.success && Array.isArray(posRes.positions)) {
+      if (posRes && posRes.success && Array.isArray(posRes.positions)) {
         setPositions(posRes.positions)
-        setTotalUnPnl(posRes.total_unrealized_pnl || 0)
-      } else {
-        setPositions([])
-        setTotalUnPnl(0)
+        setTotalUnPnl(posRes.total_unrealized_pnl ?? 0)
+      } else if (!posRes || !posRes.success) {
+        // Pertahankan posisi sebelumnya jika API mengalami gangguan/timeout sesaat (mencegah kedap-kedip)
+        console.warn('Gagal memuat posisi (koneksi terganggu), mempertahankan data sebelumnya:', posRes?.message)
       }
 
-      if (ordRes.success && Array.isArray(ordRes.orders)) {
+      if (ordRes && ordRes.success && Array.isArray(ordRes.orders)) {
         setOrders(ordRes.orders)
-      } else {
-        setOrders([])
+      } else if (!ordRes || !ordRes.success) {
+        // Pertahankan order sebelumnya jika API mengalami gangguan/timeout sesaat
+        console.warn('Gagal memuat order (koneksi terganggu), mempertahankan data sebelumnya:', ordRes?.message)
       }
 
-      // Load trade history
-      const histRes = await fetchTradeHistory(
-        market,
-        mode,
-        apiKey,
-        apiSecret,
-        filterCurrentSymbol ? currentSymbol : undefined,
-        50
-      )
-      if (histRes.success && Array.isArray(histRes.trades)) {
-        setHistory(histRes.trades)
+      // Load trade history HANYA jika tab riwayat sedang aktif untuk menghemat beban jaringan
+      if (activeTab === 'history') {
+        const histRes = await fetchTradeHistory(
+          market,
+          mode,
+          apiKey,
+          apiSecret,
+          filterCurrentSymbol ? currentSymbol : undefined,
+          50
+        )
+        if (histRes && histRes.success && Array.isArray(histRes.trades)) {
+          setHistory(histRes.trades)
+        }
       }
     } catch (err: any) {
       console.warn('Failed loading trading dashboard data:', err)
     } finally {
       if (!silent) setIsLoading(false)
     }
-  }, [market, mode])
+  }, [market, mode, activeTab, filterCurrentSymbol, currentSymbol])
+
+  // Load trade history saat tab history dipilih
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'history') return
+    const creds = getStoredCredentials()
+    const apiKey = mode === 'demo' ? creds.demoApiKey : creds.liveApiKey
+    const apiSecret = mode === 'demo' ? creds.demoApiSecret : creds.liveApiSecret
+    fetchTradeHistory(
+      market,
+      mode,
+      apiKey,
+      apiSecret,
+      filterCurrentSymbol ? currentSymbol : undefined,
+      50
+    ).then((histRes) => {
+      if (histRes && histRes.success && Array.isArray(histRes.trades)) {
+        setHistory(histRes.trades)
+      }
+    }).catch(console.warn)
+  }, [isOpen, activeTab, market, mode, filterCurrentSymbol, currentSymbol])
 
   // Periodic polling and reactive sync when drawer is open
   useEffect(() => {

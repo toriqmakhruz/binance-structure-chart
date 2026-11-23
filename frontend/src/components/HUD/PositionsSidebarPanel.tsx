@@ -75,18 +75,17 @@ export const PositionsSidebarPanel: React.FC<PositionsSidebarPanelProps> = ({
         fetchOpenOrders(market, mode, apiKey, apiSecret)
       ])
 
-      if (posRes.success && Array.isArray(posRes.positions)) {
+      if (posRes && posRes.success && Array.isArray(posRes.positions)) {
         setPositions(posRes.positions)
-        setTotalUnPnl(posRes.total_unrealized_pnl || 0)
-      } else {
-        setPositions([])
-        setTotalUnPnl(0)
+        setTotalUnPnl(posRes.total_unrealized_pnl ?? 0)
+      } else if (!posRes || !posRes.success) {
+        console.warn('Gagal memuat posisi di sidebar (koneksi terganggu), mempertahankan data sebelumnya:', posRes?.message)
       }
 
-      if (ordRes.success && Array.isArray(ordRes.orders)) {
+      if (ordRes && ordRes.success && Array.isArray(ordRes.orders)) {
         setOrders(ordRes.orders)
-      } else {
-        setOrders([])
+      } else if (!ordRes || !ordRes.success) {
+        console.warn('Gagal memuat order di sidebar (koneksi terganggu), mempertahankan data sebelumnya:', ordRes?.message)
       }
     } catch (err) {
       console.warn('Error loading positions sidebar:', err)

@@ -66,6 +66,8 @@ class TradeService:
         self._rate_limit_ban_until: float = 0.0
         self._last_live_clean_time: float = 0.0
         self._last_known_positions: Dict[str, List[Dict[str, Any]]] = {}
+        self._last_known_total_unpnl: Dict[str, float] = {}
+        self._last_known_orders: Dict[str, List[Dict[str, Any]]] = {}
 
         # 24/7 Background OCO and TP/SL Monitor Task
         self._monitor_task: Optional[asyncio.Task] = None
@@ -301,7 +303,7 @@ class TradeService:
         """
         params_with_time = dict(params)
         params_with_time["timestamp"] = int(time.time() * 1000)
-        params_with_time.setdefault("recvWindow", 5000)
+        params_with_time.setdefault("recvWindow", 10000)
 
         query_string = urlencode(params_with_time)
         signature = hmac.new(
@@ -1237,7 +1239,7 @@ class TradeService:
 
         base_url = self._get_base_url(market_clean, mode_clean)
         headers = {**HEADERS_BASE, "X-MBX-APIKEY": api_key}
-        timeout = httpx.Timeout(12.0, connect=5.0)
+        timeout = httpx.Timeout(15.0, connect=8.0)
 
         async with httpx.AsyncClient(headers=headers, timeout=timeout) as client:
             try:
@@ -1259,41 +1261,26 @@ class TradeService:
                         # Correlate active open trigger orders (STOP_MARKET / TAKE_PROFIT_MARKET)
                         bracket_map: Dict[str, Dict[str, Optional[float]]] = {}
                         if active_raw:
-                            # 1. Check modern Binance USDS-M openAlgoOrders
                             try:
-                                algo_query = self._sign_payload({"symbol": sym_clean} if sym_clean else {}, api_secret)
-                                algo_resp = await client.get(f"{base_url}/fapi/v1/openAlgoOrders?{algo_query}")
-                                if algo_resp.status_code == 200:
-                                    for ao in algo_resp.json():
-                                        aosym = ao.get("symbol")
-                                        aotype = str(ao.get("algoType") or ao.get("type") or "")
-                                        trig_p = float(ao.get("triggerPrice") or ao.get("stopPrice") or ao.get("price") or 0)
-                                        if aosym not in bracket_map:
-                                            bracket_map[aosym] = {"stopLoss": None, "takeProfit": None}
-                                        if "STOP" in aotype:
-                                            bracket_map[aosym]["stopLoss"] = trig_p
-                                        elif "PROFIT" in aotype:
-                                            bracket_map[aosym]["takeProfit"] = trig_p
-                            except Exception as a_err:
-                                logger.warning(f"Failed correlating open algo orders for positions: {a_err}")
-
-                            # 2. Check legacy openOrders (fallback)
-                            try:
-                                ord_query = self._sign_payload({"symbol": sym_clean} if sym_clean else {}, api_secret)
-                                ord_resp = await client.get(f"{base_url}/fapi/v1/openOrders?{ord_query}")
-                                if ord_resp.status_code == 200:
-                                    for o in ord_resp.json():
-                                        osym = o.get("symbol")
-                                        otype = str(o.get("type") or "")
-                                        trigger_price = float(o.get("stopPrice") or o.get("price") or 0)
-                                        if osym not in bracket_map:
-                                            bracket_map[osym] = {"stopLoss": None, "takeProfit": None}
-                                        if "STOP" in otype and not bracket_map[osym].get("stopLoss"):
-                                            bracket_map[osym]["stopLoss"] = trigger_price
-                                        elif "PROFIT" in otype and not bracket_map[osym].get("takeProfit"):
-                                            bracket_map[osym]["takeProfit"] = trigger_price
+                                ord_data = await self.get_open_orders(
+                                    market=market_clean,
+                                    mode=mode_clean,
+                                    api_key=api_key,
+                                    api_secret=api_secret,
+                                    symbol=sym_clean
+                                )
+                                for o in ord_data.get("orders", []):
+                                    osym = o.get("symbol")
+                                    otype = str(o.get("type") or "")
+                                    trigger_price = float(o.get("stopPrice") or o.get("price") or 0)
+                                    if osym not in bracket_map:
+                                        bracket_map[osym] = {"stopLoss": None, "takeProfit": None}
+                                    if "STOP" in otype and not bracket_map[osym].get("stopLoss"):
+                                        bracket_map[osym]["stopLoss"] = trigger_price
+                                    elif "PROFIT" in otype and not bracket_map[osym].get("takeProfit"):
+                                        bracket_map[osym]["takeProfit"] = trigger_price
                             except Exception as ord_err:
-                                logger.warning(f"Failed correlating legacy open orders for positions: {ord_err}")
+                                logger.warning(f"Failed correlating open orders for positions: {ord_err}")
 
                         for p in active_raw:
                             amt = float(p.get("positionAmt", 0))
@@ -1357,12 +1344,24 @@ class TradeService:
 
                         self._positions_cache[cache_key] = (time.time() + self._positions_ttl, ret)
                         self._last_known_positions[cache_key] = formatted_positions
+                        self._last_known_total_unpnl[cache_key] = round(total_unpnl, 2)
                         return ret
                     else:
                         err_payload = resp.json() if resp.text else {}
                         msg = err_payload.get("msg") or f"HTTP {resp.status_code}"
                         if resp.status_code in (418, 429):
                             self._handle_rate_limit(msg)
+                        if cache_key in self._last_known_positions:
+                            return {
+                                "success": True,
+                                "mode": mode_clean,
+                                "market": market_clean,
+                                "is_simulated": False,
+                                "total_unrealized_pnl": self._last_known_total_unpnl.get(cache_key, 0.0),
+                                "positions": self._last_known_positions[cache_key],
+                                "is_cached_fallback": True,
+                                "warning": f"Koneksi lambat ({msg}), menampilkan posisi tersimpan."
+                            }
                         return {
                             "success": False,
                             "message": msg
@@ -1377,6 +1376,17 @@ class TradeService:
                         "message": "Spot tidak memiliki posisi margin/leverage terbuka."
                     }
             except Exception as exc:
+                if cache_key in self._last_known_positions:
+                    return {
+                        "success": True,
+                        "mode": mode_clean,
+                        "market": market_clean,
+                        "is_simulated": False,
+                        "total_unrealized_pnl": self._last_known_total_unpnl.get(cache_key, 0.0),
+                        "positions": self._last_known_positions[cache_key],
+                        "is_cached_fallback": True,
+                        "warning": f"Koneksi terganggu ({str(exc)}), menampilkan posisi tersimpan."
+                    }
                 return {"success": False, "message": f"Gagal mengambil posisi: {str(exc)}"}
 
     async def get_open_orders(
@@ -1447,20 +1457,27 @@ class TradeService:
             return {"success": False, "message": "API Key dan Secret Key diperlukan."}
 
         now = time.time()
+        cache_key = f"{market_clean}_{mode_clean}_{api_key[-8:] if api_key else 'anon'}_{sym_clean or 'all'}"
+        if cache_key in self._orders_cache:
+            exp, val = self._orders_cache[cache_key]
+            if now < exp:
+                return val
+
         if now < self._rate_limit_ban_until:
             wait_sec = int(self._rate_limit_ban_until - now)
+            cached_ord = self._last_known_orders.get(cache_key, [])
             return {
                 "success": True,
                 "mode": mode_clean,
                 "market": market_clean,
                 "is_simulated": False,
-                "orders": [],
+                "orders": cached_ord,
                 "warning": f"Cooldown rate limit Binance aktif ({wait_sec}s tersisa)"
             }
 
         base_url = self._get_base_url(market_clean, mode_clean)
         headers = {**HEADERS_BASE, "X-MBX-APIKEY": api_key}
-        timeout = httpx.Timeout(12.0, connect=5.0)
+        timeout = httpx.Timeout(15.0, connect=8.0)
 
         async with httpx.AsyncClient(headers=headers, timeout=timeout) as client:
             try:
@@ -1523,17 +1540,41 @@ class TradeService:
                 # True orphan order cleanup is safely handled by auto_clean_orphaned_brackets.
 
                 if resp.status_code == 200 or formatted_orders:
-                    return {
+                    ret = {
                         "success": True,
                         "mode": mode_clean,
                         "market": market_clean,
                         "is_simulated": False,
                         "orders": formatted_orders
                     }
+                    self._orders_cache[cache_key] = (time.time() + self._orders_ttl, ret)
+                    self._last_known_orders[cache_key] = formatted_orders
+                    return ret
                 else:
                     err_payload = resp.json() if resp.text else {}
-                    return {"success": False, "message": err_payload.get("msg") or f"HTTP {resp.status_code}"}
+                    msg = err_payload.get("msg") or f"HTTP {resp.status_code}"
+                    if cache_key in self._last_known_orders:
+                        return {
+                            "success": True,
+                            "mode": mode_clean,
+                            "market": market_clean,
+                            "is_simulated": False,
+                            "orders": self._last_known_orders[cache_key],
+                            "is_cached_fallback": True,
+                            "warning": f"Koneksi lambat ({msg}), menampilkan order tersimpan."
+                        }
+                    return {"success": False, "message": msg}
             except Exception as exc:
+                if cache_key in self._last_known_orders:
+                    return {
+                        "success": True,
+                        "mode": mode_clean,
+                        "market": market_clean,
+                        "is_simulated": False,
+                        "orders": self._last_known_orders[cache_key],
+                        "is_cached_fallback": True,
+                        "warning": f"Koneksi terganggu ({str(exc)}), menampilkan order tersimpan."
+                    }
                 return {"success": False, "message": f"Gagal mengambil order: {str(exc)}"}
 
     async def cancel_all_symbol_open_orders(
