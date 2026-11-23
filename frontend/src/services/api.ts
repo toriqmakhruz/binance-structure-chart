@@ -571,4 +571,51 @@ export async function fetchItiDataHealth(): Promise<ITIDataHealth> {
   return resp.json()
 }
 
+export interface SmartDivergenceScanItem {
+  symbol: string
+  baseAsset: string
+  direction: 'BULLISH' | 'BEARISH'
+  grade: 'A' | 'B'
+  timeframe: string
+  current_price: number
+  price_change_pct: number
+  quote_volume: number
+  entry_price: number
+  stop_loss_price: number
+  take_profit_price: number
+  rr_ratio: number
+  confirming_metrics: string[]
+  reasons: string[]
+  rsi_value: number
+  wick_ratio_pct: number
+  has_liquidity_sweep: boolean
+  has_rejection_wick: boolean
+  confirm_time: number
+  is_active: boolean
+}
+
+export interface SmartDivergenceScanResponse {
+  market: string
+  timeframe: string
+  scanned_count: number
+  detected_count: number
+  updated_at: number
+  signals: SmartDivergenceScanItem[]
+}
+
+export async function fetchSmartDivergenceScan(
+  timeframe: string = '15m',
+  market: 'spot' | 'futures' = 'futures',
+  forceRefresh: boolean = false
+): Promise<SmartDivergenceScanResponse> {
+  const resp = await fetch(
+    `${API_BASE}/scanner/smart-divergence?market=${market}&timeframe=${timeframe}&force_refresh=${forceRefresh}`
+  )
+  if (!resp.ok) {
+    throw new Error(`Gagal memuat scanner smart divergence: HTTP ${resp.status}`)
+  }
+  return resp.json()
+}
+
+
 

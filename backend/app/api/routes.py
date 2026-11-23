@@ -14,6 +14,7 @@ from ..analysis.movement_engine import MovementEngine
 from ..analysis.forecast_engine import ForecastEngine
 from ..analysis.trend_strength_engine import TrendStrengthEngine
 from ..analysis.smart_risk_engine import SmartRiskEngine
+from ..analysis.smart_divergence_engine import detect_smart_divergence
 
 logger = logging.getLogger("api_routes")
 
@@ -52,6 +53,11 @@ def _run_analysis_engines(
 _SETUPS_SCAN_CACHE: Dict[Tuple[str, str, int, float, int, int, str], Tuple[float, List[Dict[str, Any]]]] = {}
 _SETUPS_SCAN_LOCKS: Dict[Tuple[str, str, int, float, int, int, str], asyncio.Lock] = {}
 _SETUPS_CACHE_TTL_SECONDS = 60.0
+
+_DIVERGENCE_SCAN_CACHE: Dict[Tuple[str, str, int], Tuple[float, List[Dict[str, Any]]]] = {}
+_DIVERGENCE_SCAN_LOCKS: Dict[Tuple[str, str, int], asyncio.Lock] = {}
+_DIVERGENCE_CACHE_TTL_SECONDS = 30.0
+
 router = APIRouter(prefix="/api")
 
 @router.get("/symbols")
@@ -461,6 +467,108 @@ async def get_valid_setups(
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail={"code": "SETUPS_SCAN_FAILED", "message": str(e)}
+            )
+
+
+async def _scan_symbol_divergence_task(
+    sem: asyncio.Semaphore,
+    sym_info: Dict[str, Any],
+    market: str,
+    timeframe: str
+) -> Optional[Dict[str, Any]]:
+    sym = sym_info["symbol"]
+    async with sem:
+        await asyncio.sleep(0.04)
+        try:
+            candles, _ = await binance_service.get_klines(
+                symbol=sym,
+                interval=timeframe,
+                limit=140,
+                market=market
+            )
+            if not candles or len(candles) < 40:
+                return None
+            return detect_smart_divergence(candles, sym_info, timeframe=timeframe)
+        except Exception as exc:
+            logger.debug(f"Divergence scan skipped {sym} ({market}/{timeframe}): {exc}")
+            return None
+
+
+@router.get("/scanner/smart-divergence")
+async def get_smart_divergence_scan(
+    market: str = Query("futures", pattern="^(spot|futures)$"),
+    timeframe: str = Query("15m"),
+    scan_limit: int = Query(24, ge=5, le=40),
+    force_refresh: bool = Query(False)
+):
+    """
+    Scan top traded Binance crypto pairs for active Smart Divergence signals
+    (Multi-oscillator consensus: RSI + MACD + CVD/MFI, Rejection Wick, Sweeps).
+    """
+    tf_clean = timeframe.lower().strip()
+    if tf_clean not in settings.TIMEFRAMES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "INVALID_TIMEFRAME",
+                "message": f"Timeframe '{timeframe}' is not supported. Allowed: {settings.TIMEFRAMES}"
+            }
+        )
+
+    cache_key = (market, tf_clean, scan_limit)
+    lock = _DIVERGENCE_SCAN_LOCKS.setdefault(cache_key, asyncio.Lock())
+
+    async with lock:
+        now = time.time()
+        cached = _DIVERGENCE_SCAN_CACHE.get(cache_key)
+        is_spammed = cached and force_refresh and (now - (cached[0] - _DIVERGENCE_CACHE_TTL_SECONDS)) < 15.0
+        if (not force_refresh or is_spammed) and cached and now < cached[0]:
+            return {
+                "market": market,
+                "timeframe": tf_clean,
+                "scanned_count": scan_limit,
+                "detected_count": len(cached[1]),
+                "updated_at": int(cached[0] - _DIVERGENCE_CACHE_TTL_SECONDS),
+                "signals": cached[1]
+            }
+
+        try:
+            top_symbols = await binance_service.get_symbols(market=market, demo_mode=False)
+            candidates = top_symbols[:min(scan_limit, 28)]
+            sem = asyncio.Semaphore(4)
+            results = await asyncio.gather(*[
+                _scan_symbol_divergence_task(
+                    sem=sem,
+                    sym_info=sym_info,
+                    market=market,
+                    timeframe=tf_clean
+                )
+                for sym_info in candidates
+            ])
+            valid_signals = [r for r in results if r is not None]
+            valid_signals.sort(
+                key=lambda x: (x["grade"] == "A", x["confirm_time"]),
+                reverse=True
+            )
+            _DIVERGENCE_SCAN_CACHE[cache_key] = (time.time() + _DIVERGENCE_CACHE_TTL_SECONDS, valid_signals)
+            return {
+                "market": market,
+                "timeframe": tf_clean,
+                "scanned_count": len(candidates),
+                "detected_count": len(valid_signals),
+                "updated_at": int(time.time()),
+                "signals": valid_signals
+            }
+        except DataUnavailableException as e:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={"code": "DATA_UNAVAILABLE", "message": str(e)}
+            )
+        except Exception as e:
+            logger.error(f"Error scanning smart divergences: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={"code": "DIVERGENCE_SCAN_FAILED", "message": str(e)}
             )
 
 

@@ -493,6 +493,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           <CoinWatchlist
             market={market}
             currentSymbol={symbol}
+            timeframe={timeframe}
             currentPrice={currentPrice}
             onSelectSymbol={onSelectSymbol}
           />
