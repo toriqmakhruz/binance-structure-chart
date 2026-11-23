@@ -83,11 +83,14 @@ class WhaleSentimentService:
         latest_tk = taker_data[-1] if taker_data else {}
 
         # 1. Whale Position (Top Trader Position)
-        whale_pos_long_pct = round(float(latest_pos.get("longPosition", 0.50)) * 100.0, 1)
-        whale_pos_short_pct = round(float(latest_pos.get("shortPosition", 0.50)) * 100.0, 1)
+        raw_l_pos = latest_pos.get("longAccount", latest_pos.get("longPosition", 0.50))
+        raw_s_pos = latest_pos.get("shortAccount", latest_pos.get("shortPosition", 0.50))
+        whale_pos_long_pct = round(float(raw_l_pos) * 100.0, 1)
+        whale_pos_short_pct = round(float(raw_s_pos) * 100.0, 1)
         whale_pos_ratio = round(float(latest_pos.get("longShortRatio", 1.0)), 2)
 
-        prev_whale_pos_long = float(first_pos.get("longPosition", latest_pos.get("longPosition", 0.50))) * 100.0
+        prev_l_pos = first_pos.get("longAccount", first_pos.get("longPosition", raw_l_pos))
+        prev_whale_pos_long = float(prev_l_pos) * 100.0
         whale_pos_delta = round(whale_pos_long_pct - prev_whale_pos_long, 1)
 
         # 2. Whale Accounts (Top Trader Accounts)
