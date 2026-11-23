@@ -23,7 +23,9 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "market": "futures",
     "timeframe": "15m",
     "scan_interval_seconds": 60,
-    "min_confluence_score": 50.0
+    "min_confluence_score": 50.0,
+    "notify_smart_div": True,
+    "notify_squeeze": True
 }
 
 class TelegramService:
@@ -98,6 +100,8 @@ class TelegramService:
             "timeframe": self.settings.get("timeframe", "15m"),
             "scan_interval_seconds": int(self.settings.get("scan_interval_seconds", 60)),
             "min_confluence_score": float(self.settings.get("min_confluence_score", 50.0)),
+            "notify_smart_div": bool(self.settings.get("notify_smart_div", True)),
+            "notify_squeeze": bool(self.settings.get("notify_squeeze", True)),
             "is_running": self._is_running
         }
 
@@ -125,6 +129,10 @@ class TelegramService:
                 self.settings["scan_interval_seconds"] = max(30, min(600, int(new_settings["scan_interval_seconds"])))
             except (ValueError, TypeError):
                 pass
+        if "notify_smart_div" in new_settings:
+            self.settings["notify_smart_div"] = bool(new_settings["notify_smart_div"])
+        if "notify_squeeze" in new_settings:
+            self.settings["notify_squeeze"] = bool(new_settings["notify_squeeze"])
 
         self._save_settings()
         return self.get_public_settings()
@@ -333,6 +341,173 @@ class TelegramService:
             logger.error(f"Error during Telegram setup scan: {e}")
             return 0
 
+    def format_smart_divergence_message(self, sig: Dict[str, Any]) -> str:
+        symbol = sig.get("symbol", "UNKNOWN")
+        timeframe = sig.get("timeframe", "15m")
+        direction = sig.get("direction", "BULLISH").upper()
+        grade = sig.get("grade", "A")
+        grade_label = "⭐ GRADE A+ (High Confluence)" if grade == "A" else "GRADE B"
+        dir_emoji = "🟢 BULLISH DIVERGENCE" if direction == "BULLISH" else "🔴 BEARISH DIVERGENCE"
+
+        entry = float(sig.get("entry", 0.0))
+        sl = float(sig.get("stop_loss", 0.0))
+        tp = float(sig.get("take_profit", 0.0))
+        rr = float(sig.get("risk_reward", 2.0))
+        reasons = ", ".join(sig.get("reasons", []))
+        confs = []
+        if sig.get("confirmations", {}).get("rsi"): confs.append("RSI (14)")
+        if sig.get("confirmations", {}).get("macd"): confs.append("MACD")
+        if sig.get("confirmations", {}).get("cvd"): confs.append("CVD/Volume")
+        conf_str = " + ".join(confs) if confs else "Wilder's RSI"
+
+        def fmt_p(p: float) -> str:
+            if p >= 1000: return f"{p:,.2f}"
+            elif p >= 1: return f"{p:.4f}"
+            else: return f"{p:.6f}"
+
+        timestamp_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+
+        return (
+            f"🎯 <b>SMART DIVERGENCE (GRADE A+) ALERT!</b>\n\n"
+            f"💎 <b>Pair:</b> <code>{symbol}</code> (FUTURES)\n"
+            f"📊 <b>Timeframe:</b> <code>{timeframe}</code>\n"
+            f"🧭 <b>Signal:</b> <b>{dir_emoji}</b>\n"
+            f"⭐ <b>Quality:</b> <b>{grade_label}</b>\n\n"
+            f"🔍 <b>Konsensus:</b> <code>{conf_str}</code>\n"
+            f"✅ <b>Karakteristik:</b> {reasons}\n\n"
+            f"💵 <b>Planned Entry:</b> <code>${fmt_p(entry)}</code>\n"
+            f"🛡️ <b>Stop Loss:</b> <code>${fmt_p(sl)}</code>\n"
+            f"🎯 <b>Take Profit:</b> <code>${fmt_p(tp)}</code>\n"
+            f"⚖️ <b>Risk / Reward:</b> <code>1 : {rr:.2f}</code>\n\n"
+            f"⏰ <i>Waktu Deteksi: {timestamp_str}</i>\n"
+            f"🤖 <i>Binance Smart Divergence Radar</i>"
+        )
+
+    def format_squeeze_message(self, cand: Dict[str, Any]) -> str:
+        symbol = cand.get("symbol", "UNKNOWN")
+        stype = cand.get("squeeze_type", "SHORT_SQUEEZE")
+        bias = cand.get("bias_label", "PUMP BIAS")
+        rate_pct = float(cand.get("funding_rate_pct", 0.0))
+        mark_p = float(cand.get("mark_price", 0.0))
+        target = float(cand.get("est_liquidation_target", 0.0))
+        apr = float(cand.get("annualized_apr", 0.0))
+        grade = cand.get("grade", "GRADE A")
+        time_left = cand.get("time_left_str", "N/A")
+        rationale = cand.get("rationale", "")
+
+        def fmt_p(p: float) -> str:
+            if p >= 1000: return f"{p:,.2f}"
+            elif p >= 1: return f"{p:.4f}"
+            else: return f"{p:.6f}"
+
+        timestamp_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+        icon = "🔥 WHALE SHORT SQUEEZE (PUMP ALERT)" if stype == "SHORT_SQUEEZE" else "💧 LONG SQUEEZE (DUMP ALERT)"
+
+        return (
+            f"<b>{icon}</b>\n\n"
+            f"💎 <b>Pair:</b> <code>{symbol}</code> (Binance Futures)\n"
+            f"⚡ <b>Funding Rate:</b> <code>{rate_pct:+.4f}%</code> ({apr:+,.0f}% APR)\n"
+            f"⭐ <b>Intensitas:</b> <b>{grade}</b>\n"
+            f"🧭 <b>Squeeze Bias:</b> <b>{bias}</b>\n\n"
+            f"💵 <b>Mark Price:</b> <code>${fmt_p(mark_p)}</code>\n"
+            f"🧲 <b>Target Likuidasi:</b> <code>${fmt_p(target)}</code>\n"
+            f"⏰ <b>Settlement Berikutnya:</b> <code>{time_left}</code>\n\n"
+            f"💡 <b>Analisa:</b> {rationale}\n\n"
+            f"⏰ <i>Waktu Deteksi: {timestamp_str}</i>\n"
+            f"🤖 <i>Binance Squeeze Hunter Radar</i>"
+        )
+
+    async def scan_and_notify_smart_divergences(self) -> int:
+        """Scan top pairs for Grade A+ Smart Divergences and notify via Telegram."""
+        if not self.settings.get("enabled") or not self.settings.get("notify_smart_div", True):
+            return 0
+        if not self.settings.get("bot_token") or not self.settings.get("chat_id"):
+            return 0
+
+        from ..analysis.smart_divergence_engine import scan_market_smart_divergence
+
+        tf = self.settings.get("timeframe", "15m")
+        market = self.settings.get("market", "futures")
+
+        try:
+            signals = await scan_market_smart_divergence(
+                market=market,
+                timeframe=tf,
+                scan_limit=24
+            )
+
+            # Filter for Grade A+ only
+            grade_a_signals = [s for s in signals if s.get("grade") == "A"]
+            notified_count = 0
+            now = time.time()
+
+            for sig in grade_a_signals:
+                sym = sig.get("symbol")
+                dir_str = sig.get("direction")
+                c_time = sig.get("confirm_time")
+                sig_id = f"smartdiv_{sym}_{tf}_{dir_str}_{c_time}"
+
+                # Avoid duplicate alerts within 3 hours
+                if sig_id in self._notified_ids and (now - self._notified_ids[sig_id] < 10800):
+                    continue
+
+                msg = self.format_smart_divergence_message(sig)
+                ok, _ = await self.send_message(msg)
+                if ok:
+                    self._notified_ids[sig_id] = now
+                    notified_count += 1
+                    logger.info(f"Telegram alert sent for Smart Divergence Grade A+: {sig_id}")
+                    await asyncio.sleep(1.0)
+
+            if notified_count > 0:
+                self._save_history()
+            return notified_count
+
+        except Exception as e:
+            logger.error(f"Error scanning Smart Divergence for Telegram: {e}")
+            return 0
+
+    async def scan_and_notify_squeeze_candidates(self) -> int:
+        """Scan Binance Futures for extreme Short/Long Squeezes and notify via Telegram."""
+        if not self.settings.get("enabled") or not self.settings.get("notify_squeeze", True):
+            return 0
+        if not self.settings.get("bot_token") or not self.settings.get("chat_id"):
+            return 0
+
+        from ..analysis.squeeze_hunter_engine import scan_market_squeeze_candidates
+
+        try:
+            # Look for extreme funding rate >= 0.15% (or <= -0.15%)
+            candidates = await scan_market_squeeze_candidates(min_funding_abs_pct=0.15, limit=10)
+            notified_count = 0
+            now = time.time()
+
+            for cand in candidates:
+                sym = cand.get("symbol")
+                stype = cand.get("squeeze_type")
+                rate = cand.get("funding_rate_pct")
+                sq_id = f"squeeze_{sym}_{stype}_{round(rate, 2)}"
+
+                # Avoid duplicate alert for same coin within 4 hours
+                if sq_id in self._notified_ids and (now - self._notified_ids[sq_id] < 14400):
+                    continue
+
+                msg = self.format_squeeze_message(cand)
+                ok, _ = await self.send_message(msg)
+                if ok:
+                    self._notified_ids[sq_id] = now
+                    notified_count += 1
+                    logger.info(f"Telegram alert sent for Squeeze Candidate: {sq_id}")
+                    await asyncio.sleep(1.0)
+
+            if notified_count > 0:
+                self._save_history()
+            return notified_count
+
+        except Exception as e:
+            logger.error(f"Error scanning Squeeze Candidates for Telegram: {e}")
+            return 0
+
     async def start_background_scanner(self) -> None:
         """Long-running background task that periodically scans for setups."""
         self._is_running = True
@@ -345,7 +520,15 @@ class TelegramService:
             try:
                 interval = int(self.settings.get("scan_interval_seconds", 60))
                 if self.settings.get("enabled") and self.settings.get("bot_token") and self.settings.get("chat_id"):
+                    # 1. Standard chart pattern setups
                     await self.scan_and_notify_new_setups()
+                    # 2. Smart Divergence Grade A+ setups
+                    if self.settings.get("notify_smart_div", True):
+                        await self.scan_and_notify_smart_divergences()
+                    # 3. Whale Short/Long Squeeze setups
+                    if self.settings.get("notify_squeeze", True):
+                        await self.scan_and_notify_squeeze_candidates()
+
                 await asyncio.sleep(max(30, interval))
             except asyncio.CancelledError:
                 logger.info("Telegram background scanner received cancel signal.")

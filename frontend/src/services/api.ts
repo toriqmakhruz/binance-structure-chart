@@ -470,6 +470,8 @@ export interface TelegramSettings {
   scan_interval_seconds: number
   min_confluence_score: number
   is_running?: boolean
+  notify_smart_div?: boolean
+  notify_squeeze?: boolean
 }
 
 export async function fetchTelegramSettings(): Promise<TelegramSettings | null> {
@@ -616,6 +618,45 @@ export async function fetchSmartDivergenceScan(
   }
   return resp.json()
 }
+
+export interface SqueezeCandidateItem {
+  symbol: string
+  baseAsset: string
+  mark_price: number
+  index_price: number
+  funding_rate_pct: number
+  funding_rate_abs: number
+  annualized_apr: number
+  next_funding_time: number
+  time_left_str: string
+  squeeze_type: 'SHORT_SQUEEZE' | 'LONG_SQUEEZE'
+  bias_label: string
+  grade: string
+  score: number
+  est_liquidation_target: number
+  rationale: string
+}
+
+export interface SqueezeHunterResponse {
+  market: string
+  scanned_count: number
+  updated_at: number
+  candidates: SqueezeCandidateItem[]
+}
+
+export async function fetchSqueezeHunterScan(
+  minFundingPct: number = 0.03,
+  limit: number = 30
+): Promise<SqueezeHunterResponse> {
+  const resp = await fetch(
+    `${API_BASE}/scanner/squeeze-hunter?min_funding_pct=${minFundingPct}&limit=${limit}`
+  )
+  if (!resp.ok) {
+    throw new Error(`Gagal memuat scanner Squeeze Hunter: HTTP ${resp.status}`)
+  }
+  return resp.json()
+}
+
 
 
 

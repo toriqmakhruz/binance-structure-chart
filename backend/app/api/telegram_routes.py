@@ -17,6 +17,8 @@ class TelegramSettingsRequest(BaseModel):
     timeframe: str = Field("15m")
     scan_interval_seconds: int = Field(60, ge=30, le=600)
     min_confluence_score: float = Field(50.0, ge=0.0, le=100.0)
+    notify_smart_div: Optional[bool] = True
+    notify_squeeze: Optional[bool] = True
 
 class TelegramTestRequest(BaseModel):
     bot_token: Optional[str] = None

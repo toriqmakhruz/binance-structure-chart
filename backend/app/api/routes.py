@@ -572,6 +572,29 @@ async def get_smart_divergence_scan(
             )
 
 
+@router.get("/scanner/squeeze-hunter")
+async def get_squeeze_hunter_scan(
+    min_funding_pct: float = Query(0.03, ge=0.01, le=2.0),
+    limit: int = Query(30, ge=5, le=60)
+):
+    """
+    Whale Liquidation & Short Squeeze Hunter Scanner:
+    Scans for extreme negative funding rates (Short Squeeze / Pump Bias)
+    and extreme positive funding rates (Long Squeeze / Dump Bias).
+    """
+    from ..analysis.squeeze_hunter_engine import scan_market_squeeze_candidates
+    candidates = await scan_market_squeeze_candidates(
+        min_funding_abs_pct=min_funding_pct,
+        limit=limit
+    )
+    return {
+        "market": "futures",
+        "scanned_count": len(candidates),
+        "updated_at": int(time.time()),
+        "candidates": candidates
+    }
+
+
 @router.get("/open-interest", response_model=Optional[OpenInterestData])
 async def get_open_interest(
     symbol: str = Query("BTCUSDT", pattern=r"^[A-Za-z0-9]{3,16}$"),

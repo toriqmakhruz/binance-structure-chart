@@ -1,5 +1,11 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { fetchSymbols, fetchSmartDivergenceScan, SmartDivergenceScanItem } from '../../services/api'
+import {
+  fetchSymbols,
+  fetchSmartDivergenceScan,
+  fetchSqueezeHunterScan,
+  SmartDivergenceScanItem,
+  SqueezeCandidateItem
+} from '../../services/api'
 import { WatchlistWsClient, TickerTick } from '../../services/binanceWs'
 import { formatPrice } from '../../utils/formatters'
 import {
@@ -19,7 +25,9 @@ import {
   CheckCircle2,
   Clock,
   Layers,
-  ArrowRight
+  ArrowRight,
+  Flame,
+  AlertTriangle
 } from 'lucide-react'
 
 export interface SymbolTickerItem {
@@ -71,7 +79,7 @@ export const CoinWatchlist: React.FC<CoinWatchlistProps> = ({
   currentPrice,
   onSelectSymbol
 }) => {
-  const [mainTab, setMainTab] = useState<'watchlist' | 'smart_divergence'>('watchlist')
+  const [mainTab, setMainTab] = useState<'watchlist' | 'smart_divergence' | 'squeeze_hunter'>('watchlist')
   const [symbols, setSymbols] = useState<SymbolTickerItem[]>([])
   const [isLoading, setIsLoading] = useState<boolean>(false)
   const [isWsConnected, setIsWsConnected] = useState<boolean>(false)
@@ -90,6 +98,14 @@ export const CoinWatchlist: React.FC<CoinWatchlistProps> = ({
   const [divergenceDirectionFilter, setDivergenceDirectionFilter] = useState<'ALL' | 'BULLISH' | 'BEARISH'>('ALL')
   const [divergenceGradeFilter, setDivergenceGradeFilter] = useState<'ALL' | 'A'>('ALL')
   const [divergenceUpdatedAt, setDivergenceUpdatedAt] = useState<number>(0)
+
+  // Whale Squeeze Hunter States
+  const [squeezeCandidates, setSqueezeCandidates] = useState<SqueezeCandidateItem[]>([])
+  const [isSqueezeLoading, setIsSqueezeLoading] = useState<boolean>(false)
+  const [squeezeError, setSqueezeError] = useState<string | null>(null)
+  const [squeezeTypeFilter, setSqueezeTypeFilter] = useState<'ALL' | 'SHORT_SQUEEZE' | 'LONG_SQUEEZE'>('ALL')
+  const [squeezeGradeFilter, setSqueezeGradeFilter] = useState<'ALL' | 'EXTREME'>('ALL')
+  const [squeezeUpdatedAt, setSqueezeUpdatedAt] = useState<number>(0)
 
   const prevPricesRef = useRef<Record<string, number>>({})
   const flashDirRef = useRef<Record<string, { dir: 'up' | 'down'; expiresAt: number }>>({})
@@ -128,6 +144,21 @@ export const CoinWatchlist: React.FC<CoinWatchlistProps> = ({
     }
   }, [market, scanTimeframe])
 
+  // Fetch Squeeze Hunter scan from backend
+  const loadSqueezeCandidates = useCallback(async () => {
+    setIsSqueezeLoading(true)
+    setSqueezeError(null)
+    try {
+      const res = await fetchSqueezeHunterScan(0.03, 35)
+      setSqueezeCandidates(res?.candidates || [])
+      setSqueezeUpdatedAt(res?.updated_at ? res.updated_at * 1000 : Date.now())
+    } catch (err: any) {
+      setSqueezeError(err?.message || 'Gagal memindai Squeeze Hunter')
+    } finally {
+      setIsSqueezeLoading(false)
+    }
+  }, [])
+
   // Fetch initial sorted list from backend & periodic resync every 60s
   useEffect(() => {
     prevPricesRef.current = {}
@@ -145,6 +176,15 @@ export const CoinWatchlist: React.FC<CoinWatchlistProps> = ({
     }, 35000)
     return () => clearInterval(timer)
   }, [scanTimeframe, loadSmartDivergences])
+
+  // Periodic resync for Squeeze Hunter scanner (every 30s)
+  useEffect(() => {
+    loadSqueezeCandidates()
+    const timer = setInterval(() => {
+      loadSqueezeCandidates()
+    }, 30000)
+    return () => clearInterval(timer)
+  }, [loadSqueezeCandidates])
 
   // Real-time Binance !ticker@arr WebSocket updates (~1s live ticks)
   useEffect(() => {
@@ -293,39 +333,77 @@ export const CoinWatchlist: React.FC<CoinWatchlistProps> = ({
     })
   }, [divergenceSignals, divergenceDirectionFilter, divergenceGradeFilter])
 
+  const displayedSqueezeCandidates = useMemo(() => {
+    return squeezeCandidates.filter((cand) => {
+      if (squeezeTypeFilter !== 'ALL' && cand.squeeze_type !== squeezeTypeFilter) {
+        return false
+      }
+      if (squeezeGradeFilter === 'EXTREME' && cand.funding_rate_abs < 0.1) {
+        return false
+      }
+      return true
+    })
+  }, [squeezeCandidates, squeezeTypeFilter, squeezeGradeFilter])
+
+  const extremeSqueezeCount = useMemo(() => {
+    return squeezeCandidates.filter((cand) => cand.funding_rate_abs >= 0.1).length
+  }, [squeezeCandidates])
+
   const nowTs = Date.now()
 
   return (
     <div className="w-full flex-1 min-h-0 flex flex-col overflow-hidden select-none text-xs">
       {/* 0. Top Main Tab Switcher */}
-      <div className="grid grid-cols-2 bg-[#0d1117] border-b border-[#21262d] p-1.5 gap-1.5 shrink-0">
+      <div className="grid grid-cols-3 bg-[#0d1117] border-b border-[#21262d] p-1.5 gap-1.5 shrink-0">
         <button
           type="button"
           onClick={() => setMainTab('watchlist')}
-          className={`py-1.5 px-2 rounded-md text-[11px] font-bold transition-all flex items-center justify-center space-x-1.5 cursor-pointer ${
+          className={`py-1.5 px-1 rounded-md text-[11px] font-bold transition-all flex items-center justify-center space-x-1 cursor-pointer ${
             mainTab === 'watchlist'
               ? 'bg-[#1a2232] text-amber-300 border border-amber-500/40 shadow-sm'
               : 'text-slate-400 hover:text-slate-200 hover:bg-[#131924]'
           }`}
         >
-          <Coins className="w-3.5 h-3.5 text-amber-400" />
-          <span>Watchlist Koin</span>
+          <Coins className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          <span className="truncate">Watchlist</span>
         </button>
 
         <button
           type="button"
           onClick={() => setMainTab('smart_divergence')}
-          className={`py-1.5 px-2 rounded-md text-[11px] font-bold transition-all flex items-center justify-center space-x-1.5 cursor-pointer ${
+          className={`py-1.5 px-1 rounded-md text-[11px] font-bold transition-all flex items-center justify-center space-x-1 cursor-pointer ${
             mainTab === 'smart_divergence'
               ? 'bg-[#0e2722] text-emerald-300 border border-emerald-500/40 shadow-sm'
               : 'text-slate-400 hover:text-slate-200 hover:bg-[#131924]'
           }`}
         >
-          <Target className="w-3.5 h-3.5 text-emerald-400" />
-          <span>Scanner Smart Div</span>
+          <Target className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+          <span className="truncate">Smart Div</span>
           {divergenceSignals.length > 0 && (
-            <span className="ml-1 px-1.5 py-0.2 rounded-full text-[9px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+            <span className="ml-0.5 px-1 py-0.2 rounded-full text-[9px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
               {divergenceSignals.length}
+            </span>
+          )}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setMainTab('squeeze_hunter')}
+          className={`py-1.5 px-1 rounded-md text-[11px] font-bold transition-all flex items-center justify-center space-x-1 cursor-pointer ${
+            mainTab === 'squeeze_hunter'
+              ? 'bg-[#29170e] text-amber-300 border border-amber-500/50 shadow-sm'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-[#131924]'
+          }`}
+        >
+          <Flame className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          <span className="truncate">🔥 Squeeze</span>
+          {squeezeCandidates.length > 0 && (
+            <span className={`ml-0.5 px-1 py-0.2 rounded-full text-[9px] font-mono font-bold border ${
+              extremeSqueezeCount > 0
+                ? 'bg-amber-500/30 text-amber-300 border-amber-500/50 animate-pulse'
+                : 'bg-slate-700/50 text-slate-300 border-slate-600'
+            }`}>
+              {squeezeCandidates.length}
             </span>
           )}
         </button>
@@ -383,12 +461,13 @@ export const CoinWatchlist: React.FC<CoinWatchlistProps> = ({
               )}
             </div>
 
-            {/* Filter Pills with shortcut to Smart Div Scanner */}
-            <div className="grid grid-cols-5 gap-1">
+            {/* Filter Pills with shortcut to Smart Div Scanner & Squeeze */}
+            <div className="grid grid-cols-6 gap-1">
               {[
                 { key: 'ALL', label: 'Semua' },
                 { key: 'FAV', label: 'Favorit' },
-                { key: 'SMART_DIV', label: '🎯 SmartDiv' },
+                { key: 'SMART_DIV', label: '🎯 Div' },
+                { key: 'SQUEEZE', label: '🔥 Squeeze' },
                 { key: 'GAINERS', label: 'Naik' },
                 { key: 'LOSERS', label: 'Turun' }
               ].map((tab) => (
@@ -398,13 +477,17 @@ export const CoinWatchlist: React.FC<CoinWatchlistProps> = ({
                   onClick={() => {
                     if (tab.key === 'SMART_DIV') {
                       setMainTab('smart_divergence')
+                    } else if (tab.key === 'SQUEEZE') {
+                      setMainTab('squeeze_hunter')
                     } else {
                       handleFilterChange(tab.key as WatchlistFilter)
                     }
                   }}
-                  className={`py-1 rounded text-[10px] font-bold border transition-colors cursor-pointer ${
+                  className={`py-1 rounded text-[10px] font-bold border transition-colors cursor-pointer truncate px-0.5 text-center ${
                     tab.key === 'SMART_DIV'
                       ? 'bg-emerald-950/60 text-emerald-300 border-emerald-700/50 hover:bg-emerald-900/60'
+                      : tab.key === 'SQUEEZE'
+                      ? 'bg-amber-950/60 text-amber-300 border-amber-700/50 hover:bg-amber-900/60'
                       : filter === tab.key
                       ? 'bg-[#f0b90b]/15 text-[#f0b90b] border-[#f0b90b]/50'
                       : 'bg-[#0d1117] text-slate-400 border-[#21262d] hover:text-slate-200'
@@ -559,7 +642,7 @@ export const CoinWatchlist: React.FC<CoinWatchlistProps> = ({
             )}
           </div>
         </>
-      ) : (
+      ) : mainTab === 'smart_divergence' ? (
         /* ================= SMART DIVERGENCE SCANNER TAB ================= */
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
           {/* Header & Controls */}
@@ -824,6 +907,289 @@ export const CoinWatchlist: React.FC<CoinWatchlistProps> = ({
                       <span>R:R 1:{item.rr_ratio}</span>
                       <span className="text-emerald-400 hover:text-emerald-300 flex items-center space-x-0.5 font-semibold">
                         <span>Buka Chart {item.baseAsset}</span>
+                        <ArrowRight className="w-3 h-3" />
+                      </span>
+                    </div>
+                  </div>
+                )
+              })
+            )}
+          </div>
+        </div>
+      ) : (
+        /* ================= WHALE SQUEEZE HUNTER TAB ================= */
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+          {/* Header & Controls */}
+          <div className="p-3 bg-[#131823] border-b border-[#21262d] space-y-2.5 shrink-0">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <div className="w-6 h-6 rounded-md bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                  <Flame className="w-3.5 h-3.5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-white text-xs flex items-center space-x-1.5">
+                    <span>Whale Squeeze Hunter</span>
+                    <span className="text-[9px] font-mono font-bold px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                      FUNDING ANOMALI
+                    </span>
+                  </h3>
+                  <p className="text-[10px] text-slate-400">
+                    Deteksi perangkap likuidasi & potensi lonjakan Short/Long squeeze
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => loadSqueezeCandidates()}
+                disabled={isSqueezeLoading}
+                title="Scan ulang live koin"
+                className="p-1 rounded text-slate-400 hover:text-white hover:bg-[#1e2533] transition-colors cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isSqueezeLoading ? 'animate-spin text-amber-400' : ''}`} />
+              </button>
+            </div>
+
+            {/* Quick Squeeze Education Banner */}
+            <div className="p-2 rounded bg-amber-500/5 border border-amber-500/20 text-[10px] text-slate-300 leading-relaxed">
+              <div className="flex items-center gap-1 font-semibold text-amber-400 mb-0.5">
+                <AlertTriangle className="w-3 h-3 flex-shrink-0" />
+                <span>Kunci Pembacaan Squeeze:</span>
+              </div>
+              <div className="text-slate-400 space-y-0.5 pl-4 text-[9.5px]">
+                <div>• <b className="text-emerald-400">Rate Negatif (&lt; -0.05%)</b>: Shorts bayar fee & terjebak → Potensi <b className="text-emerald-300">SHORT SQUEEZE (PUMP)</b>.</div>
+                <div>• <b className="text-rose-400">Rate Positif (&gt; +0.08%)</b>: Longs overleveraged → Rawan <b className="text-rose-300">LONG SQUEEZE (DUMP)</b>.</div>
+              </div>
+            </div>
+
+            {/* Filter Pills (Direction & Grade) */}
+            <div className="grid grid-cols-3 gap-1">
+              <button
+                type="button"
+                onClick={() => setSqueezeTypeFilter('ALL')}
+                className={`py-1 rounded text-[10px] font-bold border transition-colors cursor-pointer truncate ${
+                  squeezeTypeFilter === 'ALL'
+                    ? 'bg-slate-800 text-white border-slate-600'
+                    : 'bg-[#0d1117] text-slate-400 border-[#21262d] hover:text-slate-200'
+                }`}
+              >
+                Semua Arah
+              </button>
+              <button
+                type="button"
+                onClick={() => setSqueezeTypeFilter('SHORT_SQUEEZE')}
+                className={`py-1 rounded text-[10px] font-bold border transition-colors cursor-pointer truncate ${
+                  squeezeTypeFilter === 'SHORT_SQUEEZE'
+                    ? 'bg-emerald-950/80 text-emerald-300 border-emerald-500/50'
+                    : 'bg-[#0d1117] text-slate-400 border-[#21262d] hover:text-emerald-400'
+                }`}
+              >
+                🔥 Short Squeeze (Pump)
+              </button>
+              <button
+                type="button"
+                onClick={() => setSqueezeTypeFilter('LONG_SQUEEZE')}
+                className={`py-1 rounded text-[10px] font-bold border transition-colors cursor-pointer truncate ${
+                  squeezeTypeFilter === 'LONG_SQUEEZE'
+                    ? 'bg-rose-950/80 text-rose-300 border-rose-500/50'
+                    : 'bg-[#0d1117] text-slate-400 border-[#21262d] hover:text-rose-400'
+                }`}
+              >
+                💧 Long Squeeze (Dump)
+              </button>
+            </div>
+
+            {/* Grade / Intensity Selector */}
+            <div className="flex items-center justify-between bg-[#0d1117] p-1 rounded-md border border-[#21262d]">
+              <span className="text-[10px] font-semibold text-slate-400 px-1.5 flex items-center space-x-1">
+                <Zap className="w-3 h-3 text-amber-400" />
+                <span>Intensitas:</span>
+              </span>
+              <div className="flex items-center space-x-1">
+                <button
+                  type="button"
+                  onClick={() => setSqueezeGradeFilter('ALL')}
+                  className={`px-2 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer ${
+                    squeezeGradeFilter === 'ALL'
+                      ? 'bg-amber-500/25 text-amber-300 border border-amber-500/40'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Semua ({squeezeCandidates.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSqueezeGradeFilter('EXTREME')}
+                  className={`px-2 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer ${
+                    squeezeGradeFilter === 'EXTREME'
+                      ? 'bg-rose-500/25 text-rose-300 border border-rose-500/40'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  ⚡ Ekstrem Only ({extremeSqueezeCount})
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Results List */}
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain touch-pan-y p-2.5 space-y-2 pb-24 custom-scrollbar">
+            {isSqueezeLoading && squeezeCandidates.length === 0 ? (
+              <div className="p-8 text-center space-y-2">
+                <RefreshCw className="w-5 h-5 text-amber-400 animate-spin mx-auto" />
+                <p className="text-slate-400 text-[11px]">
+                  Memindai anomali Funding Rate seluruh pair Binance Futures...
+                </p>
+              </div>
+            ) : squeezeError && squeezeCandidates.length === 0 ? (
+              <div className="p-4 bg-rose-500/10 border border-rose-500/30 rounded-lg text-center space-y-2">
+                <p className="text-rose-400 text-[11px]">{squeezeError}</p>
+                <button
+                  type="button"
+                  onClick={() => loadSqueezeCandidates()}
+                  className="px-3 py-1 rounded bg-[#1e2533] text-white text-[10px] font-semibold hover:bg-[#253042]"
+                >
+                  Coba Scan Ulang
+                </button>
+              </div>
+            ) : displayedSqueezeCandidates.length === 0 ? (
+              <div className="p-8 text-center space-y-3 bg-[#111622]/60 rounded-xl border border-[#202738]">
+                <Flame className="w-6 h-6 text-slate-600 mx-auto" />
+                <div className="space-y-1">
+                  <div className="text-xs font-semibold text-slate-300">
+                    Tidak ada kandidat Squeeze yang sesuai filter saat ini
+                  </div>
+                  <p className="text-[11px] text-slate-500 max-w-xs mx-auto">
+                    Kandidat Squeeze muncul otomatis ketika Funding Rate pair futures menyimpang jauh dari normal (&ge; 0.03%).
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSqueezeTypeFilter('ALL')
+                    setSqueezeGradeFilter('ALL')
+                  }}
+                  className="px-3 py-1 rounded text-[10px] font-bold bg-[#182130] text-amber-300 border border-amber-500/30 hover:bg-[#1f2b3e] cursor-pointer"
+                >
+                  Tampilkan Semua Squeeze
+                </button>
+              </div>
+            ) : (
+              displayedSqueezeCandidates.map((cand) => {
+                const isSelected = cand.symbol.toUpperCase() === currentSymbol.toUpperCase()
+                const isShortSqueeze = cand.squeeze_type === 'SHORT_SQUEEZE'
+                const isExtreme = cand.funding_rate_abs >= 0.1 || cand.grade.includes('EXTREME')
+
+                return (
+                  <div
+                    key={cand.symbol}
+                    onClick={() => onSelectSymbol(cand.symbol)}
+                    className={`p-2.5 rounded-lg border transition-all cursor-pointer space-y-2 ${
+                      isSelected
+                        ? 'bg-[#182436] border-[#f0b90b] shadow-md shadow-amber-500/10'
+                        : isShortSqueeze
+                        ? isExtreme
+                          ? 'bg-[#0f1f18] border-emerald-600/50 hover:border-emerald-500 hover:bg-[#132820]'
+                          : 'bg-[#0f171f] border-emerald-900/40 hover:border-emerald-600/60 hover:bg-[#131f2b]'
+                        : isExtreme
+                        ? 'bg-[#221014] border-rose-600/50 hover:border-rose-500 hover:bg-[#2b1419]'
+                        : 'bg-[#181119] border-rose-900/40 hover:border-rose-600/60 hover:bg-[#201522]'
+                    }`}
+                  >
+                    {/* Header Row: Symbol, Direction, Grade */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-1.5">
+                        <span className="font-mono font-bold text-xs text-white">
+                          {cand.baseAsset}/USDT
+                        </span>
+                        <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-slate-800 text-slate-400 border border-slate-700">
+                          FUTURES
+                        </span>
+                      </div>
+
+                      <div className="flex items-center space-x-1">
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold border ${
+                            isShortSqueeze
+                              ? 'bg-emerald-950/80 text-emerald-300 border-emerald-600/50'
+                              : 'bg-rose-950/80 text-rose-300 border-rose-600/50'
+                          }`}
+                        >
+                          {isShortSqueeze ? '🔥 SHORT SQUEEZE' : '💧 LONG SQUEEZE'}
+                        </span>
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold border ${
+                            isExtreme
+                              ? 'bg-amber-500/25 text-amber-300 border-amber-500/50 animate-pulse'
+                              : 'bg-slate-800 text-slate-300 border-slate-700'
+                          }`}
+                        >
+                          {cand.grade.split(' ')[0]} {cand.grade.split(' ')[1] || ''}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Funding Rate Metrics Showcase */}
+                    <div className="grid grid-cols-3 gap-1 bg-[#0b0e14] p-1.5 rounded border border-[#1e2535] text-[10px] font-mono items-center">
+                      <div>
+                        <span className="text-slate-500 block text-[9px]">FUNDING RATE</span>
+                        <span
+                          className={`text-xs font-bold ${
+                            isShortSqueeze ? 'text-[#00c087]' : 'text-[#f6465d]'
+                          }`}
+                        >
+                          {cand.funding_rate_pct > 0 ? '+' : ''}
+                          {cand.funding_rate_pct.toFixed(4)}%
+                        </span>
+                      </div>
+
+                      <div>
+                        <span className="text-slate-500 block text-[9px]">APR SETAHUN</span>
+                        <span
+                          className={`font-semibold ${
+                            Math.abs(cand.annualized_apr) >= 100
+                              ? 'text-amber-400'
+                              : 'text-slate-300'
+                          }`}
+                        >
+                          {cand.annualized_apr > 0 ? '+' : ''}
+                          {cand.annualized_apr.toLocaleString()}%
+                        </span>
+                      </div>
+
+                      <div className="text-right">
+                        <span className="text-slate-500 block text-[9px]">SETTLEMENT</span>
+                        <span className="text-slate-300 font-semibold">{cand.time_left_str}</span>
+                      </div>
+                    </div>
+
+                    {/* Price & Target Row */}
+                    <div className="flex items-center justify-between text-[11px] pt-0.5">
+                      <div className="font-mono text-slate-300">
+                        <span className="text-slate-500 text-[9px] mr-1">MARK:</span>
+                        ${formatPrice(cand.mark_price)}
+                      </div>
+
+                      <div className="font-mono text-right">
+                        <span className="text-slate-500 text-[9px] mr-1">EST. TARGET:</span>
+                        <span className={`font-bold ${isShortSqueeze ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          ${formatPrice(cand.est_liquidation_target)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Rationale Text */}
+                    <div className="text-[10px] text-slate-400 leading-snug bg-[#0d1117]/60 p-1.5 rounded border border-[#1e2535]/50">
+                      {cand.rationale}
+                    </div>
+
+                    {/* Action Link Footer */}
+                    <div className="flex items-center justify-between text-[10px] text-slate-500 pt-0.5">
+                      <span className="flex items-center gap-1 font-mono">
+                        <span>Score:</span>
+                        <span className="text-amber-400 font-bold">{cand.score}/100</span>
+                      </span>
+                      <span className="text-amber-400 hover:text-amber-300 flex items-center space-x-0.5 font-semibold">
+                        <span>Buka Chart {cand.baseAsset}</span>
                         <ArrowRight className="w-3 h-3" />
                       </span>
                     </div>
