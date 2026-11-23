@@ -15,13 +15,13 @@ ARCHIVE_NAME = "binance_full_update.tar.gz"
 
 def create_archive():
     print(f"[1/4] Membuat paket update {ARCHIVE_NAME}...")
-    exclude_dirs = {"venv", "node_modules", "dist", "__pycache__", ".git", ".pytest_cache", "data", "graphify-out", ".gemini"}
+    exclude_dirs = {"venv", "node_modules", "dist", "__pycache__", ".git", ".pytest_cache", "data", "graphify-out", ".gemini", "VIDEO", "video", "videos"}
     
     with tarfile.open(ARCHIVE_NAME, "w:gz") as tar:
         for root, dirs, files in os.walk("."):
             dirs[:] = [d for d in dirs if d not in exclude_dirs]
             for file in files:
-                if file.endswith((".tar.gz", ".log", ".pyc", ".bak")):
+                if file.endswith((".tar.gz", ".log", ".pyc", ".bak", ".mp4", ".zip", ".mov", ".avi")):
                     continue
                 if file in ("deploy_to_vps.py", "deploy_update.py", "test_vps.py", "indo_diagnose.py", "deploy_to_indo_vps.py", "test_oi.py"):
                     continue
@@ -47,7 +47,7 @@ def deploy():
         stdin, stdout, stderr = client.exec_command(full_cmd, get_pty=True)
         for raw_line in stdout:
             safe_line = raw_line.encode("ascii", errors="replace").decode("ascii")
-            print(safe_line, end="")
+            print(safe_line, end="", flush=True)
         exit_status = stdout.channel.recv_exit_status()
         if check and exit_status != 0:
             print(f"Perintah gagal dengan exit code {exit_status}")
