@@ -722,10 +722,15 @@ export function App() {
   }
 
   const handleTimeframeChange = (newTf: string) => {
-    if (newTf === timeframe) return
+    if (!newTf) return
+    const cleanTf = newTf.toLowerCase()
+    if (cleanTf === timeframe.toLowerCase()) return
+    try {
+      localStorage.setItem('cp_timeframe', cleanTf)
+    } catch {}
     setCandles([])
     setAnalysis(null)
-    setTimeframe(newTf)
+    setTimeframe(cleanTf)
   }
 
   const handleMarketChange = (newMarket: 'spot' | 'futures') => {

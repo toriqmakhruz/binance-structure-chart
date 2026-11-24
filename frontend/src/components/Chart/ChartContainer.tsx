@@ -351,11 +351,13 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
   })
 
   const handlePaneTfChange = (chartId: string, newTf: string) => {
-    if (chartId === 'chart-1' && onTimeframeChange) {
+    const isPrimaryPane = chartId === 'chart-1' || chartId === 'chart-main'
+    if (isPrimaryPane && onTimeframeChange) {
       onTimeframeChange(newTf)
     }
     setPaneTfs((prev) => {
-      const next = { ...prev, [chartId]: newTf }
+      const targetId = isPrimaryPane ? 'chart-1' : chartId
+      const next = { ...prev, [targetId]: newTf, [chartId]: newTf }
       try {
         localStorage.setItem('cp_multi_chart_tfs', JSON.stringify(next))
       } catch {}
@@ -658,7 +660,7 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
   // Single default layout
   return (
     <div className="w-full h-full p-1 bg-[#111620]">
-      {renderChart('chart-main', timeframe)}
+      {renderChart('chart-1', timeframe)}
     </div>
   )
 }
