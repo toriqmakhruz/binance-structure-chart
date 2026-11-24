@@ -256,6 +256,14 @@ export const PaneLayerDropdown: React.FC<PaneLayerDropdownProps> = ({
 
     // 3. KATEGORI 3: DATA PASAR & DERIVATIF (Overlays, Panes & Predictions)
     {
+      key: 'countdownBar' as keyof LayerVisibility,
+      category: 'market',
+      label: 'Hitung Mundur Bar (Countdown)',
+      desc: 'Countdown waktu penutupan candle pada garis harga (ala TradingView)',
+      icon: <Clock className="w-3.5 h-3.5" />,
+      color: 'text-amber-300'
+    },
+    {
       key: 'entryBoxes',
       category: 'market',
       label: 'Box Area Entry & R:R',

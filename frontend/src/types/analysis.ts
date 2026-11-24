@@ -291,6 +291,7 @@ export interface LayerVisibility {
   smartDivergence?: boolean
   sniperEntry?: boolean
   whaleSentimentMatrix?: boolean
+  countdownBar?: boolean
 }
 
 export * from './fibonacci'

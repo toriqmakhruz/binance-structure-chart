@@ -71,7 +71,8 @@ const DEFAULT_VISIBILITY: LayerVisibility = {
   marketXray: true,
   smartDivergence: true,
   sniperEntry: true,
-  whaleSentimentMatrix: true
+  whaleSentimentMatrix: true,
+  countdownBar: true
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -765,7 +766,7 @@ export function App() {
         'srLevels', 'marketSessions', 'forecastCone', 'forecastScenarios',
         'entryBoxes', 'htfOverlay', 'volume', 'openInterest', 'fundingRate',
         'fibonacci', 'volumeProfile', 'liquidationHeatmap', 'cvdOrderflow',
-        'trendRibbon', 'trendStrengthMeter', 'anchoredVwap', 'deltaAbsorption', 'judasSwing', 'marketXray', 'smartDivergence', 'sniperEntry'
+        'trendRibbon', 'trendStrengthMeter', 'anchoredVwap', 'deltaAbsorption', 'judasSwing', 'marketXray', 'smartDivergence', 'sniperEntry', 'whaleSentimentMatrix', 'countdownBar'
       ]
       const updatedVis = { ...currentPaneVis }
       allKeys.forEach((k) => {
@@ -803,7 +804,9 @@ export function App() {
         judasSwing: enabled,
         marketXray: enabled,
         smartDivergence: enabled,
-        sniperEntry: enabled
+        sniperEntry: enabled,
+        whaleSentimentMatrix: enabled,
+        countdownBar: enabled
       })
     }
   }, [visibility])

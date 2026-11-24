@@ -144,6 +144,7 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
       badgeText: 'PASAR',
       badgeClass: 'bg-sky-950/60 text-sky-300 border-sky-800/50',
       items: [
+        { key: 'countdownBar', label: 'Hitung Mundur Bar (Countdown)', desc: 'Countdown waktu penutupan candle pada garis harga (ala TradingView)', icon: <Clock className="w-3.5 h-3.5" />, color: 'text-amber-300', bgHover: 'hover:bg-amber-950/30' },
         { key: 'entryBoxes', label: 'Box Area Entry & R:R', desc: 'Kotak Entry, Target TP, dan Stop Loss', icon: <Target className="w-3.5 h-3.5" />, color: 'text-emerald-400', bgHover: 'hover:bg-emerald-950/30' },
         { key: 'forecastCone', label: 'Forecast Cone Volatilitas', desc: 'Kerucut deviasi volatilitas pasar (ATR)', icon: <Compass className="w-3.5 h-3.5" />, color: 'text-yellow-400', bgHover: 'hover:bg-yellow-950/30' },
         { key: 'forecastScenarios', label: 'Target Skenario Proyeksi', desc: 'Garis proyeksi lintasan harga ke depan', icon: <Compass className="w-3.5 h-3.5" />, color: 'text-orange-400', bgHover: 'hover:bg-orange-950/30' },
@@ -160,7 +161,7 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
     'whaleSentimentMatrix', 'sniperEntry', 'marketXray', 'smartDivergence', 'anchoredVwap', 'deltaAbsorption', 'judasSwing', 'smcEvents', 'orderBlocks', 'fvgs', 'smcSwings',
     'liquidationHeatmap', 'cvdOrderflow', 'marketSessions',
     'trendRibbon', 'trendStrengthMeter', 'fibonacci', 'patterns', 'srLevels', 'volumeProfile',
-    'entryBoxes', 'forecastCone', 'forecastScenarios', 'volume', 'openInterest', 'fundingRate',
+    'entryBoxes', 'countdownBar', 'forecastCone', 'forecastScenarios', 'volume', 'openInterest', 'fundingRate',
     ...(hasHtf ? ['htfOverlay' as keyof LayerVisibility] : [])
   ]
 

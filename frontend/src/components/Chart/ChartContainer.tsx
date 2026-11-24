@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
-import { Crosshair, Layers, Search, Database } from 'lucide-react'
+import { Crosshair, Layers, Search, Database, Clock } from 'lucide-react'
 import { LightweightChart } from './LightweightChart'
 import { PaneLayerDropdown } from './PaneLayerDropdown'
 import { WhaleSentimentHUD } from '../HUD/WhaleSentimentHUD'
 import { fetchAnalysis, defaultAppSettings } from '../../services/api'
 import { BinanceWsClient } from '../../services/binanceWs'
+import { calculateBarCountdown, BarCountdownResult } from '../../utils/formatters'
 import {
   Candle,
   SmcAnalysisResult,
@@ -52,6 +53,38 @@ interface SubChartProps {
   fundingRate?: FundingRateData | null
   onToggleLayer?: (key: keyof LayerVisibility) => void
   onOpenLiquidityMatrix?: () => void
+}
+
+const BarCountdownBadge: React.FC<{ timeframe: string; lastCandleTime?: number }> = ({
+  timeframe,
+  lastCandleTime
+}) => {
+  const [countdown, setCountdown] = useState<BarCountdownResult>(() =>
+    calculateBarCountdown(timeframe, lastCandleTime)
+  )
+
+  useEffect(() => {
+    const tick = () => {
+      setCountdown(calculateBarCountdown(timeframe, lastCandleTime))
+    }
+    tick()
+    const timer = setInterval(tick, 1000)
+    return () => clearInterval(timer)
+  }, [timeframe, lastCandleTime])
+
+  return (
+    <div
+      className={`flex items-center space-x-1 px-1.5 py-0.5 rounded border text-[9.5px] sm:text-[10px] font-mono font-bold transition-all shrink-0 select-none ${
+        countdown.isClosingSoon
+          ? 'bg-rose-950/70 text-rose-300 border-rose-500/60 shadow-sm shadow-rose-950/40 animate-pulse'
+          : 'bg-[#0b0e14] text-amber-300 border-[#21262d] hover:border-amber-500/40'
+      }`}
+      title={`Waktu tersisa sebelum candle ${timeframe.toUpperCase()} ditutup (Countdown to Bar Close)`}
+    >
+      <Clock className={`w-2.5 h-2.5 ${countdown.isClosingSoon ? 'text-rose-400' : 'text-amber-400'}`} />
+      <span>{countdown.formatted}</span>
+    </div>
+  )
 }
 
 const SubTimeframeChart: React.FC<SubChartProps> = ({
@@ -527,6 +560,12 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
                 </option>
               ))}
             </select>
+
+            {/* Live Candle Close Countdown Badge (TradingView Style) */}
+            <BarCountdownBadge
+              timeframe={effectiveTf}
+              lastCandleTime={isPrimary ? candles[candles.length - 1]?.time : undefined}
+            />
           </div>
         </div>
 

@@ -24,7 +24,7 @@ import {
 import { AutoFibSettings, DEFAULT_AUTO_FIB_SETTINGS } from '../../types/fibonacci'
 import { VolumeProfileSettings, DEFAULT_VOLUME_PROFILE_SETTINGS } from '../../types/volumeProfile'
 import { OrderflowSettings, DEFAULT_ORDERFLOW_SETTINGS } from '../../types/orderflow'
-import { formatPrice, getPricePrecision, formatOpenInterestValue, formatOpenInterest } from '../../utils/formatters'
+import { formatPrice, getPricePrecision, formatOpenInterestValue, formatOpenInterest, calculateBarCountdown } from '../../utils/formatters'
 import { Crosshair, Clock, Trash2, Move, RotateCcw, Palette, Check, X, Sliders, Gauge, ChevronDown, Radar, Activity, Shield } from 'lucide-react'
 import { fetchMarketXray } from '../../services/api'
 import { MarketXrayData } from '../../types/marketXray'
@@ -681,6 +681,15 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
 
     redrawCanvasRef.current()
   }, [candles, smc, visibility.volume, symbol, timeframe, focusRecentBars])
+
+  // 4B. Live 1-Second Ticker for Countdown to Bar Close (TradingView Style)
+  useEffect(() => {
+    if (visibility.countdownBar === false) return
+    const timer = setInterval(() => {
+      redrawCanvasRef.current()
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [visibility.countdownBar, timeframe])
 
   // 4. Robust Continuous Coordinate Resolvers (Supports past, future blank space, and mathematical projection)
   const resolveCoord = useCallback((time: number, price: number): { x: number; y: number } | null => {
@@ -5258,6 +5267,72 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
           ctx.strokeRect(rx, ry, rw, rh)
           ctx.setLineDash([])
         }
+      }
+    }
+
+    // H. Countdown to Bar Close (TradingView Style Price Line & Price Scale Countdown)
+    if ((visibility.countdownBar ?? true) && candles && candles.length > 0) {
+      const lastCandle = candles[candles.length - 1]
+      const currentPrice = lastCandle.close
+      const y = series.priceToCoordinate(currentPrice)
+      if (y !== null && Number.isFinite(y) && y >= 0 && y <= height) {
+        const { formatted, isClosingSoon } = calculateBarCountdown(timeframe, lastCandle.time)
+        const scaleW = chart.priceScale('right')?.width() || 65
+        const borderX = width - scaleW
+
+        ctx.save()
+
+        // 1. Sleek Pill on the horizontal Price Line (just before the price scale)
+        const pillW = 62
+        const pillH = 16
+        const pillX = borderX - pillW - 6
+        const pillY = y - pillH / 2
+
+        ctx.fillStyle = isClosingSoon ? 'rgba(220, 38, 38, 0.95)' : 'rgba(11, 14, 20, 0.92)'
+        ctx.strokeStyle = isClosingSoon ? '#ef4444' : 'rgba(240, 185, 11, 0.6)'
+        ctx.lineWidth = 1
+
+        ctx.beginPath()
+        if (typeof (ctx as any).roundRect === 'function') {
+          ;(ctx as any).roundRect(pillX, pillY, pillW, pillH, 4)
+        } else {
+          ctx.rect(pillX, pillY, pillW, pillH)
+        }
+        ctx.fill()
+        ctx.stroke()
+
+        ctx.font = 'bold 9.5px "JetBrains Mono", Menlo, monospace'
+        ctx.fillStyle = isClosingSoon ? '#ffffff' : '#f0b90b'
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.fillText(`⏳ ${formatted}`, pillX + pillW / 2, pillY + pillH / 2)
+
+        // 2. TradingView-style Countdown Tag on the right Price Scale (beneath the price badge)
+        const tagW = Math.max(46, scaleW - 6)
+        const tagH = 15
+        const tagX = borderX + (scaleW - tagW) / 2
+        const tagY = y + 10 + tagH <= height - 22 ? y + 10 : y - 10 - tagH
+
+        ctx.fillStyle = isClosingSoon ? 'rgba(220, 38, 38, 0.95)' : 'rgba(18, 24, 38, 0.95)'
+        ctx.strokeStyle = isClosingSoon ? '#ef4444' : '#334155'
+        ctx.lineWidth = 1
+
+        ctx.beginPath()
+        if (typeof (ctx as any).roundRect === 'function') {
+          ;(ctx as any).roundRect(tagX, tagY, tagW, tagH, 3)
+        } else {
+          ctx.rect(tagX, tagY, tagW, tagH)
+        }
+        ctx.fill()
+        ctx.stroke()
+
+        ctx.font = 'bold 9.5px "JetBrains Mono", Menlo, monospace'
+        ctx.fillStyle = isClosingSoon ? '#ffffff' : '#e2e8f0'
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.fillText(formatted, tagX + tagW / 2, tagY + tagH / 2)
+
+        ctx.restore()
       }
     }
 
