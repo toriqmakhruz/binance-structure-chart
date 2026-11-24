@@ -57,6 +57,7 @@ export const WhaleSentimentHUD: React.FC<WhaleSentimentHUDProps> = ({
   const [isMinimized, setIsMinimized] = useState<boolean>(false)
   const [opacity, setOpacity] = useState<OpacityLevel>('medium')
   const [showAdvice, setShowAdvice] = useState<boolean>(true)
+  const [lastUpdate, setLastUpdate] = useState<string>('')
 
   const loadData = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
@@ -64,6 +65,10 @@ export const WhaleSentimentHUD: React.FC<WhaleSentimentHUDProps> = ({
     try {
       const res = await fetchWhaleSentimentMatrix(symbol, market, '5m')
       setData(res)
+      const d = new Date()
+      setLastUpdate(
+        `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`
+      )
     } catch (err: any) {
       if (!silent) setError(err?.message || 'Gagal memuat data sentiment')
     } finally {
@@ -166,8 +171,9 @@ export const WhaleSentimentHUD: React.FC<WhaleSentimentHUDProps> = ({
               <span className="truncate">Whale vs Retail Matrix</span>
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
             </div>
-            <div className="text-[9px] font-mono text-slate-400">
-              {symbol} • {market.toUpperCase()}
+            <div className="text-[9px] font-mono text-slate-400 flex items-center gap-1.5">
+              <span>{symbol} • {market.toUpperCase()}</span>
+              {lastUpdate && <span className="text-emerald-400 font-semibold">• {lastUpdate}</span>}
             </div>
           </div>
         </div>
@@ -331,6 +337,9 @@ export const WhaleSentimentHUD: React.FC<WhaleSentimentHUDProps> = ({
             <div className="flex items-center justify-between text-slate-300">
               <span className="font-semibold flex items-center gap-1">
                 <b className="text-white">Taker Order</b> (Agresi):
+                <span className="text-[8px] px-1 py-0.2 rounded bg-amber-500/15 text-amber-300 font-bold border border-amber-500/30">
+                  Realtime
+                </span>
               </span>
               <div className="flex items-center gap-1.5 font-mono">
                 <span className="text-emerald-400 font-semibold">
@@ -366,6 +375,17 @@ export const WhaleSentimentHUD: React.FC<WhaleSentimentHUDProps> = ({
             </p>
           </div>
         )}
+
+        {/* 4. Footer: Live Sync Status & Binance 5m Snapshot info */}
+        <div className="flex items-center justify-between text-[8.5px] font-mono text-slate-500 pt-1 border-t border-slate-800/60">
+          <div className="flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block" />
+            <span className="text-slate-400">Snapshot 5m Binance</span>
+          </div>
+          <span title="Data rasio posisi Binance diperbarui per interval 5 menit. Auto-poll setiap 12 detik.">
+            Auto-Sync 12s
+          </span>
+        </div>
       </div>
     </div>
   )
