@@ -1545,63 +1545,80 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
             const relVol = Math.max(0.3, Math.min(4.5, cDollarVol / avgDollarVol))
             const pivotBoostHigh = isPivotHigh[i] ? 2.5 : 1.0
             const pivotBoostLow = isPivotLow[i] ? 2.5 : 1.0
+            const recencyRatio = (i + 1) / n
+            const timeDecay = 0.70 + 0.30 * recencyRatio
+            const hlc3 = (c.high + c.low + c.close) / 3
 
             for (let t = 0; t < activeTiers.length; t++) {
               const tier = activeTiers[t]
 
-              // 1. Short Liquidation Pool di atas High (Short Squeeze Target)
-              const shortLiqPrice = c.high * (1 + tier.dist)
-              if (shortLiqPrice >= minLow && shortLiqPrice <= maxHigh) {
-                // Cari bar pertama setelah i yang menyapu (wick >= level)
-                let sweptIdx = -1
-                for (let k = i + 1; k < n; k++) {
-                  if (lbCandles[k].high >= shortLiqPrice) {
-                    sweptIdx = k
-                    break
-                  }
-                }
+              // 1. Short Liquidation Pool di atas High & Typical Price (Short Squeeze Target)
+              // Kombinasi titik ekstrim wick + volume body hlc3 agar sebaran awan likuidasi mulus & kontinu
+              const shortPoints: { price: number; subWeight: number }[] = [
+                { price: c.high * (1 + tier.dist), subWeight: 0.55 * pivotBoostHigh },
+                { price: hlc3 * (1 + tier.dist), subWeight: 0.45 }
+              ]
 
-                const isSwept = sweptIdx !== -1
-                const bIdx = Math.floor((shortLiqPrice - minLow) / bucketStep)
-
-                if (bIdx >= 0 && bIdx < numBuckets) {
-                  const w = relVol * tier.weight * pivotBoostHigh
-                  const b = buckets[bIdx]
-                  if (isSwept) {
-                    b.sweptWeight += w * 0.22
-                  } else {
-                    b.unsweptWeight += w
-                    if (c.time < b.earliestOriginTime) b.earliestOriginTime = c.time
+              for (const pt of shortPoints) {
+                const shortLiqPrice = pt.price
+                if (shortLiqPrice >= minLow && shortLiqPrice <= maxHigh) {
+                  let sweptIdx = -1
+                  for (let k = i + 1; k < n; k++) {
+                    if (lbCandles[k].high >= shortLiqPrice) {
+                      sweptIdx = k
+                      break
+                    }
                   }
-                  b.tierCounts[tier.label] = (b.tierCounts[tier.label] || 0) + w
+
+                  const isSwept = sweptIdx !== -1
+                  const bIdx = Math.floor((shortLiqPrice - minLow) / bucketStep)
+
+                  if (bIdx >= 0 && bIdx < numBuckets) {
+                    const w = relVol * tier.weight * pt.subWeight * timeDecay
+                    const b = buckets[bIdx]
+                    if (isSwept) {
+                      b.sweptWeight += w * 0.22
+                    } else {
+                      b.unsweptWeight += w
+                      if (c.time < b.earliestOriginTime) b.earliestOriginTime = c.time
+                    }
+                    b.tierCounts[tier.label] = (b.tierCounts[tier.label] || 0) + w
+                  }
                 }
               }
 
-              // 2. Long Liquidation Pool di bawah Low (Long Squeeze Target)
-              const longLiqPrice = c.low * (1 - tier.dist)
-              if (longLiqPrice >= minLow && longLiqPrice <= maxHigh) {
-                // Cari bar pertama setelah i yang menyapu (wick <= level)
-                let sweptIdx = -1
-                for (let k = i + 1; k < n; k++) {
-                  if (lbCandles[k].low <= longLiqPrice) {
-                    sweptIdx = k
-                    break
-                  }
-                }
+              // 2. Long Liquidation Pool di bawah Low & Typical Price (Long Squeeze Target)
+              // Kombinasi titik ekstrim wick + volume body hlc3
+              const longPoints: { price: number; subWeight: number }[] = [
+                { price: c.low * (1 - tier.dist), subWeight: 0.55 * pivotBoostLow },
+                { price: hlc3 * (1 - tier.dist), subWeight: 0.45 }
+              ]
 
-                const isSwept = sweptIdx !== -1
-                const bIdx = Math.floor((longLiqPrice - minLow) / bucketStep)
-
-                if (bIdx >= 0 && bIdx < numBuckets) {
-                  const w = relVol * tier.weight * pivotBoostLow
-                  const b = buckets[bIdx]
-                  if (isSwept) {
-                    b.sweptWeight += w * 0.22
-                  } else {
-                    b.unsweptWeight += w
-                    if (c.time < b.earliestOriginTime) b.earliestOriginTime = c.time
+              for (const pt of longPoints) {
+                const longLiqPrice = pt.price
+                if (longLiqPrice >= minLow && longLiqPrice <= maxHigh) {
+                  let sweptIdx = -1
+                  for (let k = i + 1; k < n; k++) {
+                    if (lbCandles[k].low <= longLiqPrice) {
+                      sweptIdx = k
+                      break
+                    }
                   }
-                  b.tierCounts[tier.label] = (b.tierCounts[tier.label] || 0) + w
+
+                  const isSwept = sweptIdx !== -1
+                  const bIdx = Math.floor((longLiqPrice - minLow) / bucketStep)
+
+                  if (bIdx >= 0 && bIdx < numBuckets) {
+                    const w = relVol * tier.weight * pt.subWeight * timeDecay
+                    const b = buckets[bIdx]
+                    if (isSwept) {
+                      b.sweptWeight += w * 0.22
+                    } else {
+                      b.unsweptWeight += w
+                      if (c.time < b.earliestOriginTime) b.earliestOriginTime = c.time
+                    }
+                    b.tierCounts[tier.label] = (b.tierCounts[tier.label] || 0) + w
+                  }
                 }
               }
             }
@@ -1748,6 +1765,14 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
               ctx.fillRect(startX, bandY, bandW, bandH)
             }
 
+            // Skala estimasi nominal USD yang dikalibrasi dengan Open Interest riil Binance (jika ada)
+            const oiTotalUsd = openInterest?.open_interest_value && openInterest.open_interest_value > 0
+              ? openInterest.open_interest_value
+              : 0
+            const dollarScale = oiTotalUsd > 0
+              ? Math.max(avgDollarVol * 0.40, (oiTotalUsd * 0.045) / Math.max(1, maxUnsweptWeight))
+              : avgDollarVol * 0.45
+
             // 2. Coinglass Right-Side Liquidation Depth Profile / Bar (Histogram di sisi kanan dekat sumbu harga)
             if (ofConfig.showLiqProfileBar !== false && maxUnsweptWeight > 0) {
               const profileW = 74
@@ -1800,8 +1825,8 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
                 const yMid = series.priceToCoordinate(b.midP)
                 if (yMid === null || yMid < 15 || yMid > height - 15) return
 
-                // Estimasi realistis $ USD dari bobot klaster likuidasi
-                const estDollarLiq = b.unsweptWeight * (avgDollarVol * 0.45)
+                // Estimasi realistis $ USD dari bobot klaster likuidasi dikalibrasi OI
+                const estDollarLiq = b.unsweptWeight * dollarScale
                 const depthText = formatOpenInterestValue(estDollarLiq)
 
                 ctx.font = 'bold 8.5px Inter, monospace'
@@ -1874,7 +1899,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
                 if (ofConfig.showLiqLabels) {
                   const sideTag = pool.side === 'SHORT_LIQ' ? 'SHORT LIQ' : 'LONG LIQ'
                   const pctDist = Math.abs(((pool.midP - currentPrice) / currentPrice) * 100).toFixed(2)
-                  const estUsd = formatOpenInterestValue(pool.unsweptWeight * (avgDollarVol * 0.45))
+                  const estUsd = formatOpenInterestValue(pool.unsweptWeight * dollarScale)
                   const labelText = `🔥 ${sideTag} [${domTier}] $${formatPrice(pool.midP)} • ${estUsd} (${pool.side === 'SHORT_LIQ' ? '+' : '-'}${pctDist}%)`
                   ctx.font = 'bold 9px Inter, monospace'
                   const textW = ctx.measureText(labelText).width
@@ -5439,7 +5464,8 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     visibility.smartDivergence,
     smartDivergenceSignals,
     visibility.sniperEntry,
-    sniperTargets
+    sniperTargets,
+    openInterest
   ])
 
   // Always update the ref with the latest redraw function
