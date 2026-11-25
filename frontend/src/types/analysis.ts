@@ -292,6 +292,7 @@ export interface LayerVisibility {
   sniperEntry?: boolean
   whaleSentimentMatrix?: boolean
   countdownBar?: boolean
+  candleDeltaStrip?: boolean
 }
 
 export * from './fibonacci'

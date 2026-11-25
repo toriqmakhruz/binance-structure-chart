@@ -100,6 +100,14 @@ export const PaneLayerDropdown: React.FC<PaneLayerDropdownProps> = ({
       color: 'text-cyan-400'
     },
     {
+      key: 'candleDeltaStrip' as keyof LayerVisibility,
+      category: 'institusional',
+      label: 'Candle Net-Delta Strip (Jeroan)',
+      desc: 'Net Delta ($) Buy vs Sell & Hidden Absorption per candle',
+      icon: <BarChart2 className="w-3.5 h-3.5" />,
+      color: 'text-emerald-400'
+    },
+    {
       key: 'sniperEntry' as keyof LayerVisibility,
       category: 'institusional',
       label: 'Sniper Entry Crosshair (3-in-1)',

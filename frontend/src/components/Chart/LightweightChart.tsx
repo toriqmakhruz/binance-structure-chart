@@ -24,7 +24,7 @@ import {
 import { AutoFibSettings, DEFAULT_AUTO_FIB_SETTINGS } from '../../types/fibonacci'
 import { VolumeProfileSettings, DEFAULT_VOLUME_PROFILE_SETTINGS } from '../../types/volumeProfile'
 import { OrderflowSettings, DEFAULT_ORDERFLOW_SETTINGS } from '../../types/orderflow'
-import { formatPrice, getPricePrecision, formatOpenInterestValue, formatOpenInterest, calculateBarCountdown } from '../../utils/formatters'
+import { formatPrice, getPricePrecision, formatOpenInterestValue, formatOpenInterest, calculateBarCountdown, formatCompactDeltaUsd } from '../../utils/formatters'
 import { Crosshair, Clock, Trash2, Move, RotateCcw, Palette, Check, X, Sliders, Gauge, ChevronDown, Radar, Activity, Shield } from 'lucide-react'
 import { fetchMarketXray } from '../../services/api'
 import { MarketXrayData } from '../../types/marketXray'
@@ -2570,6 +2570,179 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         ctx.fillText(badgeTxt, badgeX + 5, badgeY + 10)
       })
       ctx.restore()
+    }
+
+    // 0.10a. Candle Net-Delta & Imbalance Strip (Footprint X-Ray — Jeroan per Candle)
+    if ((visibility.candleDeltaStrip ?? true) && candles.length >= 2) {
+      const logicalRange = chart.timeScale().getVisibleLogicalRange()
+      const startIdx = logicalRange ? Math.max(0, Math.floor(logicalRange.from) - 1) : Math.max(0, candles.length - 80)
+      const endIdx = logicalRange ? Math.min(candles.length - 1, Math.ceil(logicalRange.to) + 1) : candles.length - 1
+
+      const scaleW = chart.priceScale('right')?.width() || 65
+      const maxChartX = Math.max(40, width - scaleW)
+
+      let barSpacing = 12
+      if (endIdx > startIdx) {
+        const pA = resolveCoord(candles[endIdx].time, candles[endIdx].close)
+        const pB = resolveCoord(candles[endIdx - 1].time, candles[endIdx - 1].close)
+        if (pA && pB) {
+          barSpacing = Math.max(2, Math.abs(pA.x - pB.x))
+        }
+      }
+
+      interface VisibleDeltaBar {
+        idx: number
+        x: number
+        yLow: number | null
+        netDeltaUsd: number
+        buyPct: number
+        isBullCandle: boolean
+        isHiddenAbsorption: boolean
+        isLive: boolean
+      }
+
+      const visibleBars: VisibleDeltaBar[] = []
+      let maxAbsDelta = 1
+
+      for (let i = startIdx; i <= endIdx; i++) {
+        const c = candles[i]
+        const pLow = resolveCoord(c.time, c.low)
+        if (!pLow || pLow.x < -20 || pLow.x > maxChartX + 10) continue
+
+        const vol = c.volume || 0
+        const hasTaker = typeof c.taker_buy_volume === 'number' && c.taker_buy_volume >= 0 && c.taker_buy_volume <= vol
+        const buyVol = hasTaker ? c.taker_buy_volume : (c.close >= c.open ? vol * 0.55 : vol * 0.45)
+        const sellVol = Math.max(0, vol - buyVol)
+        const netDeltaUsd = (buyVol - sellVol) * (c.close || 1)
+        const buyPct = vol > 0 ? (buyVol / vol) * 100 : 50
+        const isBullCandle = c.close >= c.open
+        const isHiddenAbsorption =
+          (isBullCandle && netDeltaUsd < 0 && (100 - buyPct) >= 54) ||
+          (!isBullCandle && netDeltaUsd > 0 && buyPct >= 54)
+
+        if (Math.abs(netDeltaUsd) > maxAbsDelta) {
+          maxAbsDelta = Math.abs(netDeltaUsd)
+        }
+
+        visibleBars.push({
+          idx: i,
+          x: pLow.x,
+          yLow: pLow.y,
+          netDeltaUsd,
+          buyPct,
+          isBullCandle,
+          isHiddenAbsorption,
+          isLive: i === candles.length - 1
+        })
+      }
+
+      if (visibleBars.length > 0 && maxAbsDelta > 0) {
+        const stripCenterY = height - 42
+        const stripMaxH = 13
+        const barW = Math.max(2, Math.min(12, barSpacing * 0.62))
+
+        ctx.save()
+
+        // Garis tengah 0 Net Delta Strip
+        ctx.strokeStyle = 'rgba(148, 163, 184, 0.22)'
+        ctx.lineWidth = 1
+        ctx.beginPath()
+        ctx.moveTo(0, stripCenterY)
+        ctx.lineTo(maxChartX, stripCenterY)
+        ctx.stroke()
+
+        // Gambar mini histogram Net Delta & label angka jika ruang cukup
+        for (let j = 0; j < visibleBars.length; j++) {
+          const vb = visibleBars[j]
+          const normH = Math.max(2, (Math.abs(vb.netDeltaUsd) / maxAbsDelta) * stripMaxH)
+          const isPos = vb.netDeltaUsd >= 0
+
+          const rectY = isPos ? stripCenterY - normH : stripCenterY
+          ctx.fillStyle = isPos
+            ? (vb.isHiddenAbsorption ? 'rgba(52, 211, 153, 0.95)' : 'rgba(16, 185, 129, 0.68)')
+            : (vb.isHiddenAbsorption ? 'rgba(251, 113, 133, 0.95)' : 'rgba(244, 63, 94, 0.68)')
+          ctx.fillRect(vb.x - barW / 2, rectY, barW, normH)
+
+          if (vb.isHiddenAbsorption) {
+            ctx.strokeStyle = '#facc15'
+            ctx.lineWidth = 1
+            ctx.strokeRect(vb.x - barW / 2, rectY, barW, normH)
+          }
+
+          // Tampilkan angka Net Delta ($) menempel di bawah candle saat zoomed-in
+          const showTextLabel = barSpacing >= 34 || (vb.idx >= candles.length - 10 && barSpacing >= 24)
+          if (showTextLabel && vb.yLow !== null) {
+            const deltaLabel = `${vb.isHiddenAbsorption ? '⚡' : ''}${formatCompactDeltaUsd(vb.netDeltaUsd)}`
+            ctx.font = vb.isHiddenAbsorption ? 'bold 8.5px "JetBrains Mono", monospace' : 'bold 8px "JetBrains Mono", monospace'
+            const tw = ctx.measureText(deltaLabel).width
+            const pillW = tw + 6
+            const pillH = 12
+            const pillX = Math.max(2, Math.min(maxChartX - pillW - 2, vb.x - pillW / 2))
+            const pillY = Math.min(stripCenterY - stripMaxH - pillH - 4, vb.yLow + 6)
+
+            if (pillY >= 14) {
+              ctx.fillStyle = 'rgba(11, 14, 20, 0.85)'
+              ctx.strokeStyle = vb.isHiddenAbsorption
+                ? '#facc15'
+                : (isPos ? 'rgba(16, 185, 129, 0.45)' : 'rgba(244, 63, 94, 0.45)')
+              ctx.lineWidth = 0.8
+              ctx.beginPath()
+              if (typeof (ctx as any).roundRect === 'function') {
+                ;(ctx as any).roundRect(pillX, pillY, pillW, pillH, 2.5)
+              } else {
+                ctx.rect(pillX, pillY, pillW, pillH)
+              }
+              ctx.fill()
+              ctx.stroke()
+
+              ctx.fillStyle = isPos ? '#34d399' : '#fb7185'
+              ctx.textAlign = 'center'
+              ctx.textBaseline = 'middle'
+              ctx.fillText(deltaLabel, pillX + pillW / 2, pillY + pillH / 2 + 0.5)
+            }
+          }
+        }
+
+        // Badge Ringkasan Live Candle Terakhir (selalu terlihat di kiri bawah di atas strip)
+        const liveBar = visibleBars[visibleBars.length - 1]
+        if (liveBar && liveBar.isLive) {
+          const isPos = liveBar.netDeltaUsd >= 0
+          const domPct = isPos ? liveBar.buyPct : (100 - liveBar.buyPct)
+          const domSide = isPos ? 'Buy' : 'Sell'
+          const absTag = liveBar.isHiddenAbsorption ? ' • ⚡ABSORPTION' : ''
+          const liveTxt = `🔬 Candle Live: Δ ${formatCompactDeltaUsd(liveBar.netDeltaUsd)} (${domPct.toFixed(0)}% ${domSide})${absTag}`
+
+          ctx.font = 'bold 9px "JetBrains Mono", monospace'
+          const tw = ctx.measureText(liveTxt).width
+          const bx = 10
+          const by = stripCenterY - stripMaxH - 22
+          const bw = tw + 12
+          const bh = 16
+
+          if (by > 20) {
+            ctx.fillStyle = 'rgba(11, 15, 25, 0.90)'
+            ctx.strokeStyle = liveBar.isHiddenAbsorption
+              ? '#facc15'
+              : (isPos ? 'rgba(16, 185, 129, 0.55)' : 'rgba(244, 63, 94, 0.55)')
+            ctx.lineWidth = 1
+            ctx.beginPath()
+            if (typeof (ctx as any).roundRect === 'function') {
+              ;(ctx as any).roundRect(bx, by, bw, bh, 3.5)
+            } else {
+              ctx.rect(bx, by, bw, bh)
+            }
+            ctx.fill()
+            ctx.stroke()
+
+            ctx.fillStyle = liveBar.isHiddenAbsorption ? '#fde047' : (isPos ? '#34d399' : '#fb7185')
+            ctx.textAlign = 'left'
+            ctx.textBaseline = 'middle'
+            ctx.fillText(liveTxt, bx + 6, by + bh / 2)
+          }
+        }
+
+        ctx.restore()
+      }
     }
 
     // 0.10b. Apex Smart Multi-Divergence Radar (RSI + MACD + CVD Validated)
