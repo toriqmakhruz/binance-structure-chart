@@ -3,6 +3,7 @@ import { Crosshair, Layers, Search, Database, Clock } from 'lucide-react'
 import { LightweightChart } from './LightweightChart'
 import { PaneLayerDropdown } from './PaneLayerDropdown'
 import { WhaleSentimentHUD } from '../HUD/WhaleSentimentHUD'
+import { InTradeCopilotHUD } from '../HUD/InTradeCopilotHUD'
 import { fetchAnalysis, defaultAppSettings } from '../../services/api'
 import { BinanceWsClient } from '../../services/binanceWs'
 import { calculateBarCountdown, BarCountdownResult } from '../../utils/formatters'
@@ -74,11 +75,10 @@ const BarCountdownBadge: React.FC<{ timeframe: string; lastCandleTime?: number }
 
   return (
     <div
-      className={`flex items-center space-x-1 px-1.5 py-0.5 rounded border text-[9.5px] sm:text-[10px] font-mono font-bold transition-all shrink-0 select-none ${
-        countdown.isClosingSoon
+      className={`flex items-center space-x-1 px-1.5 py-0.5 rounded border text-[9.5px] sm:text-[10px] font-mono font-bold transition-all shrink-0 select-none ${countdown.isClosingSoon
           ? 'bg-rose-950/70 text-rose-300 border-rose-500/60 shadow-sm shadow-rose-950/40 animate-pulse'
           : 'bg-[#0b0e14] text-amber-300 border-[#21262d] hover:border-amber-500/40'
-      }`}
+        }`}
       title={`Waktu tersisa sebelum candle ${timeframe.toUpperCase()} ditutup (Countdown to Bar Close)`}
     >
       <Clock className={`w-2.5 h-2.5 ${countdown.isClosingSoon ? 'text-rose-400' : 'text-amber-400'}`} />
@@ -174,7 +174,7 @@ const SubTimeframeChart: React.FC<SubChartProps> = ({
               setData(res)
               setSubCandles(res.candles || [])
             })
-            .catch(() => {})
+            .catch(() => { })
         }
       }
     })
@@ -379,7 +379,7 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
       if (saved) {
         return { ...DEFAULT_PANE_TFS, ...JSON.parse(saved) }
       }
-    } catch {}
+    } catch { }
     return DEFAULT_PANE_TFS
   })
 
@@ -393,7 +393,7 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
       const next = { ...prev, [targetId]: newTf, [chartId]: newTf }
       try {
         localStorage.setItem('cp_multi_chart_tfs', JSON.stringify(next))
-      } catch {}
+      } catch { }
       return next
     })
   }
@@ -424,11 +424,10 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
       <div
         key={chartId}
         onClick={() => onSelectPane && onSelectPane(chartId === 'chart-main' ? 'chart-1' : chartId)}
-        className={`relative w-full h-full bg-[#0b0e14] border transition-all overflow-hidden flex flex-col ${
-          layout !== 'single' && isActive
+        className={`relative w-full h-full bg-[#0b0e14] border transition-all overflow-hidden flex flex-col ${layout !== 'single' && isActive
             ? 'border-amber-500/60 shadow-sm shadow-amber-950/20 ring-1 ring-amber-500/30'
             : 'border-[#21262d]'
-        }`}
+          }`}
       >
         {/* Interactive Chart Header (Dibuat Ringkes, Rapi & Kompak) */}
         <div className="h-7 sm:h-8 bg-[#161b22] px-2 flex items-center justify-between text-[10px] sm:text-[11px] font-mono border-b border-[#21262d] z-20 shrink-0 select-none whitespace-nowrap gap-1.5">
@@ -441,11 +440,10 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
                   e.stopPropagation()
                   onSelectPane && onSelectPane(chartId)
                 }}
-                className={`text-[9.5px] font-black px-1.5 py-0.5 rounded border transition-colors shrink-0 ${
-                  isActive
+                className={`text-[9.5px] font-black px-1.5 py-0.5 rounded border transition-colors shrink-0 ${isActive
                     ? 'bg-amber-500 text-black border-amber-400 shadow-sm'
                     : 'bg-[#252d3d] text-[#f0b90b] border-amber-500/30 hover:border-amber-400'
-                }`}
+                  }`}
                 title={`Fokus ke ${paneTitle}`}
               >
                 P{chartId.replace(/[^0-9]/g, '') || (chartId === 'chart-main' ? '1' : '1')}
@@ -518,11 +516,10 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
                     ? 'Sinkronisasi Kursor: AKTIF (Kursor bergerak serempak di semua chart)'
                     : 'Sinkronisasi Kursor: NONAKTIF (Kursor independen)'
                 }
-                className={`p-1 rounded border transition-all shrink-0 ${
-                  syncCrosshair
+                className={`p-1 rounded border transition-all shrink-0 ${syncCrosshair
                     ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 shadow-sm'
                     : 'bg-[#0b0e14] text-slate-500 hover:text-slate-300 border-[#21262d]'
-                }`}
+                  }`}
               >
                 <Crosshair className={`w-3.5 h-3.5 ${syncCrosshair ? 'text-cyan-400' : 'text-slate-500'}`} />
               </button>
@@ -537,11 +534,10 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
                     ? 'Sinkronisasi Setup Box: AKTIF (Semua chart mengikuti setup yang sama)'
                     : 'Sinkronisasi Setup Box: NONAKTIF (Setup independen)'
                 }
-                className={`p-1 rounded border transition-all shrink-0 ${
-                  syncSetup
+                className={`p-1 rounded border transition-all shrink-0 ${syncSetup
                     ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm'
                     : 'bg-[#0b0e14] text-slate-500 hover:text-slate-300 border-[#21262d]'
-                }`}
+                  }`}
               >
                 <Layers className={`w-3.5 h-3.5 ${syncSetup ? 'text-amber-400' : 'text-slate-500'}`} />
               </button>
@@ -644,6 +640,17 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
                   onToggleLayer(key)
                 }
               }}
+            />
+          )}
+
+          {/* In-Trade Live Tactical Copilot HUD (Auto-appears only when an active position exists on this coin) */}
+          {isPrimary && (
+            <InTradeCopilotHUD
+              symbol={symbol}
+              market={market}
+              candles={candles}
+              trendStrength={trendStrength}
+              isVisible={true}
             />
           )}
 
