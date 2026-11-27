@@ -20,6 +20,7 @@ class TelegramSettingsRequest(BaseModel):
     notify_setup_radar: Optional[bool] = True
     notify_smart_div: Optional[bool] = True
     notify_squeeze: Optional[bool] = True
+    notify_news: Optional[bool] = True
 
 class TelegramTestRequest(BaseModel):
     bot_token: Optional[str] = None

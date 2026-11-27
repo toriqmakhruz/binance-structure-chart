@@ -1,5 +1,6 @@
 import os
 import json
+import html
 import time
 import asyncio
 import logging
@@ -26,7 +27,8 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "min_confluence_score": 50.0,
     "notify_setup_radar": True,
     "notify_smart_div": True,
-    "notify_squeeze": True
+    "notify_squeeze": True,
+    "notify_news": True
 }
 
 class TelegramService:
@@ -104,6 +106,7 @@ class TelegramService:
             "notify_setup_radar": bool(self.settings.get("notify_setup_radar", True)),
             "notify_smart_div": bool(self.settings.get("notify_smart_div", True)),
             "notify_squeeze": bool(self.settings.get("notify_squeeze", True)),
+            "notify_news": bool(self.settings.get("notify_news", True)),
             "is_running": self._is_running
         }
 
@@ -137,6 +140,8 @@ class TelegramService:
             self.settings["notify_smart_div"] = bool(new_settings["notify_smart_div"])
         if "notify_squeeze" in new_settings:
             self.settings["notify_squeeze"] = bool(new_settings["notify_squeeze"])
+        if "notify_news" in new_settings:
+            self.settings["notify_news"] = bool(new_settings["notify_news"])
 
         self._save_settings()
         return self.get_public_settings()
@@ -512,6 +517,70 @@ class TelegramService:
             logger.error(f"Error scanning Squeeze Candidates for Telegram: {e}")
             return 0
 
+    def format_breaking_news_message(self, article: Dict[str, Any]) -> str:
+        """Format a HIGH-impact news item cleanly for Telegram HTML alert."""
+        sent = article.get("sentiment", "NEUTRAL")
+        sent_emoji = "🟢" if sent == "BULLISH" else ("🔴" if sent == "BEARISH" else "⚪")
+        cat = article.get("category", "CRYPTO")
+        title_safe = html.escape(str(article.get("title", "")))
+        summary_safe = html.escape(str(article.get("summary", ""))[:180])
+        source_safe = html.escape(str(article.get("source", "")))
+        url_safe = html.escape(str(article.get("url", "")))
+        coins = ", ".join(article.get("coins", [])) or "MARKET"
+
+        msg = (
+            f"📰 <b>BREAKING HIGH-IMPACT NEWS ({cat})</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"{sent_emoji} <b>Sentimen:</b> <code>{sent}</code> | <b>Koin:</b> <code>{coins}</code>\n\n"
+            f"<b>{title_safe}</b>\n"
+        )
+        if summary_safe:
+            msg += f"<i>{summary_safe}</i>\n\n"
+        msg += f"📡 <b>Sumber:</b> {source_safe}\n🔗 <a href=\"{url_safe}\">Baca Artikel Lengkap</a>"
+        return msg
+
+    async def scan_and_notify_breaking_news(self) -> int:
+        """Send Telegram notifications for newly published HIGH-impact Crypto/Macro news."""
+        if not self.settings.get("enabled") or not self.settings.get("bot_token") or not self.settings.get("chat_id"):
+            return 0
+
+        from .news_service import news_service
+
+        try:
+            hub = await news_service.get_news_hub(force_refresh=False)
+            articles = hub.get("articles", [])
+            now = time.time()
+            notified_count = 0
+
+            for art in articles:
+                if art.get("impact") != "HIGH":
+                    continue
+                pub_at = int(art.get("published_at", 0))
+                # Only alert fresh breaking news published within last 90 minutes
+                if now - pub_at > 5400:
+                    continue
+                nid = art.get("id")
+                if not nid or nid in self._notified_ids:
+                    continue
+
+                msg = self.format_breaking_news_message(art)
+                ok, _ = await self.send_message(msg)
+                if ok:
+                    self._notified_ids[nid] = now
+                    notified_count += 1
+                    logger.info(f"Telegram alert sent for Breaking News: {nid}")
+                    await asyncio.sleep(1.0)
+
+                if notified_count >= 2:
+                    break
+
+            if notified_count > 0:
+                self._save_history()
+            return notified_count
+        except Exception as e:
+            logger.error(f"Error scanning Breaking News for Telegram: {e}")
+            return 0
+
     async def start_background_scanner(self) -> None:
         """Long-running background task that periodically scans for setups."""
         self._is_running = True
@@ -533,6 +602,9 @@ class TelegramService:
                     # 3. Whale Short/Long Squeeze setups
                     if self.settings.get("notify_squeeze", True):
                         await self.scan_and_notify_squeeze_candidates()
+                    # 4. Breaking High-Impact News & Fed/Macro Releases
+                    if self.settings.get("notify_news", True):
+                        await self.scan_and_notify_breaking_news()
 
                 await asyncio.sleep(max(30, interval))
             except asyncio.CancelledError:

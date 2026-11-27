@@ -473,6 +473,7 @@ export interface TelegramSettings {
   notify_setup_radar?: boolean
   notify_smart_div?: boolean
   notify_squeeze?: boolean
+  notify_news?: boolean
 }
 
 export async function fetchTelegramSettings(): Promise<TelegramSettings | null> {
@@ -670,6 +671,35 @@ export async function fetchWhaleSentimentMatrix(
   )
   if (!resp.ok) {
     throw new Error(`Gagal memuat Whale Sentiment Matrix: HTTP ${resp.status}`)
+  }
+  return resp.json()
+}
+
+export * from '../types/news'
+
+export async function fetchNewsHub(params?: {
+  symbol?: string
+  category?: string
+  impact?: string
+  sentiment?: string
+  source?: string
+  q?: string
+  limit?: number
+  refresh?: boolean
+}): Promise<import('../types/news').NewsHubResponse> {
+  const qs = new URLSearchParams()
+  if (params?.symbol) qs.set('symbol', params.symbol)
+  if (params?.category && params.category !== 'all') qs.set('category', params.category)
+  if (params?.impact && params.impact !== 'all') qs.set('impact', params.impact)
+  if (params?.sentiment && params.sentiment !== 'all') qs.set('sentiment', params.sentiment)
+  if (params?.source && params.source !== 'all') qs.set('source', params.source)
+  if (params?.q) qs.set('q', params.q)
+  if (params?.limit) qs.set('limit', String(params.limit))
+  if (params?.refresh) qs.set('refresh', 'true')
+
+  const resp = await fetch(`${API_BASE}/news/feed?${qs.toString()}`)
+  if (!resp.ok) {
+    throw new Error(`Gagal memuat News & Sentiment Center: HTTP ${resp.status}`)
   }
   return resp.json()
 }

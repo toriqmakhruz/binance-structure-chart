@@ -10,7 +10,8 @@ import {
   HelpCircle,
   Target,
   Flame,
-  Radio
+  Radio,
+  Newspaper
 } from 'lucide-react'
 import {
   fetchTelegramSettings,
@@ -50,7 +51,8 @@ export const TelegramAlertModal: React.FC<TelegramAlertModalProps> = ({
     min_confluence_score: 50.0,
     notify_setup_radar: true,
     notify_smart_div: true,
-    notify_squeeze: true
+    notify_squeeze: true,
+    notify_news: true
   })
 
   useEffect(() => {
@@ -84,7 +86,8 @@ export const TelegramAlertModal: React.FC<TelegramAlertModalProps> = ({
         min_confluence_score: form.min_confluence_score,
         notify_setup_radar: form.notify_setup_radar ?? true,
         notify_smart_div: form.notify_smart_div ?? true,
-        notify_squeeze: form.notify_squeeze ?? true
+        notify_squeeze: form.notify_squeeze ?? true,
+        notify_news: form.notify_news ?? true
       }
       if (form.bot_token && !form.bot_token.includes('...')) {
         payload.bot_token = form.bot_token.trim()
@@ -324,6 +327,25 @@ export const TelegramAlertModal: React.FC<TelegramAlertModalProps> = ({
                   </div>
                   <p className="text-[11px] text-slate-400 leading-relaxed">
                     Kirim alert peringatan saat Funding Rate menyentuh level ekstrem (|Rate| ≥ 0.15%), indikasi kuat perangkap whale yang memicu Short Squeeze pump atau Long Squeeze dump mendadak.
+                  </p>
+                </div>
+              </label>
+
+              {/* Option 4: Breaking High-Impact News & Fed/Macro */}
+              <label className="flex items-start gap-3 p-3 rounded-xl bg-[#0d1117] border border-[#30363d] hover:border-rose-500/40 cursor-pointer transition-colors">
+                <input
+                  type="checkbox"
+                  checked={form.notify_news ?? true}
+                  onChange={(e) => setForm({ ...form, notify_news: e.target.checked })}
+                  className="mt-0.5 rounded border-slate-700 text-rose-500 focus:ring-0 focus:ring-offset-0 bg-slate-900 cursor-pointer w-4 h-4"
+                />
+                <div className="space-y-0.5">
+                  <div className="font-semibold text-white text-xs flex items-center gap-1.5">
+                    <Newspaper className="w-3.5 h-3.5 text-rose-400" />
+                    <span>Breaking High-Impact News &amp; Rilis The Fed</span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    Kirim alert otomatis saat berita kripto atau pengumuman moneter The Fed / ETF / Regulasi berstatus High-Impact terbit secara real-time.
                   </p>
                 </div>
               </label>

@@ -24,12 +24,14 @@ import {
   PanelRightOpen,
   Activity,
   BookOpen,
-  ShieldCheck
+  ShieldCheck,
+  Newspaper
 } from 'lucide-react'
 import { TradingJournalView } from '../Journal/TradingJournalView'
 import { ITIWorkspacePanel } from './ITIWorkspacePanel'
+import { NewsWorkspace } from '../News/NewsWorkspace'
 
-type RightTab = 'iti' | 'index' | 'setup' | 'positions' | 'calculator' | 'watchlist' | 'journal'
+type RightTab = 'iti' | 'news' | 'index' | 'setup' | 'positions' | 'calculator' | 'watchlist' | 'journal'
 
 interface RightSidebarProps {
   symbol: string
@@ -87,7 +89,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   const [activeTab, setActiveTab] = useState<RightTab>(() => {
     try {
       const saved = localStorage.getItem('cp_right_sidebar_tab')
-      if (saved === 'iti' || saved === 'calculator' || saved === 'watchlist' || saved === 'setup' || saved === 'index' || saved === 'positions' || saved === 'journal') {
+      if (saved === 'iti' || saved === 'news' || saved === 'calculator' || saved === 'watchlist' || saved === 'setup' || saved === 'index' || saved === 'positions' || saved === 'journal') {
         return saved
       }
       return 'iti'
@@ -180,6 +182,22 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           }`}
         >
           <ShieldCheck className="w-4 h-4 text-amber-400" />
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setActiveTab('news')
+            setIsOpen(true)
+          }}
+          title="Buka News & Market Sentiment"
+          className={`p-2 rounded-lg transition-colors ${
+            activeTab === 'news'
+              ? 'bg-[#1b2230] text-[#f0b90b] border border-[#f0b90b]/50 shadow-sm'
+              : 'text-slate-400 hover:text-[#f0b90b] hover:bg-[#1e2533]'
+          }`}
+        >
+          <Newspaper className="w-4 h-4" />
         </button>
 
         <button
@@ -299,12 +317,12 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
 
       <aside className="fixed inset-y-0 right-0 z-50 w-full sm:w-85 max-w-[85vw] md:relative md:inset-auto md:z-20 md:w-80 md:max-w-none bg-[#111620] border-l border-[#21262d] flex flex-col h-full min-h-0 shrink-0 overflow-hidden shadow-2xl md:shadow-none animate-in slide-in-from-right duration-200 md:animate-none">
       {/* Sidebar Navigation Bar + Collapse Toggle */}
-      <div className="flex items-center justify-between px-1 py-1.5 bg-[#0d1117] border-b border-[#21262d] shrink-0">
-        <div className="grid grid-cols-7 gap-0.5 flex-1 mr-1">
+      <div className="flex items-center justify-between px-1.5 py-1.5 bg-[#0d1117] border-b border-[#21262d] shrink-0">
+        <div className="grid grid-cols-4 gap-1 flex-1 mr-1">
           <button
             type="button"
             onClick={() => setActiveTab('iti')}
-            className={`relative flex items-center justify-center space-x-0.5 py-1.5 px-0.5 rounded-md text-[10px] font-bold transition-all ${
+            className={`relative flex items-center justify-center space-x-1 py-1 px-1 rounded-md text-[10px] font-bold transition-all ${
               activeTab === 'iti'
                 ? 'bg-amber-950/80 text-amber-300 border border-amber-600/70 shadow-sm'
                 : 'text-slate-400 hover:text-amber-300 hover:bg-[#151b26]'
@@ -317,8 +335,22 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
 
           <button
             type="button"
+            onClick={() => setActiveTab('news')}
+            className={`relative flex items-center justify-center space-x-1 py-1 px-1 rounded-md text-[10px] font-bold transition-all ${
+              activeTab === 'news'
+                ? 'bg-[#1b2230] text-[#f0b90b] border border-[#f0b90b]/50 shadow-sm'
+                : 'text-slate-400 hover:text-[#f0b90b] hover:bg-[#151b26]'
+            }`}
+            title="Berita Kripto & Kalender Ekonomi Makro"
+          >
+            <Newspaper className={`w-3 h-3 shrink-0 ${activeTab === 'news' ? 'text-[#f0b90b]' : ''}`} />
+            <span>News</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setActiveTab('index')}
-            className={`flex items-center justify-center space-x-0.5 py-1.5 px-0.5 rounded-md text-[10px] font-bold transition-all ${
+            className={`flex items-center justify-center space-x-1 py-1 px-1 rounded-md text-[10px] font-bold transition-all ${
               activeTab === 'index'
                 ? 'bg-[#1b2230] text-white border border-[#2f394c] shadow-sm'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-[#151b26]'
@@ -331,7 +363,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('setup')}
-            className={`relative flex items-center justify-center space-x-0.5 py-1.5 px-0.5 rounded-md text-[10px] font-bold transition-all ${
+            className={`relative flex items-center justify-center space-x-1 py-1 px-1 rounded-md text-[10px] font-bold transition-all ${
               activeTab === 'setup'
                 ? 'bg-[#1b2230] text-white border border-[#2f394c] shadow-sm'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-[#151b26]'
@@ -347,7 +379,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('positions')}
-            className={`relative flex items-center justify-center space-x-0.5 py-1.5 px-0.5 rounded-md text-[10px] font-bold transition-all ${
+            className={`relative flex items-center justify-center space-x-1 py-1 px-1 rounded-md text-[10px] font-bold transition-all ${
               activeTab === 'positions'
                 ? 'bg-[#1b2230] text-white border border-[#2f394c] shadow-sm'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-[#151b26]'
@@ -360,7 +392,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('calculator')}
-            className={`relative flex items-center justify-center space-x-0.5 py-1.5 px-0.5 rounded-md text-[10px] font-bold transition-all ${
+            className={`relative flex items-center justify-center space-x-1 py-1 px-1 rounded-md text-[10px] font-bold transition-all ${
               activeTab === 'calculator'
                 ? 'bg-[#1b2230] text-white border border-[#2f394c] shadow-sm'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-[#151b26]'
@@ -373,7 +405,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('watchlist')}
-            className={`flex items-center justify-center space-x-0.5 py-1.5 px-0.5 rounded-md text-[10px] font-bold transition-all ${
+            className={`flex items-center justify-center space-x-1 py-1 px-1 rounded-md text-[10px] font-bold transition-all ${
               activeTab === 'watchlist'
                 ? 'bg-[#1b2230] text-white border border-[#2f394c] shadow-sm'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-[#151b26]'
@@ -386,7 +418,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('journal')}
-            className={`flex items-center justify-center space-x-0.5 py-1.5 px-0.5 rounded-md text-[10px] font-bold transition-all ${
+            className={`flex items-center justify-center space-x-1 py-1 px-1 rounded-md text-[10px] font-bold transition-all ${
               activeTab === 'journal'
                 ? 'bg-[#1b2230] text-amber-300 border border-amber-600/50 shadow-sm'
                 : 'text-slate-400 hover:text-amber-300 hover:bg-[#151b26]'
@@ -425,6 +457,17 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                 name: `ITI ${plan.direction} (${plan.entry_type})`
               })
             }}
+          />
+        </div>
+      )}
+
+      {activeTab === 'news' && (
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+          <NewsWorkspace
+            mode="sidebar"
+            activeSymbol={symbol}
+            onSelectSymbol={onSelectSymbol}
+            onExpandFull={() => window.dispatchEvent(new CustomEvent('cp_open_workspace', { detail: 'news' }))}
           />
         </div>
       )}

@@ -25,7 +25,8 @@ import {
   Settings as SettingsIcon,
   Star,
   BookOpen,
-  Database
+  Database,
+  Newspaper
 } from 'lucide-react'
 import { DrawingToolType, SetupMode } from '../../types/analysis'
 import {
@@ -95,6 +96,8 @@ export interface LeftSidebarProps {
   onOpenSettings: () => void
   streamStatus?: StreamStatusType
   onOpenLiquidityMatrix?: () => void
+  activeWorkspace?: 'chart' | 'news'
+  onToggleNewsWorkspace?: () => void
 }
 
 interface LineToolItem {
@@ -182,7 +185,9 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
   onCloudSync,
   onOpenSettings,
   streamStatus = 'OFFLINE',
-  onOpenLiquidityMatrix
+  onOpenLiquidityMatrix,
+  activeWorkspace = 'chart',
+  onToggleNewsWorkspace
 }) => {
   const [activeFlyout, setActiveFlyout] = useState<ActiveFlyout>('none')
   const [selectedLineTool, setSelectedLineTool] = useState<DrawingToolType>('trendline')
@@ -923,6 +928,25 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
             <Activity className="w-4 h-4" />
             <div className="absolute left-14 top-1/2 -translate-y-1/2 bg-[#1f242c] text-white text-xs px-2.5 py-1 rounded shadow-lg border border-[#30363d] whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
               Dashboard Posisi & Trade
+            </div>
+          </button>
+        )}
+
+        {/* News & Macro Sentiment Center (Full Page Toggle) */}
+        {onToggleNewsWorkspace && (
+          <button
+            type="button"
+            title={activeWorkspace === 'news' ? 'Kembali ke Chart' : 'Buka Halaman News & Sentimen Pasar'}
+            onClick={onToggleNewsWorkspace}
+            className={`p-2 rounded-lg transition-all relative group cursor-pointer ${
+              activeWorkspace === 'news'
+                ? 'bg-[#f0b90b] text-slate-950 shadow-md font-bold'
+                : 'text-slate-400 hover:text-[#f0b90b] hover:bg-[#1a202c]'
+            }`}
+          >
+            <Newspaper className="w-4 h-4" />
+            <div className="absolute left-14 top-1/2 -translate-y-1/2 bg-[#1f242c] text-white text-xs px-2.5 py-1 rounded shadow-lg border border-[#30363d] whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
+              {activeWorkspace === 'news' ? 'Kembali ke Chart Trading' : 'Halaman News & Sentimen Pasar (Live)'}
             </div>
           </button>
         )}

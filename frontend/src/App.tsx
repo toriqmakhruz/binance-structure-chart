@@ -10,6 +10,7 @@ import { VpvrModal } from './components/Settings/VpvrModal'
 import { OrderflowModal } from './components/Settings/OrderflowModal'
 import { MarketSessionsModal } from './components/Settings/MarketSessionsModal'
 import { LiquidityMatrixModal } from './components/HUD/LiquidityMatrixModal'
+import { NewsWorkspace } from './components/News/NewsWorkspace'
 import { fetchTelegramSettings } from './services/api'
 import { OpenPositionModal, SetupTradeTarget } from './components/Trade/OpenPositionModal'
 import { TradingDashboardDrawer } from './components/Trade/TradingDashboardDrawer'
@@ -149,6 +150,19 @@ export function App() {
   const [visibility, setVisibility] = useState<LayerVisibility>(() =>
     readStoredJson<LayerVisibility>('cp_layer_visibility', DEFAULT_VISIBILITY, true)
   )
+
+  // Active Workspace: 'chart' | 'news'
+  const [activeWorkspace, setActiveWorkspace] = useState<'chart' | 'news'>('chart')
+
+  useEffect(() => {
+    const handleOpenWorkspace = (e: any) => {
+      if (e?.detail === 'news' || e?.detail === 'chart') {
+        setActiveWorkspace(e.detail)
+      }
+    }
+    window.addEventListener('cp_open_workspace', handleOpenWorkspace)
+    return () => window.removeEventListener('cp_open_workspace', handleOpenWorkspace)
+  }, [])
 
   // Active Pane ID in multi-chart layout ('chart-1', 'chart-2', 'chart-3', 'chart-4')
   const [activePaneId, setActivePaneId] = useState<string>('chart-1')
@@ -1333,64 +1347,81 @@ export function App() {
         onOpenSettings={() => setIsSettingsOpen(true)}
         streamStatus={streamStatus}
         onOpenLiquidityMatrix={() => setIsLiquidityMatrixOpen(true)}
+        activeWorkspace={activeWorkspace}
+        onToggleNewsWorkspace={() => setActiveWorkspace((prev) => (prev === 'news' ? 'chart' : 'news'))}
       />
 
-      {/* 2. Interactive Chart Workspace with Bottom Trading Dashboard */}
+      {/* 2. Interactive Chart Workspace / Full-Page News Center with Bottom Trading Dashboard */}
       <main className="flex-1 h-full min-h-0 relative overflow-hidden bg-[#0b0e14] flex flex-col">
         <div className="flex-1 w-full h-full min-h-0 relative overflow-hidden">
-          <ErrorBoundary fallbackTitle="Chart Workspace Terkendala">
-            <ChartContainer
-              symbol={symbol}
-              onSymbolClick={() => setIsSymbolModalOpen(true)}
-              timeframe={timeframe}
-              market={market}
-              settings={settings}
-              layout={layout}
-              syncCrosshair={syncCrosshair}
-              onToggleSyncCrosshair={() => setSyncCrosshair((prev) => !prev)}
-              syncSetup={syncSetup}
-              onToggleSyncSetup={() => setSyncSetup((prev) => !prev)}
-              candles={candles}
-              smc={analysis?.smc}
-              patterns={analysis?.patterns}
-              forecast={
-                (analysis?.symbol?.toUpperCase() === symbol.toUpperCase() || Boolean(currentLockedSetup) || Boolean(selectedRadarSetup))
-                  ? effectiveForecast
-                  : undefined
-              }
-              htfOverlay={analysis?.htf_overlay}
-              visibility={visibility}
-              paneVisibility={paneVisibility}
-              autoFibSettings={autoFibSettings}
-              onOpenAutoFibSettings={() => setIsAutoFibModalOpen(true)}
-              vpvrSettings={vpvrSettings}
-              onOpenVpvrSettings={() => setIsVpvrModalOpen(true)}
-              orderflowSettings={orderflowSettings}
-              onOpenOrderflowSettings={(tab) => {
-                setOrderflowModalTab(tab)
-                setIsOrderflowModalOpen(true)
-              }}
-              marketSessionSettings={marketSessionSettings}
-              onOpenMarketSessionSettings={() => setIsMarketSessionsModalOpen(true)}
-              trendStrength={analysis?.trend_strength}
-              onTogglePaneLayer={handleTogglePaneLayer}
-              onSetAllPaneLayers={handleSetAllPaneLayers}
-              activePaneId={activePaneId}
-              onSelectPane={setActivePaneId}
-              activeTool={activeTool}
-              onSelectTool={setActiveTool}
-              drawings={currentDrawings}
-              onAddDrawing={handleAddDrawing}
-              onUpdateDrawing={handleUpdateDrawing}
-              onUndoDrawing={handleUndoDrawing}
-              onRemoveDrawing={handleRemoveDrawing}
-              openInterest={analysis?.open_interest}
-              fundingRate={analysis?.funding_rate}
-              onToggleLayer={handleToggleLayer}
-              onTimeframeChange={handleTimeframeChange}
-              onOpenLiquidityMatrix={() => setIsLiquidityMatrixOpen(true)}
-            />
-          </ErrorBoundary>
+          <div className={activeWorkspace === 'news' ? 'hidden' : 'w-full h-full'}>
+            <ErrorBoundary fallbackTitle="Chart Workspace Terkendala">
+              <ChartContainer
+                symbol={symbol}
+                onSymbolClick={() => setIsSymbolModalOpen(true)}
+                timeframe={timeframe}
+                market={market}
+                settings={settings}
+                layout={layout}
+                syncCrosshair={syncCrosshair}
+                onToggleSyncCrosshair={() => setSyncCrosshair((prev) => !prev)}
+                syncSetup={syncSetup}
+                onToggleSyncSetup={() => setSyncSetup((prev) => !prev)}
+                candles={candles}
+                smc={analysis?.smc}
+                patterns={analysis?.patterns}
+                forecast={
+                  (analysis?.symbol?.toUpperCase() === symbol.toUpperCase() || Boolean(currentLockedSetup) || Boolean(selectedRadarSetup))
+                    ? effectiveForecast
+                    : undefined
+                }
+                htfOverlay={analysis?.htf_overlay}
+                visibility={visibility}
+                paneVisibility={paneVisibility}
+                autoFibSettings={autoFibSettings}
+                onOpenAutoFibSettings={() => setIsAutoFibModalOpen(true)}
+                vpvrSettings={vpvrSettings}
+                onOpenVpvrSettings={() => setIsVpvrModalOpen(true)}
+                orderflowSettings={orderflowSettings}
+                onOpenOrderflowSettings={(tab) => {
+                  setOrderflowModalTab(tab)
+                  setIsOrderflowModalOpen(true)
+                }}
+                marketSessionSettings={marketSessionSettings}
+                onOpenMarketSessionSettings={() => setIsMarketSessionsModalOpen(true)}
+                trendStrength={analysis?.trend_strength}
+                onTogglePaneLayer={handleTogglePaneLayer}
+                onSetAllPaneLayers={handleSetAllPaneLayers}
+                activePaneId={activePaneId}
+                onSelectPane={setActivePaneId}
+                activeTool={activeTool}
+                onSelectTool={setActiveTool}
+                drawings={currentDrawings}
+                onAddDrawing={handleAddDrawing}
+                onUpdateDrawing={handleUpdateDrawing}
+                onUndoDrawing={handleUndoDrawing}
+                onRemoveDrawing={handleRemoveDrawing}
+                openInterest={analysis?.open_interest}
+                fundingRate={analysis?.funding_rate}
+                onToggleLayer={handleToggleLayer}
+                onTimeframeChange={handleTimeframeChange}
+                onOpenLiquidityMatrix={() => setIsLiquidityMatrixOpen(true)}
+              />
+            </ErrorBoundary>
+          </div>
+          {activeWorkspace === 'news' && (
+            <ErrorBoundary fallbackTitle="News & Market Sentiment Terkendala">
+              <NewsWorkspace
+                mode="full"
+                activeSymbol={symbol}
+                onSelectSymbol={(sym) => {
+                  handleSelectSymbol(sym)
+                  setActiveWorkspace('chart')
+                }}
+                onBackToChart={() => setActiveWorkspace('chart')}
+              />
+            </ErrorBoundary>
+          )}
         </div>
 
           {/* Bottom Dock: Trading Dashboard Drawer (Monitor Posisi Terbuka & Order Limit) */}
